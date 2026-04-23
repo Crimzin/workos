@@ -1,0 +1,219 @@
+@import "tailwindcss";
+
+/* =============================================================================
+   Design tokens — light mode (default)
+   ============================================================================= */
+:root {
+  --bg-primary: #FAFAF8;
+  --bg-secondary: #F2F1EE;
+  --bg-card: #FFFFFF;
+  --bg-hover: #EEEDEA;
+  --bg-selected: #E8E6E1;
+
+  --text-primary: #1C1C1A;
+  --text-secondary: #6B6966;
+  --text-tertiary: #9C9A96;
+
+  --accent: #E85D3A;
+  --accent-hover: #D14E2D;
+  --accent-subtle: #FDF0EC;
+
+  --status-none: #9C9A96;
+  --status-active: #4A90D9;
+  --status-review: #E8A838;
+  --status-done: #5CB85C;
+  --status-blocked: #D9534F;
+
+  --badge-1: #E8D5B7;
+  --badge-2: #B8D4E3;
+  --badge-3: #D4C5E8;
+  --badge-4: #C5E8D4;
+  --badge-5: #E8C5C5;
+  --badge-6: #E8E0C5;
+
+  --border: #E2E0DC;
+  --border-strong: #D0CEC9;
+
+  --agent-accent: #8B6CEF;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* Dark mode via OS preference (only when user has not chosen explicitly) */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bg-primary: #151517;
+    --bg-secondary: #1C1C1F;
+    --bg-card: #222225;
+    --bg-hover: #2A2A2E;
+    --bg-selected: #32323A;
+
+    --text-primary: #E8E6E1;
+    --text-secondary: #9C9A96;
+    --text-tertiary: #6B6966;
+
+    --accent: #F07052;
+    --accent-hover: #E85D3A;
+    --accent-subtle: #2A1F1C;
+
+    --status-none: #6B6966;
+    --status-active: #5A9DE0;
+    --status-review: #F0B84A;
+    --status-done: #6BC96B;
+    --status-blocked: #E06060;
+
+    --badge-1: #3D3528;
+    --badge-2: #283540;
+    --badge-3: #352840;
+    --badge-4: #283D28;
+    --badge-5: #3D2828;
+    --badge-6: #3D3828;
+
+    --border: #2E2E32;
+    --border-strong: #3A3A40;
+
+    --agent-accent: #9B80F0;
+  }
+}
+
+/* Dark mode via explicit user choice */
+:root.dark {
+  --bg-primary: #151517;
+  --bg-secondary: #1C1C1F;
+  --bg-card: #222225;
+  --bg-hover: #2A2A2E;
+  --bg-selected: #32323A;
+
+  --text-primary: #E8E6E1;
+  --text-secondary: #9C9A96;
+  --text-tertiary: #6B6966;
+
+  --accent: #F07052;
+  --accent-hover: #E85D3A;
+  --accent-subtle: #2A1F1C;
+
+  --status-none: #6B6966;
+  --status-active: #5A9DE0;
+  --status-review: #F0B84A;
+  --status-done: #6BC96B;
+  --status-blocked: #E06060;
+
+  --badge-1: #3D3528;
+  --badge-2: #283540;
+  --badge-3: #352840;
+  --badge-4: #283D28;
+  --badge-5: #3D2828;
+  --badge-6: #3D3828;
+
+  --border: #2E2E32;
+  --border-strong: #3A3A40;
+
+  --agent-accent: #9B80F0;
+}
+
+/* =============================================================================
+   Map tokens to Tailwind so classes like bg-bg-primary, text-text-primary,
+   border-border, etc. resolve against the CSS variables above.
+   ============================================================================= */
+@theme inline {
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-card: var(--bg-card);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-selected: var(--bg-selected);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+
+  --color-status-none: var(--status-none);
+  --color-status-active: var(--status-active);
+  --color-status-review: var(--status-review);
+  --color-status-done: var(--status-done);
+  --color-status-blocked: var(--status-blocked);
+
+  --color-badge-1: var(--badge-1);
+  --color-badge-2: var(--badge-2);
+  --color-badge-3: var(--badge-3);
+  --color-badge-4: var(--badge-4);
+  --color-badge-5: var(--badge-5);
+  --color-badge-6: var(--badge-6);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-agent-accent: var(--agent-accent);
+
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains-mono);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* =============================================================================
+   Base
+   ============================================================================= */
+html,
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+body {
+  font-family: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* =============================================================================
+   Utility classes
+   ============================================================================= */
+
+/* Purple ring for agent (AI actor) avatars */
+.avatar-agent-ring {
+  box-shadow: 0 0 0 2px var(--agent-accent);
+}
+
+/* Badge pill — combine with .badge-1 … .badge-6 for color */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  color: var(--text-primary);
+}
+.badge-1 { background: var(--badge-1); }
+.badge-2 { background: var(--badge-2); }
+.badge-3 { background: var(--badge-3); }
+.badge-4 { background: var(--badge-4); }
+.badge-5 { background: var(--badge-5); }
+.badge-6 { background: var(--badge-6); }
+
+/* Section label — small uppercase label above a group */
+.section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}

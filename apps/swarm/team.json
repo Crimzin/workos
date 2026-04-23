@@ -1,0 +1,73 @@
+{
+  "project": {
+    "name": "BURN",
+    "description": "Social fitness game — Mario Kart meets Strava. Compete with friends in week-long races where workouts earn points and items add strategy.",
+    "stage": "private beta on TestFlight",
+    "current_milestone": "Get 20 external testers playing a full game on TestFlight",
+    "next_milestone": "Public TestFlight launch via joinburn.com",
+    "pace": "side project — everyone has day jobs or other commitments",
+    "cadence": "Weekly syncs (frequently skipped lately), async via Discord is the default",
+    "tech_stack": "iOS (Swift), backend API, Supabase, TestFlight for distribution"
+  },
+  "team": [
+    {
+      "name": "Will",
+      "discord_name": "crimzin",
+      "role": "CPO / COO cofounder. Product strategy, QA, operations.",
+      "hours_per_week": 5,
+      "notes": "Has been less available for syncs recently. Primary QA tester."
+    },
+    {
+      "name": "Chris",
+      "discord_name": "goatherder",
+      "role": "CEO cofounder. GTM, growth, partnerships.",
+      "hours_per_week": 3,
+      "notes": "Less active in recent months. Key for growth strategy and user acquisition."
+    },
+    {
+      "name": "Marek",
+      "discord_name": "marek",
+      "role": "Cofounder and Head of Design. Figma only — does NOT write code. Ziga implements his designs.",
+      "hours_per_week": 5,
+      "notes": "Also handles App Store Connect, TestFlight setup, and Lovable website."
+    },
+    {
+      "name": "Ziga",
+      "discord_name": "Ziga",
+      "role": "Front end engineer and technical architect. iOS/Swift. Implements all client-side features and designs.",
+      "hours_per_week": 10,
+      "notes": "Most active contributor. Ships builds regularly to TestFlight."
+    },
+    {
+      "name": "Oleksii",
+      "discord_name": "Oleksii_Provorov",
+      "role": "Back end engineer. API, database, infrastructure.",
+      "hours_per_week": 8,
+      "notes": "Newer to the team. Handles backend API, Firebase, push notifications."
+    },
+    {
+      "name": "Alex",
+      "discord_name": "alexblokh",
+      "role": "Runs the dev agency Oleksii works at. Did initial backend build. Mostly advisory now.",
+      "hours_per_week": 1,
+      "notes": "Don't assign significant work — coordinates with Oleksii."
+    }
+  ],
+  "constraints": [
+    "No one is full time on this — scope plans to ~5-10 hours per person per week",
+    "Marek designs in Figma only — Ziga implements all front end code",
+    "Backend deployment to Railway is not yet set up (still local/TestFlight only)",
+    "The web3/NFT angle from the original pitch has been dropped",
+    "Meeting cadence is unreliable — plans must work async",
+    "The kanban board is stale and not being maintained"
+  ],
+  "recently_shipped": [
+    "New backend API integrated (Jan 2026)",
+    "UI redesign with 8-bit aesthetic (Jan 2026)",
+    "Sync workouts screen (Jan 2026)",
+    "Game Info sheet with drag-up interaction (Feb 2026)",
+    "Player Info sheet with activity view (Feb 2026)",
+    "Lovable landing page at joinburn.com with domain connected (Feb 2026)",
+    "Public TestFlight link created (Feb 2026)"
+  ]
+}
