@@ -628,8 +628,8 @@ Data fields are **global to the instance.** A field created anywhere is availabl
 
 **Field types:**
 
-- **Single-select:** One value from a predefined list. Each value has name \+ color.  
-- **Multi-select:** One or more values from a predefined list. Each value has name \+ color.  
+- **Single-select:** One value from a predefined list. Each option has a name; the **field** has one badge color shared by all its options.  
+- **Multi-select:** One or more values from a predefined list. Same color model — one badge color per field, shared across all options.  
 - **Text:** Free text.  
 - **Date:** Calendar date.
 
