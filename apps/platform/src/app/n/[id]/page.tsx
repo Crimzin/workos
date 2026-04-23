@@ -5,6 +5,7 @@ import { getNode, getChildren } from "@/lib/nodes";
 import { getWorkspaceBoard } from "@/lib/board";
 import { Board } from "@/components/board/board";
 import { DetailPanel } from "@/components/detail-panel";
+import { ResizablePanelGroup } from "@/components/resizable-panel-group";
 
 export default async function NodePage({
   params,
@@ -24,26 +25,21 @@ export default async function NodePage({
     return (
       <div className="flex h-full flex-col">
         <WorkspaceHeader title={node.title} description={node.description} />
-        <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1">
-            <Board data={board} />
-          </div>
-          {detailId && (
-            <Suspense key={detailId} fallback={<DetailPanelSkeleton />}>
-              <DetailPanel
-                nodeId={detailId}
-                workspaceId={id}
-                closeHref={`/n/${id}`}
-              />
-            </Suspense>
-          )}
-        </div>
+        <ResizablePanelGroup
+          board={<Board data={board} />}
+          detail={
+            detailId ? (
+              <Suspense key={detailId} fallback={<DetailPanelSkeleton />}>
+                <DetailPanel nodeId={detailId} workspaceId={id} closeHref={`/n/${id}`} />
+              </Suspense>
+            ) : null
+          }
+        />
       </div>
     );
   }
 
-  // Non-workspace nodes: keep the simple children list for now; a richer
-  // Detail panel lands in 1.5.
+  // Non-workspace nodes: simple children list.
   const children = await getChildren(id);
   return (
     <main className="mx-auto max-w-3xl w-full px-8 py-10">
@@ -54,10 +50,7 @@ export default async function NodePage({
         {node.parent_id && (
           <>
             {" / "}
-            <Link
-              href={`/n/${node.parent_id}`}
-              className="transition-colors hover:text-text-primary"
-            >
+            <Link href={`/n/${node.parent_id}`} className="transition-colors hover:text-text-primary">
               Parent
             </Link>
           </>
@@ -78,9 +71,7 @@ export default async function NodePage({
         <h2 className="section-label">Children</h2>
         <ul className="mt-3 divide-y divide-border rounded-md border border-border bg-bg-card">
           {children.length === 0 && (
-            <li className="px-4 py-6 text-sm text-text-secondary">
-              No children yet.
-            </li>
+            <li className="px-4 py-6 text-sm text-text-secondary">No children yet.</li>
           )}
           {children.map((c) => (
             <li key={c.id}>
@@ -89,13 +80,9 @@ export default async function NodePage({
                 className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-bg-hover"
               >
                 <div>
-                  <div className="text-sm font-medium text-text-primary">
-                    {c.title}
-                  </div>
+                  <div className="text-sm font-medium text-text-primary">{c.title}</div>
                   {c.description && (
-                    <div className="text-xs text-text-secondary">
-                      {c.description}
-                    </div>
+                    <div className="text-xs text-text-secondary">{c.description}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-text-tertiary">
@@ -112,7 +99,7 @@ export default async function NodePage({
 
 function DetailPanelSkeleton() {
   return (
-    <aside className="flex h-full w-[420px] shrink-0 flex-col border-l border-border bg-bg-primary">
+    <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
       <div className="shrink-0 border-b border-border px-4 py-3">
         <div className="h-3 w-16 animate-pulse rounded bg-bg-hover" />
       </div>
@@ -124,13 +111,7 @@ function DetailPanelSkeleton() {
   );
 }
 
-function WorkspaceHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description: string | null;
-}) {
+function WorkspaceHeader({ title, description }: { title: string; description: string | null }) {
   return (
     <div className="shrink-0 border-b border-border px-6 py-4">
       <div className="flex items-start justify-between gap-4">
@@ -139,9 +120,7 @@ function WorkspaceHeader({
           <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-text-primary">
             {title}
           </h1>
-          {description && (
-            <p className="mt-1 text-sm text-text-secondary">{description}</p>
-          )}
+          {description && <p className="mt-1 text-sm text-text-secondary">{description}</p>}
         </div>
       </div>
     </div>

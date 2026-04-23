@@ -20,7 +20,7 @@ export async function DetailPanel({
   const detail = await getNodeDetail(nodeId);
 
   return (
-    <aside className="flex h-full w-[420px] shrink-0 flex-col border-l border-border bg-bg-primary">
+    <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <div className="section-label">{detail?.node.type ?? "Detail"}</div>
         <Link

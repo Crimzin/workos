@@ -1,4 +1,6 @@
 import { unstable_cache } from "next/cache";
+
+export const UNASSIGNED_COL_ID = "__unassigned__";
 import { supabase } from "./supabase";
 import { cacheTags } from "./cache";
 import type { WorkNode } from "./types";
