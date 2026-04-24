@@ -70,7 +70,7 @@ export function ViewTabs({
     startTransition(async () => {
       const newView = await createView(workspaceId, "New View", currentColumnFieldId, currentFilters, currentStackFilters, currentHiddenStackIds, currentCollapsedColumnIds);
       router.refresh();
-      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId, filters: currentFilters, stack_filters: currentStackFilters, hidden_stack_ids: currentHiddenStackIds, collapsed_column_ids: currentCollapsedColumnIds });
+      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId, filters: currentFilters, stack_filters: currentStackFilters, hidden_stack_ids: currentHiddenStackIds, collapsed_column_ids: currentCollapsedColumnIds, stack_column_fields: {} });
       setRenamingId(newView.id);
       setRenameValue("New View");
     });

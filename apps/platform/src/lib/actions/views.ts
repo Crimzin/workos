@@ -119,6 +119,31 @@ export async function updateViewFilters(
   revalidateWorkspaceViews(workspaceId);
 }
 
+export async function updateViewStackColumnField(
+  viewId: string,
+  workspaceId: string,
+  stackId: string,
+  fieldId: string | null
+): Promise<void> {
+  const { data: view } = await supabase
+    .from("workspace_views")
+    .select("stack_column_fields")
+    .eq("id", viewId)
+    .single();
+  const current = { ...((view?.stack_column_fields ?? {}) as Record<string, string | null>) };
+  if (fieldId === null) {
+    delete current[stackId];
+  } else {
+    current[stackId] = fieldId;
+  }
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ stack_column_fields: current, updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+}
+
 export async function deleteView(viewId: string, workspaceId: string): Promise<void> {
   const { error } = await supabase
     .from("workspace_views")

@@ -20,6 +20,7 @@ interface StackRowProps {
   stack: BoardStack;
   workspaceId: string;
   columnField: BoardField | null;
+  columnFieldId: string | null;
   fields: BoardField[];
   activeDetailId: string | null;
   stackIndex: number;
@@ -27,9 +28,10 @@ interface StackRowProps {
   actors: Record<string, BoardActor>;
   collapsedColumnIds: string[];
   onToggleColumnCollapse: (colId: string) => void;
+  onColumnFieldChange: (fieldId: string | null) => void;
 }
 
-export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId, stackIndex, totalStacks, actors, collapsedColumnIds, onToggleColumnCollapse }: StackRowProps) {
+export function StackRow({ stack, workspaceId, columnField, columnFieldId, fields, activeDetailId, stackIndex, totalStacks, actors, collapsedColumnIds, onToggleColumnCollapse, onColumnFieldChange }: StackRowProps) {
   const router = useRouter();
   const isActive = activeDetailId === stack.id;
 
@@ -91,6 +93,8 @@ export function StackRow({ stack, workspaceId, columnField, fields, activeDetail
           stackIndex={stackIndex}
           totalStacks={totalStacks}
           actors={actors}
+          columnFieldId={columnFieldId}
+          onColumnFieldChange={onColumnFieldChange}
         />
         <div className="flex flex-1 min-w-0">
           {columns.map((col) => {
@@ -311,6 +315,8 @@ function StackHeader({
   stackIndex,
   totalStacks,
   actors,
+  columnFieldId,
+  onColumnFieldChange,
 }: {
   stack: BoardStack;
   workspaceId: string;
@@ -321,6 +327,8 @@ function StackHeader({
   stackIndex: number;
   totalStacks: number;
   actors: Record<string, BoardActor>;
+  columnFieldId: string | null;
+  onColumnFieldChange: (fieldId: string | null) => void;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -490,6 +498,35 @@ function StackHeader({
                 >
                   Move down
                 </button>
+                {fields.length > 0 && (
+                  <>
+                    <div className="my-1 h-px bg-border" />
+                    <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Columns</div>
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); onColumnFieldChange(null); }}
+                      className={[
+                        "block w-full px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover",
+                        columnFieldId === null ? "font-medium text-text-primary" : "text-text-secondary hover:text-text-primary",
+                      ].join(" ")}
+                    >
+                      None
+                    </button>
+                    {fields.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => { setMenuOpen(false); onColumnFieldChange(f.id); }}
+                        className={[
+                          "block w-full px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover",
+                          f.id === columnFieldId ? "font-medium text-text-primary" : "text-text-secondary hover:text-text-primary",
+                        ].join(" ")}
+                      >
+                        {f.name}
+                      </button>
+                    ))}
+                  </>
+                )}
                 <div className="my-1 h-px bg-border" />
                 <button
                   type="button"

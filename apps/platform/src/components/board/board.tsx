@@ -25,7 +25,7 @@ import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
-import { updateViewColumnField, updateViewFilters, updateViewStackFilters, updateViewCollapsedColumns } from "@/lib/actions/views";
+import { updateViewColumnField, updateViewFilters, updateViewStackFilters, updateViewCollapsedColumns, updateViewStackColumnField } from "@/lib/actions/views";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
@@ -54,6 +54,7 @@ export function Board({ data, views }: BoardProps) {
   const [stackFilters, setStackFilters] = useState<ViewFilter[]>(activeView?.stack_filters ?? []);
   const [hiddenStackIds, setHiddenStackIds] = useState<string[]>(activeView?.hidden_stack_ids ?? []);
   const [collapsedColumnIds, setCollapsedColumnIds] = useState<string[]>(activeView?.collapsed_column_ids ?? []);
+  const [stackColumnFields, setStackColumnFields] = useState<Record<string, string | null>>(activeView?.stack_column_fields ?? {});
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [localStacks, setLocalStacks] = useState<BoardStack[]>(data.stacks);
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
@@ -81,6 +82,15 @@ export function Board({ data, views }: BoardProps) {
     setStackFilters(view.stack_filters ?? []);
     setHiddenStackIds(view.hidden_stack_ids ?? []);
     setCollapsedColumnIds(view.collapsed_column_ids ?? []);
+    setStackColumnFields(view.stack_column_fields ?? {});
+  };
+
+  const handleStackColumnFieldChange = (stackId: string, fieldId: string | null) => {
+    const next = { ...stackColumnFields };
+    if (fieldId === null) delete next[stackId];
+    else next[stackId] = fieldId;
+    setStackColumnFields(next);
+    if (activeView) updateViewStackColumnField(activeView.id, workspaceId, stackId, fieldId);
   };
 
   const handleToggleColumnCollapse = (colId: string) => {
@@ -267,6 +277,7 @@ export function Board({ data, views }: BoardProps) {
               setStackFilters(v.stack_filters ?? []);
               setHiddenStackIds(v.hidden_stack_ids ?? []);
               setCollapsedColumnIds(v.collapsed_column_ids ?? []);
+              setStackColumnFields(v.stack_column_fields ?? {});
             }}
             currentColumnFieldId={columnFieldId}
             currentFilters={filters}
@@ -324,21 +335,29 @@ export function Board({ data, views }: BoardProps) {
                 items={localStacks.map((s) => s.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {filteredStacks.map((stack, i) => (
-                  <StackRow
-                    key={stack.id}
-                    stack={stack}
-                    workspaceId={workspaceId}
-                    columnField={columnField}
-                    fields={data.fields}
-                    activeDetailId={activeDetailId}
-                    stackIndex={i}
-                    totalStacks={localStacks.length}
-                    actors={data.actors}
-                    collapsedColumnIds={collapsedColumnIds}
-                    onToggleColumnCollapse={handleToggleColumnCollapse}
-                  />
-                ))}
+                {filteredStacks.map((stack, i) => {
+                  const overrideFieldId = stackColumnFields[stack.id];
+                  const effectiveColumnField = overrideFieldId !== undefined
+                    ? (data.fields.find((f) => f.id === overrideFieldId) ?? null)
+                    : columnField;
+                  return (
+                    <StackRow
+                      key={stack.id}
+                      stack={stack}
+                      workspaceId={workspaceId}
+                      columnField={effectiveColumnField}
+                      columnFieldId={overrideFieldId !== undefined ? overrideFieldId : columnFieldId}
+                      fields={data.fields}
+                      activeDetailId={activeDetailId}
+                      stackIndex={i}
+                      totalStacks={localStacks.length}
+                      actors={data.actors}
+                      collapsedColumnIds={collapsedColumnIds}
+                      onToggleColumnCollapse={handleToggleColumnCollapse}
+                      onColumnFieldChange={(fieldId) => handleStackColumnFieldChange(stack.id, fieldId)}
+                    />
+                  );
+                })}
               </SortableContext>
             )}
           </div>
