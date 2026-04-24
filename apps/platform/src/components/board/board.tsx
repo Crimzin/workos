@@ -23,12 +23,15 @@ import {
 } from "@dnd-kit/sortable";
 import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
+import type { WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
+import { updateViewColumnField } from "@/lib/actions/views";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
 import { StackRow } from "./stack-row";
 import { CardTileOverlay } from "./card-tile";
+import { ViewTabs } from "./view-tabs";
 
 type ActiveCard = { type: "card"; card: BoardCard };
 type ActiveStack = { type: "stack"; stack: BoardStack };
@@ -36,10 +39,16 @@ type ActiveItem = ActiveCard | ActiveStack | null;
 
 interface BoardProps {
   data: BoardData;
+  views: WorkspaceView[];
 }
 
-export function Board({ data }: BoardProps) {
-  const [columnFieldId, setColumnFieldId] = useState<string | null>(data.defaultColumnFieldId);
+export function Board({ data, views }: BoardProps) {
+  const starredView = views.find((v) => v.starred) ?? views[0] ?? null;
+  const [activeView, setActiveView] = useState<WorkspaceView | null>(starredView);
+  const [localViews, setLocalViews] = useState<WorkspaceView[]>(views);
+
+  const initialColumnFieldId = activeView?.column_field_id ?? data.defaultColumnFieldId;
+  const [columnFieldId, setColumnFieldId] = useState<string | null>(initialColumnFieldId);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [localStacks, setLocalStacks] = useState<BoardStack[]>(data.stacks);
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
@@ -50,9 +59,20 @@ export function Board({ data }: BoardProps) {
   const workspaceId = data.workspace.id;
 
   // Sync local state when server data refreshes.
-  useEffect(() => {
-    setLocalStacks(data.stacks);
-  }, [data.stacks]);
+  useEffect(() => { setLocalStacks(data.stacks); }, [data.stacks]);
+  useEffect(() => { setLocalViews(views); }, [views]);
+
+  const handleColumnFieldChange = (fieldId: string | null) => {
+    setColumnFieldId(fieldId);
+    if (activeView) {
+      updateViewColumnField(activeView.id, workspaceId, fieldId);
+    }
+  };
+
+  const handleViewSwitch = (view: WorkspaceView) => {
+    setActiveView(view);
+    setColumnFieldId(view.column_field_id ?? data.defaultColumnFieldId);
+  };
 
   const columnField = useMemo(
     () => data.fields.find((f) => f.id === columnFieldId) ?? null,
@@ -172,6 +192,22 @@ export function Board({ data }: BoardProps) {
       onDragCancel={handleDragCancel}
     >
       <div className="flex h-full flex-col">
+        {/* View tabs */}
+        {localViews.length > 0 && activeView && (
+          <ViewTabs
+            views={localViews}
+            activeViewId={activeView.id}
+            workspaceId={workspaceId}
+            onSwitch={handleViewSwitch}
+            onViewCreated={(v) => {
+              setLocalViews((prev) => [...prev, v]);
+              setActiveView(v);
+              setColumnFieldId(v.column_field_id ?? data.defaultColumnFieldId);
+            }}
+            currentColumnFieldId={columnFieldId}
+          />
+        )}
+
         {/* Toolbar */}
         <div className="shrink-0 border-b border-border bg-bg-secondary/60 backdrop-blur-sm">
           <div className="flex items-center gap-3 px-6 py-3">
@@ -180,7 +216,7 @@ export function Board({ data }: BoardProps) {
               <ColumnFieldMenu
                 fields={data.fields}
                 currentId={columnFieldId}
-                onSelect={setColumnFieldId}
+                onSelect={handleColumnFieldChange}
                 onAddField={() => setFieldDialogOpen(true)}
               />
             </div>
