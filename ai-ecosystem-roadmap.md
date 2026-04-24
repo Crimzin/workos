@@ -134,7 +134,7 @@ Finishes the 1.5 deferred polish and extends the panel to stacks.
 - [x] Starred view is the workspace default (loaded on open); switching tabs loads that view's column_field_id; column field changes auto-save back to the active view ✅ Complete
 - [x] Toolbar: Filter (with active-count badge) — field/option picker popover; filters AND across fields, OR within a field; auto-saved to active view; new views clone current filters ✅ Complete
 - [ ] **Per-stack column-field override** — each stack can use a different column field within a view
-- [ ] **Column header collapse/expand** — hide individual columns within a view
+- [x] **Column header collapse/expand** — collapse button on header hover; collapsed columns render as 32px vertical strip with rotated name + count; click to re-expand; state persists per view ✅ Complete
 - [ ] **Per-workspace panel layout persistence** — remember which panels are open and at what sizes
 - [x] **Member/agent avatars on stack headers and cards** — show owner avatar on board face; `BoardAvatar` component (initials circle, purple ring for agents); actors fetched by instance_id in `board.ts` and threaded through board → stack header + card tile ✅ Complete
 
