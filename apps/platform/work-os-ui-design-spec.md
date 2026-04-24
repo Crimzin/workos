@@ -11,6 +11,21 @@
 
 Work OS is a coordination layer for teams of humans and AI. The design should feel like a calm, intelligent workspace — information-dense but breathable. Professional but warm. Think: a well-organized desk in a bright room with good lighting. Typography-driven hierarchy. Subtle, deliberate details.
 
+### Inline Editing Everywhere
+
+**Everything editable should be editable in place.** If a piece of content can be changed, the user should be able to change it directly where it appears — without navigating to a separate settings screen or dialog. This is a core interaction principle for Work OS.
+
+The interaction pattern depends on the target size and context:
+
+| Target | Pattern | Examples |
+|--------|---------|---------|
+| Standalone text (title, name) | Hover reveals pencil icon; click pencil to edit | Card title, stack title, view tab name, column header option name |
+| Dense or small text (badges, labels) | Hover reveals pencil icon; click pencil to edit | Field option badges on cards/stacks, column header labels |
+| Table cells / form fields | Click to select, double-click to edit | Detail panel field values |
+| Dropdown values | Click to open inline picker | Field value badges on board face, column field selector |
+
+**Never force a round-trip to a dialog just to rename something.** Dialogs are reserved for creation flows or multi-property edits (e.g., the field edit dialog that changes name + color + options together).
+
 ### Aesthetic Direction
 
 Warm industrial minimalism. Clean lines, generous but not wasteful whitespace, warm neutral tones, subtle texture. The UI should feel intentional and opinionated without being loud.
@@ -500,7 +515,8 @@ Columns are generated from the values of a **list-type data field** (single-sele
 
 - Column name (the field value), uppercase, \--text-sm, semibold  
 - Card count in a subtle circle badge  
-- Click to collapse/expand
+- Click to collapse/expand  
+- Hover reveals pencil icon; clicking it opens an inline rename input for that field option name
 
 ### Stack Headers (Row Headers)
 
