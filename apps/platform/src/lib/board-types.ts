@@ -30,10 +30,18 @@ export interface BoardStack {
   id: string;
   title: string;
   description: string | null;
+  owner_id: string | null;
   position: number;
   cards: BoardCard[];
   /** fieldId -> list of selected optionIds */
   field_values: Record<string, string[]>;
+}
+
+export interface BoardActor {
+  id: string;
+  name: string;
+  kind: "human" | "agent";
+  avatar_url: string | null;
 }
 
 export interface BoardData {
@@ -41,4 +49,5 @@ export interface BoardData {
   stacks: BoardStack[];
   fields: BoardField[];
   defaultColumnFieldId: string | null;
+  actors: Record<string, BoardActor>;
 }

@@ -1,10 +1,10 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "./supabase";
 import { cacheTags } from "./cache";
-import type { BoardData } from "./board-types";
+import type { BoardActor, BoardData } from "./board-types";
 
 export { UNASSIGNED_COL_ID } from "./board-types";
-export type { BoardOption, BoardField, BoardCard, BoardStack, BoardData } from "./board-types";
+export type { BoardOption, BoardField, BoardCard, BoardStack, BoardData, BoardActor } from "./board-types";
 
 /**
  * Fetch the full board payload in one round trip via the
@@ -45,6 +45,20 @@ export async function getWorkspaceBoard(
         }));
       } else {
         board.stacks = board.stacks.map((s) => ({ ...s, field_values: {} }));
+      }
+
+      // Fetch actors for avatar rendering.
+      const instanceId = (board.workspace as { instance_id?: string }).instance_id;
+      if (instanceId) {
+        const { data: actorRows } = await supabase
+          .from("actors")
+          .select("id, name, kind, avatar_url")
+          .eq("instance_id", instanceId);
+        const actors: Record<string, BoardActor> = {};
+        for (const a of actorRows ?? []) actors[a.id] = a as BoardActor;
+        board.actors = actors;
+      } else {
+        board.actors = {};
       }
 
       return board;

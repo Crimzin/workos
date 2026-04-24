@@ -6,10 +6,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { BoardCard, BoardField } from "@/lib/board-types";
+import type { BoardActor, BoardCard, BoardField } from "@/lib/board-types";
 import { updateNodeTitle } from "@/lib/actions/nodes";
 import { FieldBadge } from "../field-badge";
 import { InlineFieldEditor } from "./inline-field-editor";
+import { BoardAvatar } from "./board-avatar";
 
 interface CardTileProps {
   card: BoardCard;
@@ -17,9 +18,10 @@ interface CardTileProps {
   stackId: string;
   fields: BoardField[];
   columnFieldId: string | null;
+  actors: Record<string, BoardActor>;
 }
 
-export function CardTile({ card, workspaceId, stackId, fields, columnFieldId }: CardTileProps) {
+export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, actors }: CardTileProps) {
   const search = useSearchParams();
   const isActive = search.get("d") === card.id;
   const router = useRouter();
@@ -113,18 +115,23 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId }: 
         {card.description && (
           <div className="mt-1 text-xs text-text-secondary line-clamp-2">{card.description}</div>
         )}
-        {editorFields.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {editorFields.map((field) => (
-              <InlineFieldEditor
-                key={field.id}
-                field={field}
-                selectedOptionIds={card.field_values[field.id] ?? []}
-                nodeId={card.id}
-                parentId={stackId}
-                workspaceId={workspaceId}
-              />
-            ))}
+        {(editorFields.length > 0 || (card.owner_id && actors[card.owner_id])) && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
+            <div className="flex flex-wrap gap-1">
+              {editorFields.map((field) => (
+                <InlineFieldEditor
+                  key={field.id}
+                  field={field}
+                  selectedOptionIds={card.field_values[field.id] ?? []}
+                  nodeId={card.id}
+                  parentId={stackId}
+                  workspaceId={workspaceId}
+                />
+              ))}
+            </div>
+            {card.owner_id && actors[card.owner_id] && (
+              <BoardAvatar actor={actors[card.owner_id]} size={20} />
+            )}
           </div>
         )}
       </Link>

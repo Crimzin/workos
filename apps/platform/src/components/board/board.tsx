@@ -21,7 +21,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board-types";
+import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import { createStack } from "@/lib/actions/nodes";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
@@ -230,6 +230,7 @@ export function Board({ data }: BoardProps) {
                     activeDetailId={activeDetailId}
                     stackIndex={i}
                     totalStacks={localStacks.length}
+                    actors={data.actors}
                   />
                 ))}
               </SortableContext>

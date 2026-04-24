@@ -7,12 +7,13 @@ import { GripVertical, MoreHorizontal, Pencil, Plus } from "lucide-react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import type { BoardField, BoardStack } from "@/lib/board-types";
+import type { BoardActor, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import { createCard, updateNodeTitle, moveStackUpDown, archiveNode } from "@/lib/actions/nodes";
 import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
 import { InlineFieldEditor } from "./inline-field-editor";
+import { BoardAvatar } from "./board-avatar";
 
 interface StackRowProps {
   stack: BoardStack;
@@ -22,9 +23,10 @@ interface StackRowProps {
   activeDetailId: string | null;
   stackIndex: number;
   totalStacks: number;
+  actors: Record<string, BoardActor>;
 }
 
-export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId, stackIndex, totalStacks }: StackRowProps) {
+export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId, stackIndex, totalStacks, actors }: StackRowProps) {
   const router = useRouter();
   const isActive = activeDetailId === stack.id;
 
@@ -85,6 +87,7 @@ export function StackRow({ stack, workspaceId, columnField, fields, activeDetail
           dragAttributes={attributes}
           stackIndex={stackIndex}
           totalStacks={totalStacks}
+          actors={actors}
         />
         <div className="flex flex-1 min-w-0">
           {columns.map((col) => {
@@ -100,6 +103,7 @@ export function StackRow({ stack, workspaceId, columnField, fields, activeDetail
                 workspaceId={workspaceId}
                 fields={fields}
                 columnField={columnField}
+                actors={actors}
                 onAddCard={async (title) => {
                   const res = await createCard(
                     stack.id,
@@ -128,6 +132,7 @@ function DroppableColumn({
   workspaceId,
   fields,
   columnField,
+  actors,
   onAddCard,
 }: {
   stackId: string;
@@ -137,6 +142,7 @@ function DroppableColumn({
   workspaceId: string;
   fields: BoardField[];
   columnField: BoardField | null;
+  actors: Record<string, BoardActor>;
   onAddCard: (title: string) => Promise<void | { id: string }>;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -185,6 +191,7 @@ function DroppableColumn({
               stackId={stackId}
               fields={fields}
               columnFieldId={columnField?.id ?? null}
+              actors={actors}
             />
           ))}
           <InlineCreate
@@ -210,6 +217,7 @@ function StackHeader({
   dragAttributes,
   stackIndex,
   totalStacks,
+  actors,
 }: {
   stack: BoardStack;
   workspaceId: string;
@@ -219,6 +227,7 @@ function StackHeader({
   dragAttributes: ReturnType<typeof useSortable>["attributes"];
   stackIndex: number;
   totalStacks: number;
+  actors: Record<string, BoardActor>;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -329,6 +338,11 @@ function StackHeader({
                     workspaceId={workspaceId}
                   />
                 ))}
+              </div>
+            )}
+            {stack.owner_id && actors[stack.owner_id] && (
+              <div className="mt-2">
+                <BoardAvatar actor={actors[stack.owner_id]} size={20} />
               </div>
             )}
           </Link>
