@@ -10,6 +10,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import { createCard, updateNodeTitle, moveStackUpDown, archiveNode } from "@/lib/actions/nodes";
+import { updateFieldOption } from "@/lib/actions/fields";
 import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
 import { InlineFieldEditor } from "./inline-field-editor";
@@ -150,6 +151,26 @@ function DroppableColumn({
     data: { type: "column", stackId, columnId: col.id },
   });
 
+  const router = useRouter();
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(col.name);
+  const [pending, startTransition] = useTransition();
+  const renameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renaming) renameRef.current?.select();
+  }, [renaming]);
+
+  const commitRename = () => {
+    const trimmed = renameValue.trim();
+    setRenaming(false);
+    if (!trimmed || trimmed === col.name) { setRenameValue(col.name); return; }
+    startTransition(async () => {
+      await updateFieldOption(col.id, workspaceId, { name: trimmed });
+      router.refresh();
+    });
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -159,13 +180,37 @@ function DroppableColumn({
       ].join(" ")}
     >
       <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <div className="flex items-center gap-2 min-w-0">
-          {col.color ? (
+        <div className="group flex items-center gap-2 min-w-0">
+          {renaming ? (
+            <input
+              ref={renameRef}
+              type="text"
+              value={renameValue}
+              disabled={pending}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") { setRenaming(false); setRenameValue(col.name); }
+              }}
+              onBlur={commitRename}
+              className="w-32 rounded border border-border-strong bg-bg-card px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          ) : col.color ? (
             <span className={`badge badge-${colorToBadgeIndex(col.color)} px-1.5 py-0.5 text-[10px]`}>
               {col.name}
             </span>
           ) : (
             <span className="section-label truncate">{col.name}</span>
+          )}
+          {!isUnassigned && !renaming && (
+            <button
+              type="button"
+              onClick={() => { setRenameValue(col.name); setRenaming(true); }}
+              aria-label="Rename column"
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
+            >
+              <Pencil size={10} />
+            </button>
           )}
           <span
             className={[
