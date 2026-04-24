@@ -223,7 +223,13 @@ export function Board({ data, views }: BoardProps) {
         );
       }
       if (overType === "card") {
-        return applyCardOverCard(prev, activeId, overId, columnFieldId);
+        // Compare overlay top to over-card midpoint to decide insert before vs after.
+        // closestCenter is symmetric — equidistant cards produce wrong order without this.
+        const translatedTop = active.rect.current.translated?.top ?? null;
+        const insertAfter = translatedTop !== null
+          ? translatedTop > over.rect.top + over.rect.height / 2
+          : false;
+        return applyCardOverCard(prev, activeId, overId, columnFieldId, insertAfter);
       }
       return prev;
     });
@@ -470,7 +476,8 @@ function applyCardOverCard(
   stacks: BoardStack[],
   activeId: string,
   overId: string,
-  columnFieldId: string | null
+  columnFieldId: string | null,
+  insertAfter: boolean
 ): BoardStack[] {
   const activeLoc = findCardLocation(stacks, activeId, null);
   const overLoc = findCardLocation(stacks, overId, null);
@@ -482,21 +489,15 @@ function applyCardOverCard(
 
   const next = stacks.map((s) => ({ ...s, cards: [...s.cards] }));
 
-  if (activeLoc.stackIdx === overLoc.stackIdx) {
-    next[activeLoc.stackIdx].cards[activeLoc.cardIdx] = updatedActive;
-    next[activeLoc.stackIdx].cards = arrayMove(
-      next[activeLoc.stackIdx].cards,
-      activeLoc.cardIdx,
-      overLoc.cardIdx
-    );
-  } else {
-    next[activeLoc.stackIdx].cards.splice(activeLoc.cardIdx, 1);
-    const adjustedOverIdx =
-      overLoc.stackIdx > activeLoc.stackIdx
-        ? overLoc.cardIdx
-        : overLoc.cardIdx;
-    next[overLoc.stackIdx].cards.splice(adjustedOverIdx, 0, updatedActive);
-  }
+  // Splice-based insertion handles same-stack and cross-stack identically.
+  // Remove active first so over card's index shifts predictably.
+  next[activeLoc.stackIdx].cards.splice(activeLoc.cardIdx, 1);
+
+  // Re-find over card after removal (index shifts if same stack and active was before it)
+  const overNewIdx = next[overLoc.stackIdx].cards.findIndex((c) => c.id === overId);
+  if (overNewIdx === -1) return stacks;
+
+  next[overLoc.stackIdx].cards.splice(insertAfter ? overNewIdx + 1 : overNewIdx, 0, updatedActive);
 
   return next;
 }
