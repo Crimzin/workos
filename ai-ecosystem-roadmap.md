@@ -136,7 +136,7 @@ Finishes the 1.5 deferred polish and extends the panel to stacks.
 - [ ] **Per-stack column-field override** — each stack can use a different column field within a view
 - [ ] **Column header collapse/expand** — hide individual columns within a view
 - [ ] **Per-workspace panel layout persistence** — remember which panels are open and at what sizes
-- [ ] **Member/agent avatars on stack headers and cards** — show owner avatar on board face (data already in the model; requires board query to include owner_id per card/stack)
+- [x] **Member/agent avatars on stack headers and cards** — show owner avatar on board face; `BoardAvatar` component (initials circle, purple ring for agents); actors fetched by instance_id in `board.ts` and threaded through board → stack header + card tile ✅ Complete
 
 ### 1.9 Context Linking
 
