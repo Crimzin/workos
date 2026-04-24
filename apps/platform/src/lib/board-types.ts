@@ -32,6 +32,8 @@ export interface BoardStack {
   description: string | null;
   position: number;
   cards: BoardCard[];
+  /** fieldId -> list of selected optionIds */
+  field_values: Record<string, string[]>;
 }
 
 export interface BoardData {

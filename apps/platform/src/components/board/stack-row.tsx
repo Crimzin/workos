@@ -9,6 +9,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import { createCard } from "@/lib/actions/nodes";
+import { FieldBadge } from "../field-badge";
 import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
 
@@ -76,6 +77,7 @@ export function StackRow({ stack, workspaceId, columnField, fields, activeDetail
           stack={stack}
           workspaceId={workspaceId}
           isActive={isActive}
+          fields={fields}
           dragListeners={listeners}
           dragAttributes={attributes}
         />
@@ -197,15 +199,26 @@ function StackHeader({
   stack,
   workspaceId,
   isActive,
+  fields,
   dragListeners,
   dragAttributes,
 }: {
   stack: BoardStack;
   workspaceId: string;
   isActive: boolean;
+  fields: BoardField[];
   dragListeners: ReturnType<typeof useSortable>["listeners"];
   dragAttributes: ReturnType<typeof useSortable>["attributes"];
 }) {
+  const badges: { id: string; name: string; color: string }[] = [];
+  for (const field of fields) {
+    const optionIds = stack.field_values[field.id] ?? [];
+    for (const optionId of optionIds) {
+      const opt = field.options.find((o) => o.id === optionId);
+      if (opt) badges.push({ id: `${field.id}:${opt.id}`, name: opt.name, color: field.color });
+    }
+  }
+
   return (
     <div
       className={[
@@ -243,6 +256,13 @@ function StackHeader({
           </h3>
           {stack.description && (
             <p className="mt-1 line-clamp-2 text-xs text-text-secondary">{stack.description}</p>
+          )}
+          {badges.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {badges.map((b) => (
+                <FieldBadge key={b.id} name={b.name} color={b.color} />
+              ))}
+            </div>
           )}
         </Link>
         <button

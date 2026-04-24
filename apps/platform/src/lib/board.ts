@@ -21,7 +21,33 @@ export async function getWorkspaceBoard(
       });
       if (error) throw error;
       if (!data) return null;
-      return data as BoardData;
+
+      const board = data as BoardData;
+
+      // RPC only returns card field_values; fetch stack field_values separately.
+      const stackIds = board.stacks.map((s) => s.id);
+      if (stackIds.length > 0) {
+        const { data: sfv } = await supabase
+          .from("node_field_values")
+          .select("node_id, field_id, option_id")
+          .in("node_id", stackIds)
+          .not("option_id", "is", null);
+
+        const byStack: Record<string, Record<string, string[]>> = {};
+        for (const row of sfv ?? []) {
+          const stackVals = (byStack[row.node_id] ??= {});
+          const opts = (stackVals[row.field_id] ??= []);
+          opts.push(row.option_id);
+        }
+        board.stacks = board.stacks.map((s) => ({
+          ...s,
+          field_values: byStack[s.id] ?? {},
+        }));
+      } else {
+        board.stacks = board.stacks.map((s) => ({ ...s, field_values: {} }));
+      }
+
+      return board;
     },
     ["workspace-board", workspaceId],
     {
