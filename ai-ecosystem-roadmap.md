@@ -21,6 +21,7 @@ Decisions made as we build. Most recent on top.
 - **2026-04-22 — 1.4.5 Node Creation Pass complete.** `InlineCreate` component powers sidebar `+`, toolbar `New Stack`, and per-column `+ Add card`. Server actions in `src/lib/actions/nodes.ts` use `getCurrentActor()` (first human in instance) + fractional positions. Card creation auto-sets the column field value so cards land where clicked.
 - **2026-04-22 — 1.5 Detail Panel v1 complete.** Side-panel shell via `?d=<nodeId>` query param on the workspace route. Server-rendered `DetailPanel` fetches node + children; Board stays visible; active card highlighted. Shareable URLs for free. Rich tabs (Posts/Fields), breadcrumbs, resizable divider deferred to 1.5 follow-ups landing alongside 1.6 fields work.
 - **2026-04-23 — Stack detail panels + Cards tab folded into Detail Panel v2 (1.7.5).** Stacks use the same side-panel shell as cards (same `?d=<nodeId>` URL contract, same Posts/Fields tabs); stack panels additionally get a "Cards" tab rendering a miniaturized list of child cards. Placement after 1.7 so divider resize ships once, and so the Cards tab can inherit drag-reorder from the cards-between-stacks work. All remaining 1.5 tab/breadcrumb work lives in 1.7.5 to keep panel polish in one section.
+- **2026-04-24 — 1.7 Drag and Drop complete.** Cards drag between columns (updates field value), within a column (reorders position), and between stacks (reassigns parent). Stack rows drag to reorder. Field options drag-reorder in edit dialog (replaces ↑/↓ buttons). Resizable divider between Board and Detail via `ResizablePanelGroup`. All persisted via `moveCard` / `reorderStack` server actions with midpoint position calculation + cache invalidation. Panel rearrangement (layout positions) slipped to Phase 2 — no multi-panel infrastructure yet.
 - **2026-04-23 — 1.6 Data Fields v1 complete.** Four field types live (single-select, multi-select, text, date). Detail panel renders a Fields section with inline editors; card previews show field badges; column field uses the same data. Field CRUD via QUAM (`⋯ → Edit`) dialog per Factor parity: rename, description, field-level color (all option badges in a field share it), locked toggle, option list add/rename/reorder/delete, delete field. "Add field" on the board toolbar opens a create dialog with type pills, color, and starter options. Migration 0005 moved color from `data_field_options` to `data_fields`; options keep only name + position. Drag-reorder of options deferred to 1.7.
 
 ---
@@ -110,15 +111,15 @@ Decisions made as we build. Most recent on top.
 - [x] Edit dialog: rename, description, color, locked toggle, option list, delete field — opened from QUAM (`⋯ → Edit`) on each field row
 - [ ] Option drag-reorder (keyboard arrows ship in v1; drag lands with 1.7)
 
-### 1.7 Drag and Drop
+### 1.7 Drag and Drop — ✅ Complete
 
-- [ ] Cards between columns (updates the column field's value on the card)
-- [ ] Cards within a column (reorders sort position)
-- [ ] Cards between stacks (reassigns parent)
-- [ ] Stack rows on the board (reorder)
-- [ ] Field option reorder inside the edit dialog (replaces ↑/↓ buttons from 1.6)
-- [ ] Panel dividers (resize) — between Board and Detail
-- [ ] Panels between layout positions (rearrange) — *may slip to Phase 2*
+- [x] Cards between columns (updates the column field's value on the card)
+- [x] Cards within a column (reorders sort position)
+- [x] Cards between stacks (reassigns parent)
+- [x] Stack rows on the board (reorder)
+- [x] Field option reorder inside the edit dialog (replaces ↑/↓ buttons from 1.6)
+- [x] Panel dividers (resize) — between Board and Detail
+- [ ] Panels between layout positions (rearrange) — *slipped to Phase 2*
 
 ### 1.7.5 Detail Panel v2
 

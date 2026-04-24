@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { BoardCard, BoardField } from "@/lib/board";
+import type { BoardCard, BoardField } from "@/lib/board-types";
 import { FieldBadge } from "../field-badge";
 
 interface CardTileProps {

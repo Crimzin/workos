@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Filter, Plus } from "lucide-react";
 import {
   DndContext,
@@ -21,8 +21,8 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board";
-import { UNASSIGNED_COL_ID } from "@/lib/board";
+import type { BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board-types";
+import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import { createStack } from "@/lib/actions/nodes";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
@@ -45,6 +45,8 @@ export function Board({ data }: BoardProps) {
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
   const preDragStacks = useRef<BoardStack[]>(data.stacks);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeDetailId = searchParams.get("d");
   const workspaceId = data.workspace.id;
 
   // Sync local state when server data refreshes.
@@ -225,6 +227,7 @@ export function Board({ data }: BoardProps) {
                     workspaceId={workspaceId}
                     columnField={columnField}
                     fields={data.fields}
+                    activeDetailId={activeDetailId}
                   />
                 ))}
               </SortableContext>

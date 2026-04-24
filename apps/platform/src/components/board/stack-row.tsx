@@ -1,12 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { GripVertical, MoreHorizontal, Plus } from "lucide-react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import type { BoardField, BoardStack } from "@/lib/board";
-import { UNASSIGNED_COL_ID } from "@/lib/board";
+import type { BoardField, BoardStack } from "@/lib/board-types";
+import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import { createCard } from "@/lib/actions/nodes";
 import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
@@ -16,10 +17,12 @@ interface StackRowProps {
   workspaceId: string;
   columnField: BoardField | null;
   fields: BoardField[];
+  activeDetailId: string | null;
 }
 
-export function StackRow({ stack, workspaceId, columnField, fields }: StackRowProps) {
+export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId }: StackRowProps) {
   const router = useRouter();
+  const isActive = activeDetailId === stack.id;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: stack.id,
@@ -69,7 +72,13 @@ export function StackRow({ stack, workspaceId, columnField, fields }: StackRowPr
   return (
     <div ref={setNodeRef} style={style} className="border-b border-border">
       <div className="flex items-stretch">
-        <StackHeader stack={stack} dragListeners={listeners} dragAttributes={attributes} />
+        <StackHeader
+          stack={stack}
+          workspaceId={workspaceId}
+          isActive={isActive}
+          dragListeners={listeners}
+          dragAttributes={attributes}
+        />
         <div className="flex flex-1 min-w-0">
           {columns.map((col) => {
             const cards = cardsByColumn.get(col.id) ?? [];
@@ -186,15 +195,26 @@ function DroppableColumn({
 
 function StackHeader({
   stack,
+  workspaceId,
+  isActive,
   dragListeners,
   dragAttributes,
 }: {
   stack: BoardStack;
+  workspaceId: string;
+  isActive: boolean;
   dragListeners: ReturnType<typeof useSortable>["listeners"];
   dragAttributes: ReturnType<typeof useSortable>["attributes"];
 }) {
   return (
-    <div className="w-60 shrink-0 border-r border-border bg-bg-secondary/60 px-4 py-3">
+    <div
+      className={[
+        "w-60 shrink-0 border-r border-border px-4 py-3 transition-colors",
+        isActive
+          ? "border-l-2 border-l-accent bg-bg-selected"
+          : "bg-bg-secondary/60",
+      ].join(" ")}
+    >
       <div className="flex items-start gap-2">
         <button
           type="button"
@@ -205,15 +225,26 @@ function StackHeader({
         >
           <GripVertical size={14} />
         </button>
-        <div className="min-w-0 flex-1">
+        <Link
+          href={`/n/${workspaceId}?d=${stack.id}`}
+          scroll={false}
+          className="min-w-0 flex-1 group"
+        >
           <div className="section-label">Stack</div>
-          <h3 className="mt-0.5 truncate text-base font-semibold text-text-primary">
+          <h3
+            className={[
+              "mt-0.5 truncate text-base font-semibold transition-colors",
+              isActive
+                ? "text-accent"
+                : "text-text-primary group-hover:text-accent",
+            ].join(" ")}
+          >
             {stack.title}
           </h3>
           {stack.description && (
             <p className="mt-1 line-clamp-2 text-xs text-text-secondary">{stack.description}</p>
           )}
-        </div>
+        </Link>
         <button
           type="button"
           disabled

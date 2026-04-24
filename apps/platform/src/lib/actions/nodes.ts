@@ -9,6 +9,31 @@ import {
   revalidateWorkspaceBoard,
 } from "../cache";
 
+export async function updateNodeTitle(
+  nodeId: string,
+  title: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+
+  const { error } = await supabase
+    .from("nodes")
+    .update({ title: trimmed })
+    .eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  // If the renamed node is a workspace, refresh the sidebar tree too.
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
 export interface CreateWorkspaceResult {
   id: string;
 }
