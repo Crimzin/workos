@@ -132,7 +132,7 @@ Finishes the 1.5 deferred polish and extends the panel to stacks.
 
 - [x] View tabs across the top of the board: each saved view stores column field; tab row with starred indicator, double-click rename, hover actions (star/rename/delete), [+] new view ✅ Complete
 - [x] Starred view is the workspace default (loaded on open); switching tabs loads that view's column_field_id; column field changes auto-save back to the active view ✅ Complete
-- [ ] Toolbar: Filter (with active-count badge)
+- [x] Toolbar: Filter (with active-count badge) — field/option picker popover; filters AND across fields, OR within a field; auto-saved to active view; new views clone current filters ✅ Complete
 - [ ] **Per-stack column-field override** — each stack can use a different column field within a view
 - [ ] **Column header collapse/expand** — hide individual columns within a view
 - [ ] **Per-workspace panel layout persistence** — remember which panels are open and at what sizes
