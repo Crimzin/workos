@@ -25,7 +25,7 @@ import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
-import { updateViewColumnField, updateViewFilters } from "@/lib/actions/views";
+import { updateViewColumnField, updateViewFilters, updateViewStackFilters } from "@/lib/actions/views";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
@@ -51,6 +51,8 @@ export function Board({ data, views }: BoardProps) {
   const initialColumnFieldId = activeView?.column_field_id ?? data.defaultColumnFieldId;
   const [columnFieldId, setColumnFieldId] = useState<string | null>(initialColumnFieldId);
   const [filters, setFilters] = useState<ViewFilter[]>(activeView?.filters ?? []);
+  const [stackFilters, setStackFilters] = useState<ViewFilter[]>(activeView?.stack_filters ?? []);
+  const [hiddenStackIds, setHiddenStackIds] = useState<string[]>(activeView?.hidden_stack_ids ?? []);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [localStacks, setLocalStacks] = useState<BoardStack[]>(data.stacks);
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
@@ -75,6 +77,8 @@ export function Board({ data, views }: BoardProps) {
     setActiveView(view);
     setColumnFieldId(view.column_field_id ?? data.defaultColumnFieldId);
     setFilters(view.filters ?? []);
+    setStackFilters(view.stack_filters ?? []);
+    setHiddenStackIds(view.hidden_stack_ids ?? []);
   };
 
   const handleFiltersChange = (newFilters: ViewFilter[]) => {
@@ -82,15 +86,39 @@ export function Board({ data, views }: BoardProps) {
     if (activeView) updateViewFilters(activeView.id, workspaceId, newFilters);
   };
 
+  const handleStackFiltersChange = (newStackFilters: ViewFilter[], newHiddenIds: string[]) => {
+    setStackFilters(newStackFilters);
+    setHiddenStackIds(newHiddenIds);
+    if (activeView) updateViewStackFilters(activeView.id, workspaceId, newStackFilters, newHiddenIds);
+  };
+
   const columnField = useMemo(
     () => data.fields.find((f) => f.id === columnFieldId) ?? null,
     [data.fields, columnFieldId]
   );
 
-  // Apply filters: a card passes if every active filter has at least one matching optionId.
+  // Apply stack-level and card-level filters.
   const filteredStacks = useMemo(() => {
-    if (filters.length === 0) return localStacks;
-    return localStacks.map((stack) => ({
+    let stacks = localStacks;
+
+    // 1. Stack on/off
+    if (hiddenStackIds.length > 0) {
+      stacks = stacks.filter((s) => !hiddenStackIds.includes(s.id));
+    }
+
+    // 2. Stack field filters (AND across fields, OR within a field)
+    if (stackFilters.length > 0) {
+      stacks = stacks.filter((stack) =>
+        stackFilters.every((f) => {
+          const vals = stack.field_values[f.fieldId] ?? [];
+          return f.optionIds.some((oid) => vals.includes(oid));
+        })
+      );
+    }
+
+    // 3. Card field filters
+    if (filters.length === 0) return stacks;
+    return stacks.map((stack) => ({
       ...stack,
       cards: stack.cards.filter((card) =>
         filters.every((f) => {
@@ -99,7 +127,7 @@ export function Board({ data, views }: BoardProps) {
         })
       ),
     }));
-  }, [localStacks, filters]);
+  }, [localStacks, filters, stackFilters, hiddenStackIds]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -226,9 +254,13 @@ export function Board({ data, views }: BoardProps) {
               setActiveView(v);
               setColumnFieldId(v.column_field_id ?? data.defaultColumnFieldId);
               setFilters(v.filters ?? []);
+              setStackFilters(v.stack_filters ?? []);
+              setHiddenStackIds(v.hidden_stack_ids ?? []);
             }}
             currentColumnFieldId={columnFieldId}
             currentFilters={filters}
+            currentStackFilters={stackFilters}
+            currentHiddenStackIds={hiddenStackIds}
           />
         )}
 
@@ -247,8 +279,12 @@ export function Board({ data, views }: BoardProps) {
             <div className="mx-1 h-4 w-px bg-border" />
             <FilterMenu
               fields={data.fields}
+              stacks={localStacks}
               filters={filters}
-              onChange={handleFiltersChange}
+              onFiltersChange={handleFiltersChange}
+              stackFilters={stackFilters}
+              hiddenStackIds={hiddenStackIds}
+              onStackFiltersChange={handleStackFiltersChange}
             />
             <div className="flex-1" />
             <InlineCreate

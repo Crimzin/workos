@@ -14,6 +14,8 @@ interface ViewTabsProps {
   onViewCreated: (view: WorkspaceView) => void;
   currentColumnFieldId: string | null;
   currentFilters: ViewFilter[];
+  currentStackFilters: ViewFilter[];
+  currentHiddenStackIds: string[];
 }
 
 export function ViewTabs({
@@ -24,6 +26,8 @@ export function ViewTabs({
   onViewCreated,
   currentColumnFieldId,
   currentFilters,
+  currentStackFilters,
+  currentHiddenStackIds,
 }: ViewTabsProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -62,9 +66,9 @@ export function ViewTabs({
 
   const handleAdd = () => {
     startTransition(async () => {
-      const newView = await createView(workspaceId, "New View", currentColumnFieldId, currentFilters);
+      const newView = await createView(workspaceId, "New View", currentColumnFieldId, currentFilters, currentStackFilters, currentHiddenStackIds);
       router.refresh();
-      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId, filters: currentFilters });
+      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId, filters: currentFilters, stack_filters: currentStackFilters, hidden_stack_ids: currentHiddenStackIds });
       setRenamingId(newView.id);
       setRenameValue("New View");
     });

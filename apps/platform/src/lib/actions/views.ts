@@ -9,11 +9,21 @@ export async function createView(
   workspaceId: string,
   name: string,
   columnFieldId: string | null,
-  filters: ViewFilter[] = []
+  filters: ViewFilter[] = [],
+  stackFilters: ViewFilter[] = [],
+  hiddenStackIds: string[] = []
 ): Promise<{ id: string }> {
   const { data, error } = await supabase
     .from("workspace_views")
-    .insert({ workspace_id: workspaceId, name, column_field_id: columnFieldId, starred: false, filters: filters as unknown as Record<string, unknown>[] })
+    .insert({
+      workspace_id: workspaceId,
+      name,
+      column_field_id: columnFieldId,
+      starred: false,
+      filters: filters as unknown as Record<string, unknown>[],
+      stack_filters: stackFilters as unknown as Record<string, unknown>[],
+      hidden_stack_ids: hiddenStackIds,
+    })
     .select("id")
     .single();
   if (error) throw error;
@@ -61,6 +71,24 @@ export async function starView(viewId: string, workspaceId: string): Promise<voi
   if (error) throw error;
   revalidateWorkspaceViews(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
+}
+
+export async function updateViewStackFilters(
+  viewId: string,
+  workspaceId: string,
+  stackFilters: ViewFilter[],
+  hiddenStackIds: string[]
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({
+      stack_filters: stackFilters as unknown as Record<string, unknown>[],
+      hidden_stack_ids: hiddenStackIds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
 }
 
 export async function updateViewFilters(

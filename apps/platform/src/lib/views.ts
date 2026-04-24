@@ -14,6 +14,8 @@ export interface WorkspaceView {
   starred: boolean;
   column_field_id: string | null;
   filters: ViewFilter[];
+  stack_filters: ViewFilter[];
+  hidden_stack_ids: string[];
 }
 
 export async function getWorkspaceViews(workspaceId: string): Promise<WorkspaceView[]> {
@@ -21,7 +23,7 @@ export async function getWorkspaceViews(workspaceId: string): Promise<WorkspaceV
     async (): Promise<WorkspaceView[]> => {
       const { data, error } = await supabase
         .from("workspace_views")
-        .select("id, workspace_id, name, starred, column_field_id, filters")
+        .select("id, workspace_id, name, starred, column_field_id, filters, stack_filters, hidden_stack_ids")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: true });
       if (error) throw error;
