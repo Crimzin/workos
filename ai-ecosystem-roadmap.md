@@ -89,19 +89,19 @@ Decisions made as we build. Most recent on top.
 - [x] `InlineCreate` reusable component; Enter submits, Escape cancels, blur-empty cancels
 - [x] All three via Server Actions with `revalidateTag` + `revalidatePath` cache invalidation
 
-### 1.5 Detail Panel — 🟡 v1 Shipped
+### 1.5 Detail Panel — 🟡 Mostly Complete
 
 - [x] Opens on card click as a **side panel next to the Board** via `?d=<nodeId>` query param; Board stays visible; URL is shareable
 - [x] Active card highlighted in the Board; close button returns to `/n/<workspace>`
 - [x] Server-rendered panel body with Suspense skeleton while streaming
-- [ ] Breadcrumb + editable title + field badges + owner/members *(pairs with 1.6 fields)*
-- [ ] Tabs: **Posts**, **Fields** (Context tab lands in Phase 2)
+- [x] Breadcrumb + editable title + field badges + owner/members *(completed in 1.7.5)*
+- [x] Tabs: **Posts**, **Fields** (Context tab lands in Phase 2)
 - [ ] Posts tab: pinned posts above chronological feed; post item (avatar, name, timestamp, rich text); field change entries; post composer with slash commands and @ mentions; Cmd+Enter to submit; pin/edit/delete actions
-- [ ] Fields tab: system fields (Owner, Members, Type, Created, Updated), custom fields (inline-editable dropdowns / inputs / date pickers), planning fields (Blocked by, Blocking, Start date, Due date)
+- [x] Fields tab: system fields (Owner, Members, Type, Created, Updated), custom fields (inline-editable dropdowns / inputs / date pickers)
 - [ ] Agent posts render with purple-ring avatar and small "AI" label
-- [ ] Resizable divider between Board and Detail
+- [x] Resizable divider between Board and Detail *(completed in 1.7)*
 
-### 1.6 Data Fields (Instance-Global) — 🟡 v1 Shipped
+### 1.6 Data Fields (Instance-Global) — ✅ Complete
 
 - [x] Field types: single-select, multi-select, text, date
 - [x] Fields are **global to the instance** — creating a field in any workspace makes it available to every stack in every workspace
