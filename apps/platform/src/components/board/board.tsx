@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Filter, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -23,15 +23,16 @@ import {
 } from "@dnd-kit/sortable";
 import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
-import type { WorkspaceView } from "@/lib/views";
+import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
-import { updateViewColumnField } from "@/lib/actions/views";
+import { updateViewColumnField, updateViewFilters } from "@/lib/actions/views";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
 import { StackRow } from "./stack-row";
 import { CardTileOverlay } from "./card-tile";
 import { ViewTabs } from "./view-tabs";
+import { FilterMenu } from "./filter-menu";
 
 type ActiveCard = { type: "card"; card: BoardCard };
 type ActiveStack = { type: "stack"; stack: BoardStack };
@@ -49,6 +50,7 @@ export function Board({ data, views }: BoardProps) {
 
   const initialColumnFieldId = activeView?.column_field_id ?? data.defaultColumnFieldId;
   const [columnFieldId, setColumnFieldId] = useState<string | null>(initialColumnFieldId);
+  const [filters, setFilters] = useState<ViewFilter[]>(activeView?.filters ?? []);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [localStacks, setLocalStacks] = useState<BoardStack[]>(data.stacks);
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
@@ -72,12 +74,32 @@ export function Board({ data, views }: BoardProps) {
   const handleViewSwitch = (view: WorkspaceView) => {
     setActiveView(view);
     setColumnFieldId(view.column_field_id ?? data.defaultColumnFieldId);
+    setFilters(view.filters ?? []);
+  };
+
+  const handleFiltersChange = (newFilters: ViewFilter[]) => {
+    setFilters(newFilters);
+    if (activeView) updateViewFilters(activeView.id, workspaceId, newFilters);
   };
 
   const columnField = useMemo(
     () => data.fields.find((f) => f.id === columnFieldId) ?? null,
     [data.fields, columnFieldId]
   );
+
+  // Apply filters: a card passes if every active filter has at least one matching optionId.
+  const filteredStacks = useMemo(() => {
+    if (filters.length === 0) return localStacks;
+    return localStacks.map((stack) => ({
+      ...stack,
+      cards: stack.cards.filter((card) =>
+        filters.every((f) => {
+          const vals = card.field_values[f.fieldId] ?? [];
+          return f.optionIds.some((oid) => vals.includes(oid));
+        })
+      ),
+    }));
+  }, [localStacks, filters]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -203,8 +225,10 @@ export function Board({ data, views }: BoardProps) {
               setLocalViews((prev) => [...prev, v]);
               setActiveView(v);
               setColumnFieldId(v.column_field_id ?? data.defaultColumnFieldId);
+              setFilters(v.filters ?? []);
             }}
             currentColumnFieldId={columnFieldId}
+            currentFilters={filters}
           />
         )}
 
@@ -221,15 +245,11 @@ export function Board({ data, views }: BoardProps) {
               />
             </div>
             <div className="mx-1 h-4 w-px bg-border" />
-            <button
-              type="button"
-              disabled
-              title="Filter (coming soon)"
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
-            >
-              <Filter size={13} />
-              <span>Filter</span>
-            </button>
+            <FilterMenu
+              fields={data.fields}
+              filters={filters}
+              onChange={handleFiltersChange}
+            />
             <div className="flex-1" />
             <InlineCreate
               label="New Stack"
@@ -256,7 +276,7 @@ export function Board({ data, views }: BoardProps) {
                 items={localStacks.map((s) => s.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {localStacks.map((stack, i) => (
+                {filteredStacks.map((stack, i) => (
                   <StackRow
                     key={stack.id}
                     stack={stack}

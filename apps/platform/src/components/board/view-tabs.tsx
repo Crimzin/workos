@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Star } from "lucide-react";
-import type { WorkspaceView } from "@/lib/views";
+import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createView, updateViewName, starView, deleteView } from "@/lib/actions/views";
 
 interface ViewTabsProps {
@@ -13,6 +13,7 @@ interface ViewTabsProps {
   onSwitch: (view: WorkspaceView) => void;
   onViewCreated: (view: WorkspaceView) => void;
   currentColumnFieldId: string | null;
+  currentFilters: ViewFilter[];
 }
 
 export function ViewTabs({
@@ -22,6 +23,7 @@ export function ViewTabs({
   onSwitch,
   onViewCreated,
   currentColumnFieldId,
+  currentFilters,
 }: ViewTabsProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -60,9 +62,9 @@ export function ViewTabs({
 
   const handleAdd = () => {
     startTransition(async () => {
-      const newView = await createView(workspaceId, "New View", currentColumnFieldId);
+      const newView = await createView(workspaceId, "New View", currentColumnFieldId, currentFilters);
       router.refresh();
-      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId });
+      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId, filters: currentFilters });
       setRenamingId(newView.id);
       setRenameValue("New View");
     });

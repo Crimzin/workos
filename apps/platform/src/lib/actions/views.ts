@@ -3,15 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "../supabase";
 import { revalidateWorkspaceViews } from "../cache";
+import type { ViewFilter } from "../views";
 
 export async function createView(
   workspaceId: string,
   name: string,
-  columnFieldId: string | null
+  columnFieldId: string | null,
+  filters: ViewFilter[] = []
 ): Promise<{ id: string }> {
   const { data, error } = await supabase
     .from("workspace_views")
-    .insert({ workspace_id: workspaceId, name, column_field_id: columnFieldId, starred: false })
+    .insert({ workspace_id: workspaceId, name, column_field_id: columnFieldId, starred: false, filters: filters as unknown as Record<string, unknown>[] })
     .select("id")
     .single();
   if (error) throw error;
@@ -59,6 +61,19 @@ export async function starView(viewId: string, workspaceId: string): Promise<voi
   if (error) throw error;
   revalidateWorkspaceViews(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
+}
+
+export async function updateViewFilters(
+  viewId: string,
+  workspaceId: string,
+  filters: ViewFilter[]
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ filters: filters as unknown as Record<string, unknown>[], updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
 }
 
 export async function deleteView(viewId: string, workspaceId: string): Promise<void> {
