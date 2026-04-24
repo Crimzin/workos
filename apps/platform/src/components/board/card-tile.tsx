@@ -9,6 +9,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { BoardCard, BoardField } from "@/lib/board-types";
 import { updateNodeTitle } from "@/lib/actions/nodes";
 import { FieldBadge } from "../field-badge";
+import { InlineFieldEditor } from "./inline-field-editor";
 
 interface CardTileProps {
   card: BoardCard;
@@ -55,7 +56,8 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId }: 
     opacity: isDragging ? 0 : 1,
   };
 
-  const badges = getBadges(card, fields, columnFieldId);
+  // All fields except the column field get inline editors
+  const editorFields = fields.filter((f) => f.id !== columnFieldId);
 
   if (editing) {
     return (
@@ -111,10 +113,17 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId }: 
         {card.description && (
           <div className="mt-1 text-xs text-text-secondary line-clamp-2">{card.description}</div>
         )}
-        {badges.length > 0 && (
+        {editorFields.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
-            {badges.map((b) => (
-              <FieldBadge key={b.id} name={b.name} color={b.color} />
+            {editorFields.map((field) => (
+              <InlineFieldEditor
+                key={field.id}
+                field={field}
+                selectedOptionIds={card.field_values[field.id] ?? []}
+                nodeId={card.id}
+                parentId={stackId}
+                workspaceId={workspaceId}
+              />
             ))}
           </div>
         )}
@@ -133,7 +142,7 @@ export function CardTileOverlay({
   fields: BoardField[];
   columnFieldId: string | null;
 }) {
-  const badges = getBadges(card, fields, columnFieldId);
+  const badges = getStaticBadges(card, fields, columnFieldId);
   return (
     <div className="rounded-md border border-accent bg-bg-card p-2.5 shadow-lg ring-1 ring-accent/30">
       <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
@@ -151,7 +160,7 @@ export function CardTileOverlay({
   );
 }
 
-function getBadges(card: BoardCard, fields: BoardField[], columnFieldId: string | null) {
+function getStaticBadges(card: BoardCard, fields: BoardField[], columnFieldId: string | null) {
   const badges: { id: string; name: string; color: string }[] = [];
   for (const field of fields) {
     if (field.id === columnFieldId) continue;

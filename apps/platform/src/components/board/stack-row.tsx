@@ -3,16 +3,16 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { GripVertical, MoreHorizontal, Plus } from "lucide-react";
+import { GripVertical, MoreHorizontal, Pencil, Plus } from "lucide-react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import { createCard, updateNodeTitle, moveStackUpDown, archiveNode } from "@/lib/actions/nodes";
-import { FieldBadge } from "../field-badge";
 import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
+import { InlineFieldEditor } from "./inline-field-editor";
 
 interface StackRowProps {
   stack: BoardStack;
@@ -245,15 +245,6 @@ function StackHeader({
     });
   };
 
-  const badges: { id: string; name: string; color: string }[] = [];
-  for (const field of fields) {
-    const optionIds = stack.field_values[field.id] ?? [];
-    for (const optionId of optionIds) {
-      const opt = field.options.find((o) => o.id === optionId);
-      if (opt) badges.push({ id: `${field.id}:${opt.id}`, name: opt.name, color: field.color });
-    }
-  }
-
   return (
     <div
       className={[
@@ -298,23 +289,45 @@ function StackHeader({
             className="min-w-0 flex-1 group"
           >
             <div className="section-label">Stack</div>
-            <h3
-              className={[
-                "mt-0.5 truncate text-base font-semibold transition-colors",
-                isActive
-                  ? "text-accent"
-                  : "text-text-primary group-hover:text-accent",
-              ].join(" ")}
-            >
-              {stack.title}
-            </h3>
+            <div className="flex items-start gap-1">
+              <h3
+                className={[
+                  "mt-0.5 truncate text-base font-semibold transition-colors",
+                  isActive
+                    ? "text-accent"
+                    : "text-text-primary group-hover:text-accent",
+                ].join(" ")}
+              >
+                {stack.title}
+              </h3>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setRenameValue(stack.title);
+                  setRenaming(true);
+                }}
+                aria-label="Rename stack"
+                className="mt-1.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
+              >
+                <Pencil size={10} />
+              </button>
+            </div>
             {stack.description && (
               <p className="mt-1 line-clamp-2 text-xs text-text-secondary">{stack.description}</p>
             )}
-            {badges.length > 0 && (
+            {fields.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
-                {badges.map((b) => (
-                  <FieldBadge key={b.id} name={b.name} color={b.color} />
+                {fields.map((field) => (
+                  <InlineFieldEditor
+                    key={field.id}
+                    field={field}
+                    selectedOptionIds={stack.field_values[field.id] ?? []}
+                    nodeId={stack.id}
+                    parentId={workspaceId}
+                    workspaceId={workspaceId}
+                  />
                 ))}
               </div>
             )}
