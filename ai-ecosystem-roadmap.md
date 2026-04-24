@@ -21,7 +21,9 @@ Decisions made as we build. Most recent on top.
 - **2026-04-22 — 1.4.5 Node Creation Pass complete.** `InlineCreate` component powers sidebar `+`, toolbar `New Stack`, and per-column `+ Add card`. Server actions in `src/lib/actions/nodes.ts` use `getCurrentActor()` (first human in instance) + fractional positions. Card creation auto-sets the column field value so cards land where clicked.
 - **2026-04-22 — 1.5 Detail Panel v1 complete.** Side-panel shell via `?d=<nodeId>` query param on the workspace route. Server-rendered `DetailPanel` fetches node + children; Board stays visible; active card highlighted. Shareable URLs for free. Rich tabs (Posts/Fields), breadcrumbs, resizable divider deferred to 1.5 follow-ups landing alongside 1.6 fields work.
 - **2026-04-23 — Stack detail panels + Cards tab folded into Detail Panel v2 (1.7.5).** Stacks use the same side-panel shell as cards (same `?d=<nodeId>` URL contract, same Posts/Fields tabs); stack panels additionally get a "Cards" tab rendering a miniaturized list of child cards. Placement after 1.7 so divider resize ships once, and so the Cards tab can inherit drag-reorder from the cards-between-stacks work. All remaining 1.5 tab/breadcrumb work lives in 1.7.5 to keep panel polish in one section.
+- **2026-04-24 — 1.7 Drag and Drop complete.** Cards drag between columns (updates field value), within a column (reorders position), and between stacks (reassigns parent). Stack rows drag to reorder. Field options drag-reorder in edit dialog (replaces ↑/↓ buttons). Resizable divider between Board and Detail via `ResizablePanelGroup`. All persisted via `moveCard` / `reorderStack` server actions with midpoint position calculation + cache invalidation. Panel rearrangement (layout positions) slipped to Phase 2 — no multi-panel infrastructure yet.
 - **2026-04-23 — 1.6 Data Fields v1 complete.** Four field types live (single-select, multi-select, text, date). Detail panel renders a Fields section with inline editors; card previews show field badges; column field uses the same data. Field CRUD via QUAM (`⋯ → Edit`) dialog per Factor parity: rename, description, field-level color (all option badges in a field share it), locked toggle, option list add/rename/reorder/delete, delete field. "Add field" on the board toolbar opens a create dialog with type pills, color, and starter options. Migration 0005 moved color from `data_field_options` to `data_fields`; options keep only name + position. Drag-reorder of options deferred to 1.7.
+- **2026-04-24 — 1.7.5 Detail Panel v2 complete (posts tab deferred to 1.10).** Breadcrumb, editable title, field badge header, owner/members avatar row. Stack panels open via `?d=<stackId>` with full Fields + Cards tabs; Cards tab has inline "+ Add card". Stack active state highlights the row header with accent border. Board-face inline editing: clicking any field badge on a card or stack opens a value-picker popover; hover pencil on card/stack title for direct rename without opening the panel. Stack QUAM (three-dot menu): Rename, Move up/down, Archive. Posts tab deferred — it requires the same `posts` table and feed infrastructure as 1.10 Newsfeed, so both will land together.
 
 ---
 
@@ -56,8 +58,11 @@ Decisions made as we build. Most recent on top.
 - [x] Collapsible sidebar (expanded ~260px / collapsed ~56px) with animated transition, state persisted
 - [x] Sidebar sections: logo + collapse toggle, search button (non-functional placeholder), Personal workspace (with Feed/Board/Reminders), Workspaces list with + button
 - [x] AI panel container visible from day one but non-functional (placeholder text "AI features coming in the next update")
-- [ ] Flexible panel workspace supporting up to 3 panels: Board, Detail, AI *(lands with 1.5)*
-- [ ] Resizable dividers, panel rearrangement via drag, per-workspace layout persistence *(resize = 1.5; drag rearrange = 1.7)*
+- [x] 2-panel layout: Board + Detail side by side via `ResizablePanelGroup` *(completed in 1.5/1.7)*
+- [x] Resizable divider between Board and Detail *(completed in 1.7)*
+- [ ] AI chat panel as a 3rd panel — *Phase 2 (2.1)*
+- [ ] Panel rearrangement via drag — *slipped to Phase 2*
+- [ ] Per-workspace panel layout persistence — *1.8 or Phase 2*
 
 ### 1.4 Board View (2D Matrix) — ✅ Complete (simplified scope)
 
@@ -68,7 +73,7 @@ Decisions made as we build. Most recent on top.
 - [x] Workspace-wide column-field picker in toolbar ("Columns: Status ▾") as the prominent affordance for changing columns
 - [x] Empty workspace state + `+ Add card` / `+ New Stack` / Filter placeholders
 - [ ] Per-stack column-field override → **deferred to 1.8** (view-scoped)
-- [ ] Stack reordering via drag and drop + quick action menu → **1.7**
+- [x] Stack reordering via drag and drop + quick action menu → **1.7**
 - [ ] Column header collapse/expand → **1.8**
 - [ ] Member/agent avatars on stack headers and cards → **1.6/1.5** (needs detail panel + field badges)
 
@@ -88,19 +93,19 @@ Decisions made as we build. Most recent on top.
 - [x] `InlineCreate` reusable component; Enter submits, Escape cancels, blur-empty cancels
 - [x] All three via Server Actions with `revalidateTag` + `revalidatePath` cache invalidation
 
-### 1.5 Detail Panel — 🟡 v1 Shipped
+### 1.5 Detail Panel — ✅ Complete
 
 - [x] Opens on card click as a **side panel next to the Board** via `?d=<nodeId>` query param; Board stays visible; URL is shareable
 - [x] Active card highlighted in the Board; close button returns to `/n/<workspace>`
 - [x] Server-rendered panel body with Suspense skeleton while streaming
-- [ ] Breadcrumb + editable title + field badges + owner/members *(pairs with 1.6 fields)*
-- [ ] Tabs: **Posts**, **Fields** (Context tab lands in Phase 2)
-- [ ] Posts tab: pinned posts above chronological feed; post item (avatar, name, timestamp, rich text); field change entries; post composer with slash commands and @ mentions; Cmd+Enter to submit; pin/edit/delete actions
-- [ ] Fields tab: system fields (Owner, Members, Type, Created, Updated), custom fields (inline-editable dropdowns / inputs / date pickers), planning fields (Blocked by, Blocking, Start date, Due date)
-- [ ] Agent posts render with purple-ring avatar and small "AI" label
-- [ ] Resizable divider between Board and Detail
+- [x] Breadcrumb + editable title + field badges + owner/members *(completed in 1.7.5)*
+- [x] Tabs: **Posts** (placeholder), **Fields** (Context tab lands in Phase 2)
+- [x] Fields tab: system fields (Owner, Members, Type, Created, Updated), custom fields (inline-editable dropdowns / inputs / date pickers)
+- [x] Resizable divider between Board and Detail *(completed in 1.7)*
+- [ ] Posts tab content + agent posts — *deferred to 1.10 (shares posts infrastructure with Newsfeed)*
+- [ ] Planning fields (Blocked by, Blocking) — *deferred to 1.9 Context Linking (bidirectional node links)*
 
-### 1.6 Data Fields (Instance-Global) — 🟡 v1 Shipped
+### 1.6 Data Fields (Instance-Global) — ✅ Complete
 
 - [x] Field types: single-select, multi-select, text, date
 - [x] Fields are **global to the instance** — creating a field in any workspace makes it available to every stack in every workspace
@@ -108,29 +113,30 @@ Decisions made as we build. Most recent on top.
 - [x] Field values display as pill badges on card previews and in the detail panel
 - [x] Field CRUD UI (create, rename, add/remove values, reorder values via ↑/↓ buttons)
 - [x] Edit dialog: rename, description, color, locked toggle, option list, delete field — opened from QUAM (`⋯ → Edit`) on each field row
-- [ ] Option drag-reorder (keyboard arrows ship in v1; drag lands with 1.7)
+- [x] Option drag-reorder (keyboard arrows ship in v1; drag lands with 1.7)
 
-### 1.7 Drag and Drop
+### 1.7 Drag and Drop — ✅ Complete
 
-- [ ] Cards between columns (updates the column field's value on the card)
-- [ ] Cards within a column (reorders sort position)
-- [ ] Cards between stacks (reassigns parent)
-- [ ] Stack rows on the board (reorder)
-- [ ] Field option reorder inside the edit dialog (replaces ↑/↓ buttons from 1.6)
-- [ ] Panel dividers (resize) — between Board and Detail
-- [ ] Panels between layout positions (rearrange) — *may slip to Phase 2*
+- [x] Cards between columns (updates the column field's value on the card)
+- [x] Cards within a column (reorders sort position)
+- [x] Cards between stacks (reassigns parent)
+- [x] Stack rows on the board (reorder)
+- [x] Field option reorder inside the edit dialog (replaces ↑/↓ buttons from 1.6)
+- [x] Panel dividers (resize) — between Board and Detail
+- [ ] Panels between layout positions (rearrange) — *slipped to Phase 2*
 
-### 1.7.5 Detail Panel v2
+### 1.7.5 Detail Panel v2 — ✅ Complete
 
 Finishes the 1.5 deferred polish and extends the panel to stacks. Lives after 1.7 so divider resize and drag-reorder are available.
 
-- [ ] Breadcrumb + editable title + field badges + owner/members (card panels)
-- [ ] Tabs scaffold: **Posts** + **Fields** (Context tab lands in Phase 2)
-- [ ] Posts tab: pinned posts, chronological feed, field-change entries, composer with slash commands / @ mentions / Cmd+Enter, pin/edit/delete actions
-- [ ] Agent posts render with purple-ring avatar + "AI" label
-- [ ] **Stack detail panels** — stacks open the same side panel via `?d=<stackId>`; full parity with card panels (title, description, Posts, Fields, owner/members)
-- [ ] **Cards tab (stacks only)** — miniaturized card list for the stack's children: compact title + field badges + owner avatar; click to open that card's panel (swaps the `?d` target); inherits drag-reorder from 1.7
-- [ ] Resolve active-node highlighting when a stack is open (highlight the stack row header the same way cards highlight)
+- [x] Breadcrumb + editable title + field badges + owner/members (card panels)
+- [x] Tabs scaffold: **Posts** (placeholder) + **Fields** (Context tab lands in Phase 2)
+- [x] **Stack detail panels** — stacks open the same side panel via `?d=<stackId>`; full parity with card panels (title, description, Posts, Fields, owner/members)
+- [x] **Cards tab (stacks only)** — miniaturized card list for the stack's children; click to open card panel; add-card inline input
+- [x] Active-node highlighting when a stack is open (accent border on the stack row header)
+- [x] **Board-face inline editing** — click any field badge on a card or stack to change its value in a popover; hover pencil on card/stack title for direct rename without opening the panel
+- [x] **Stack QUAM** — Rename, Move up/down, Archive from the three-dot menu on stack headers
+- [ ] Posts tab content + agent posts — *deferred to 1.10 (shares posts infrastructure with Newsfeed)*
 
 ### 1.8 Saved Views
 
@@ -145,10 +151,25 @@ Finishes the 1.5 deferred polish and extends the panel to stacks. Lives after 1.
 - [ ] "Linked Context" section on the detail panel with add/remove controls
 - [ ] Foundational for Phase 2: linked context is auto-included when AI is invoked on a node
 
-### 1.10 Newsfeed (fast follow)
+### 1.10 Posts + Newsfeed (fast follow)
 
+Builds the shared posts infrastructure, then surfaces it in two places: the detail panel Posts tab and the workspace newsfeed. These share a single `posts` table and feed-query layer, so they ship together.
+
+**Posts infrastructure (required by both)**
+- [ ] `posts` table: node_id, actor_id, body (rich text), pinned, created_at; migration 0006
+- [ ] `post_reactions` or inline field-change log entries (TBD schema)
+- [ ] Server actions: createPost, updatePost, deletePost, pinPost
+
+**Detail panel Posts tab (cards + stacks)**
+- [ ] Pinned posts above chronological feed; post item (avatar, name, timestamp, rich text body)
+- [ ] Field-change log entries interspersed in the feed
+- [ ] Post composer: plain text for now, slash commands + @ mentions in Phase 2; Cmd+Enter to submit
+- [ ] Pin / edit / delete actions on each post
+- [ ] Agent posts render with purple-ring avatar + small "AI" label
+
+**Workspace Newsfeed**
 - [ ] In personal workspace: **My Feed** / **Workspace Feed** / **All Feed** tabs
-- [ ] In other workspaces: **My Feed** / **Workspace Feed** tabs (no All Feed)
+- [ ] In other workspaces: **My Feed** / **Workspace Feed** tabs
 - [ ] Feed items: source node header, actor avatar + timestamp, content (post, field change, new card, new link)
 - [ ] Clicking a feed item opens the relevant card/stack in the detail panel
 
