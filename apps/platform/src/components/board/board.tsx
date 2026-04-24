@@ -11,6 +11,9 @@ import {
   useSensor,
   useSensors,
   closestCenter,
+  pointerWithin,
+  rectIntersection,
+  type CollisionDetection,
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
@@ -154,6 +157,30 @@ export function Board({ data, views }: BoardProps) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  const collisionDetection: CollisionDetection = (args) => {
+    const activeType = args.active?.data?.current?.type as string | undefined;
+
+    if (activeType === "stack") {
+      // Only match against other stacks — column droppables must not intercept stack reorder
+      const stackOnly = args.droppableContainers.filter(
+        (c) => c.data?.current?.type === "stack"
+      );
+      return closestCenter({ ...args, droppableContainers: stackOnly });
+    }
+
+    // For cards: pointer-within gives precise hits; prefer cards over columns
+    const hits = pointerWithin(args);
+    if (hits.length > 0) {
+      const cardHit = hits.find(({ id }) => {
+        const c = args.droppableContainers.find((dc) => dc.id === id);
+        return c?.data?.current?.type === "card";
+      });
+      if (cardHit) return [cardHit];
+      return hits;
+    }
+    return rectIntersection(args);
+  };
+
   function handleDragStart({ active }: DragStartEvent) {
     preDragStacks.current = localStacks;
     const type = active.data.current?.type as string;
@@ -255,7 +282,7 @@ export function Board({ data, views }: BoardProps) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
