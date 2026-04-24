@@ -168,17 +168,26 @@ export function Board({ data, views }: BoardProps) {
       return closestCenter({ ...args, droppableContainers: stackOnly });
     }
 
-    // For cards: pointer-within gives precise hits; prefer cards over columns
-    const hits = pointerWithin(args);
-    if (hits.length > 0) {
-      const cardHit = hits.find(({ id }) => {
-        const c = args.droppableContainers.find((dc) => dc.id === id);
-        return c?.data?.current?.type === "card";
-      });
-      if (cardHit) return [cardHit];
-      return hits;
-    }
-    return rectIntersection(args);
+    // For cards:
+    const cardContainers = args.droppableContainers.filter(
+      (c) => c.data?.current?.type === "card"
+    );
+
+    // 1. Pointer directly over a card — most precise
+    const pointerOverCard = pointerWithin({ ...args, droppableContainers: cardContainers });
+    if (pointerOverCard.length > 0) return pointerOverCard;
+
+    // 2. Pointer in the gap between cards — closest card center wins.
+    //    This is the key fix: restricting to cardContainers means column droppables
+    //    cannot intercept mid-column drops.
+    const closestCard = closestCenter({ ...args, droppableContainers: cardContainers });
+    if (closestCard.length > 0) return closestCard;
+
+    // 3. No cards nearby (empty column) — fall back to column droppable
+    const colContainers = args.droppableContainers.filter(
+      (c) => c.data?.current?.type === "column"
+    );
+    return pointerWithin({ ...args, droppableContainers: colContainers });
   };
 
   function handleDragStart({ active }: DragStartEvent) {

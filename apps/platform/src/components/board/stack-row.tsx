@@ -335,6 +335,7 @@ function StackHeader({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(stack.title);
   const [pending, startTransition] = useTransition();
+  const columnFieldName = columnFieldId ? (fields.find((f) => f.id === columnFieldId)?.name ?? null) : null;
   const renameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -377,7 +378,7 @@ function StackHeader({
 
         {renaming ? (
           <div className="min-w-0 flex-1">
-            <div className="section-label">Stack</div>
+            <div className="section-label">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
             <input
               ref={renameRef}
               type="text"
@@ -398,7 +399,7 @@ function StackHeader({
             scroll={false}
             className="min-w-0 flex-1 group"
           >
-            <div className="section-label">Stack</div>
+            <div className="section-label">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
             <div className="flex items-start gap-1">
               <h3
                 className={[
