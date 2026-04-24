@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { GripVertical, MoreHorizontal, Plus } from "lucide-react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
-import { createCard } from "@/lib/actions/nodes";
+import { createCard, updateNodeTitle, moveStackUpDown, archiveNode } from "@/lib/actions/nodes";
 import { FieldBadge } from "../field-badge";
 import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
@@ -19,9 +20,11 @@ interface StackRowProps {
   columnField: BoardField | null;
   fields: BoardField[];
   activeDetailId: string | null;
+  stackIndex: number;
+  totalStacks: number;
 }
 
-export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId }: StackRowProps) {
+export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId, stackIndex, totalStacks }: StackRowProps) {
   const router = useRouter();
   const isActive = activeDetailId === stack.id;
 
@@ -80,6 +83,8 @@ export function StackRow({ stack, workspaceId, columnField, fields, activeDetail
           fields={fields}
           dragListeners={listeners}
           dragAttributes={attributes}
+          stackIndex={stackIndex}
+          totalStacks={totalStacks}
         />
         <div className="flex flex-1 min-w-0">
           {columns.map((col) => {
@@ -177,6 +182,7 @@ function DroppableColumn({
               key={c.id}
               card={c}
               workspaceId={workspaceId}
+              stackId={stackId}
               fields={fields}
               columnFieldId={columnField?.id ?? null}
             />
@@ -202,6 +208,8 @@ function StackHeader({
   fields,
   dragListeners,
   dragAttributes,
+  stackIndex,
+  totalStacks,
 }: {
   stack: BoardStack;
   workspaceId: string;
@@ -209,7 +217,34 @@ function StackHeader({
   fields: BoardField[];
   dragListeners: ReturnType<typeof useSortable>["listeners"];
   dragAttributes: ReturnType<typeof useSortable>["attributes"];
+  stackIndex: number;
+  totalStacks: number;
 }) {
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(stack.title);
+  const [pending, startTransition] = useTransition();
+  const renameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renaming) renameRef.current?.select();
+  }, [renaming]);
+
+  const commitRename = () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === stack.title) {
+      setRenaming(false);
+      setRenameValue(stack.title);
+      return;
+    }
+    startTransition(async () => {
+      await updateNodeTitle(stack.id, trimmed, workspaceId, workspaceId);
+      router.refresh();
+      setRenaming(false);
+    });
+  };
+
   const badges: { id: string; name: string; color: string }[] = [];
   for (const field of fields) {
     const optionIds = stack.field_values[field.id] ?? [];
@@ -238,41 +273,122 @@ function StackHeader({
         >
           <GripVertical size={14} />
         </button>
-        <Link
-          href={`/n/${workspaceId}?d=${stack.id}`}
-          scroll={false}
-          className="min-w-0 flex-1 group"
-        >
-          <div className="section-label">Stack</div>
-          <h3
-            className={[
-              "mt-0.5 truncate text-base font-semibold transition-colors",
-              isActive
-                ? "text-accent"
-                : "text-text-primary group-hover:text-accent",
-            ].join(" ")}
+
+        {renaming ? (
+          <div className="min-w-0 flex-1">
+            <div className="section-label">Stack</div>
+            <input
+              ref={renameRef}
+              type="text"
+              value={renameValue}
+              disabled={pending}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") { setRenaming(false); setRenameValue(stack.title); }
+              }}
+              onBlur={commitRename}
+              className="mt-0.5 w-full rounded border border-border-strong bg-bg-card px-1 py-0.5 text-base font-semibold text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+        ) : (
+          <Link
+            href={`/n/${workspaceId}?d=${stack.id}`}
+            scroll={false}
+            className="min-w-0 flex-1 group"
           >
-            {stack.title}
-          </h3>
-          {stack.description && (
-            <p className="mt-1 line-clamp-2 text-xs text-text-secondary">{stack.description}</p>
+            <div className="section-label">Stack</div>
+            <h3
+              className={[
+                "mt-0.5 truncate text-base font-semibold transition-colors",
+                isActive
+                  ? "text-accent"
+                  : "text-text-primary group-hover:text-accent",
+              ].join(" ")}
+            >
+              {stack.title}
+            </h3>
+            {stack.description && (
+              <p className="mt-1 line-clamp-2 text-xs text-text-secondary">{stack.description}</p>
+            )}
+            {badges.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {badges.map((b) => (
+                  <FieldBadge key={b.id} name={b.name} color={b.color} />
+                ))}
+              </div>
+            )}
+          </Link>
+        )}
+
+        {/* QUAM */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Stack actions"
+            className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+          >
+            <MoreHorizontal size={14} />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" aria-hidden onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); setRenameValue(stack.title); setRenaming(true); }}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  disabled={stackIndex === 0 || pending}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    startTransition(async () => {
+                      await moveStackUpDown(stack.id, workspaceId, "up");
+                      router.refresh();
+                    });
+                  }}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+                >
+                  Move up
+                </button>
+                <button
+                  type="button"
+                  disabled={stackIndex === totalStacks - 1 || pending}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    startTransition(async () => {
+                      await moveStackUpDown(stack.id, workspaceId, "down");
+                      router.refresh();
+                    });
+                  }}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+                >
+                  Move down
+                </button>
+                <div className="my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    startTransition(async () => {
+                      await archiveNode(stack.id, workspaceId, workspaceId);
+                      router.refresh();
+                    });
+                  }}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:cursor-default disabled:opacity-40"
+                >
+                  Archive
+                </button>
+              </div>
+            </>
           )}
-          {badges.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {badges.map((b) => (
-                <FieldBadge key={b.id} name={b.name} color={b.color} />
-              ))}
-            </div>
-          )}
-        </Link>
-        <button
-          type="button"
-          disabled
-          title="Stack actions (coming soon)"
-          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
-        >
-          <MoreHorizontal size={14} />
-        </button>
+        </div>
       </div>
     </div>
   );

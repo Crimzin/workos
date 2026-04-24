@@ -9,6 +9,57 @@ import {
   revalidateWorkspaceBoard,
 } from "../cache";
 
+export async function archiveNode(
+  nodeId: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("nodes")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
+export async function moveStackUpDown(
+  stackId: string,
+  workspaceId: string,
+  direction: "up" | "down"
+): Promise<void> {
+  const { data: stacks, error } = await supabase
+    .from("nodes")
+    .select("id, position")
+    .eq("parent_id", workspaceId)
+    .eq("type", "stack")
+    .is("archived_at", null)
+    .order("position", { ascending: true });
+  if (error) throw error;
+  if (!stacks) return;
+
+  const idx = stacks.findIndex((s) => s.id === stackId);
+  if (idx === -1) return;
+  const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (neighborIdx < 0 || neighborIdx >= stacks.length) return;
+
+  const curr = stacks[idx];
+  const neighbor = stacks[neighborIdx];
+  await Promise.all([
+    supabase.from("nodes").update({ position: neighbor.position }).eq("id", curr.id),
+    supabase.from("nodes").update({ position: curr.position }).eq("id", neighbor.id),
+  ]);
+
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+}
+
 export async function updateNodeTitle(
   nodeId: string,
   title: string,

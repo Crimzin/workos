@@ -11,6 +11,7 @@ import {
 
 export interface SetFieldValueInput {
   nodeId: string;
+  parentId: string | null;
   workspaceId: string;
   fieldId: string;
   fieldType: "single_select" | "multi_select" | "text" | "date";
@@ -25,7 +26,7 @@ export interface SetFieldValueInput {
  * text/date, we upsert a single row.
  */
 export async function setFieldValue(input: SetFieldValueInput): Promise<void> {
-  const { nodeId, workspaceId, fieldId, fieldType } = input;
+  const { nodeId, parentId, workspaceId, fieldId, fieldType } = input;
 
   const { error: delErr } = await supabase
     .from("node_field_values")
@@ -72,7 +73,7 @@ export async function setFieldValue(input: SetFieldValueInput): Promise<void> {
     }
   }
 
-  revalidateNode(nodeId, null);
+  revalidateNode(nodeId, parentId);
   revalidateWorkspaceBoard(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
 }

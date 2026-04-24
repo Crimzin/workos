@@ -220,7 +220,7 @@ export function Board({ data }: BoardProps) {
                 items={localStacks.map((s) => s.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {localStacks.map((stack) => (
+                {localStacks.map((stack, i) => (
                   <StackRow
                     key={stack.id}
                     stack={stack}
@@ -228,6 +228,8 @@ export function Board({ data }: BoardProps) {
                     columnField={columnField}
                     fields={data.fields}
                     activeDetailId={activeDetailId}
+                    stackIndex={i}
+                    totalStacks={localStacks.length}
                   />
                 ))}
               </SortableContext>

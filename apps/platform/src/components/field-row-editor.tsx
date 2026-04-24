@@ -12,6 +12,7 @@ interface FieldRowEditorProps {
   field: DetailField;
   values: DetailFieldValue[];
   nodeId: string;
+  parentId: string | null;
   workspaceId: string;
 }
 
@@ -19,6 +20,7 @@ export function FieldRowEditor({
   field,
   values,
   nodeId,
+  parentId,
   workspaceId,
 }: FieldRowEditorProps) {
   const [editOpen, setEditOpen] = useState(false);
@@ -66,6 +68,7 @@ export function FieldRowEditor({
           field={field}
           values={values}
           nodeId={nodeId}
+          parentId={parentId}
           workspaceId={workspaceId}
         />
       </dd>
@@ -93,7 +96,7 @@ function EditorForType(props: FieldRowEditorProps) {
   return null;
 }
 
-function SelectEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProps) {
+function SelectEditor({ field, values, nodeId, parentId, workspaceId }: FieldRowEditorProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -118,6 +121,7 @@ function SelectEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProp
     startTransition(async () => {
       await setFieldValue({
         nodeId,
+        parentId,
         workspaceId,
         fieldId: field.id,
         fieldType: field.field_type,
@@ -185,6 +189,7 @@ function SelectEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProp
                     startTransition(async () => {
                       await setFieldValue({
                         nodeId,
+                        parentId,
                         workspaceId,
                         fieldId: field.id,
                         fieldType: field.field_type,
@@ -209,6 +214,7 @@ function SelectEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProp
                     startTransition(async () => {
                       await setFieldValue({
                         nodeId,
+                        parentId,
                         workspaceId,
                         fieldId: field.id,
                         fieldType: field.field_type,
@@ -231,7 +237,7 @@ function SelectEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProp
   );
 }
 
-function TextEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProps) {
+function TextEditor({ field, values, nodeId, parentId, workspaceId }: FieldRowEditorProps) {
   const router = useRouter();
   const initial = values[0]?.value_text ?? "";
   const [editing, setEditing] = useState(false);
@@ -253,6 +259,7 @@ function TextEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProps)
     startTransition(async () => {
       await setFieldValue({
         nodeId,
+        parentId,
         workspaceId,
         fieldId: field.id,
         fieldType: "text",
@@ -295,7 +302,7 @@ function TextEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProps)
   );
 }
 
-function DateEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProps) {
+function DateEditor({ field, values, nodeId, parentId, workspaceId }: FieldRowEditorProps) {
   const router = useRouter();
   const initial = values[0]?.value_date ?? "";
   const [pending, startTransition] = useTransition();
@@ -304,6 +311,7 @@ function DateEditor({ field, values, nodeId, workspaceId }: FieldRowEditorProps)
     startTransition(async () => {
       await setFieldValue({
         nodeId,
+        parentId,
         workspaceId,
         fieldId: field.id,
         fieldType: "date",

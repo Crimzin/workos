@@ -8,6 +8,7 @@ import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
 import { EditableTitle } from "./editable-title";
 import { DetailPanelTabs } from "./detail-panel-tabs";
+import { AddCardFromPanel } from "./add-card-from-panel";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -82,6 +83,7 @@ function DetailBody({
   const cardsContent =
     node.type === "stack" ? (
       <CardsTabContent
+        stackId={node.id}
         cards={children}
         fields={fields}
         childFieldValues={childFieldValues}
@@ -286,6 +288,7 @@ function FieldsTabContent({
             field={field}
             values={valuesByField.get(field.id) ?? []}
             nodeId={node.id}
+            parentId={node.parent_id}
             workspaceId={workspaceId}
           />
         ))}
@@ -308,27 +311,24 @@ function SystemRow({ label, value }: { label: string; value: string }) {
 // ---------------------------------------------------------------------------
 
 function CardsTabContent({
+  stackId,
   cards,
   fields,
   childFieldValues,
   workspaceId,
 }: {
+  stackId: string;
   cards: WorkNode[];
   fields: DetailField[];
   childFieldValues: Record<string, DetailFieldValue[]>;
   workspaceId: string;
 }) {
-  if (cards.length === 0) {
-    return (
-      <div className="flex items-center justify-center px-6 py-12 text-sm text-text-secondary">
-        No cards yet.
-      </div>
-    );
-  }
-
   return (
     <div className="px-5 py-4">
-      <ul className="divide-y divide-border rounded-md border border-border bg-bg-card">
+      {cards.length === 0 ? (
+        <p className="py-6 text-center text-sm text-text-secondary">No cards yet.</p>
+      ) : (
+      <ul className="mb-3 divide-y divide-border rounded-md border border-border bg-bg-card">
         {cards.map((card) => {
           const cardValues = childFieldValues[card.id] ?? [];
           const badges = getCardBadges(card, cardValues, fields);
@@ -359,6 +359,8 @@ function CardsTabContent({
           );
         })}
       </ul>
+      )}
+      <AddCardFromPanel stackId={stackId} workspaceId={workspaceId} />
     </div>
   );
 }
