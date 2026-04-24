@@ -69,7 +69,7 @@ Decisions made as we build. Most recent on top.
 - [x] Workspace-wide column-field picker in toolbar ("Columns: Status ▾") as the prominent affordance for changing columns
 - [x] Empty workspace state + `+ Add card` / `+ New Stack` / Filter placeholders
 - [ ] Per-stack column-field override → **deferred to 1.8** (view-scoped)
-- [ ] Stack reordering via drag and drop + quick action menu → **1.7**
+- [x] Stack reordering via drag and drop + quick action menu → **1.7**
 - [ ] Column header collapse/expand → **1.8**
 - [ ] Member/agent avatars on stack headers and cards → **1.6/1.5** (needs detail panel + field badges)
 
@@ -109,7 +109,7 @@ Decisions made as we build. Most recent on top.
 - [x] Field values display as pill badges on card previews and in the detail panel
 - [x] Field CRUD UI (create, rename, add/remove values, reorder values via ↑/↓ buttons)
 - [x] Edit dialog: rename, description, color, locked toggle, option list, delete field — opened from QUAM (`⋯ → Edit`) on each field row
-- [ ] Option drag-reorder (keyboard arrows ship in v1; drag lands with 1.7)
+- [x] Option drag-reorder (keyboard arrows ship in v1; drag lands with 1.7)
 
 ### 1.7 Drag and Drop — ✅ Complete
 
@@ -121,17 +121,18 @@ Decisions made as we build. Most recent on top.
 - [x] Panel dividers (resize) — between Board and Detail
 - [ ] Panels between layout positions (rearrange) — *slipped to Phase 2*
 
-### 1.7.5 Detail Panel v2
+### 1.7.5 Detail Panel v2 — 🟡 Mostly Complete
 
 Finishes the 1.5 deferred polish and extends the panel to stacks. Lives after 1.7 so divider resize and drag-reorder are available.
 
-- [ ] Breadcrumb + editable title + field badges + owner/members (card panels)
-- [ ] Tabs scaffold: **Posts** + **Fields** (Context tab lands in Phase 2)
+- [x] Breadcrumb + editable title + field badges + owner/members (card panels)
+- [x] Tabs scaffold: **Posts** + **Fields** (Context tab lands in Phase 2)
 - [ ] Posts tab: pinned posts, chronological feed, field-change entries, composer with slash commands / @ mentions / Cmd+Enter, pin/edit/delete actions
 - [ ] Agent posts render with purple-ring avatar + "AI" label
-- [ ] **Stack detail panels** — stacks open the same side panel via `?d=<stackId>`; full parity with card panels (title, description, Posts, Fields, owner/members)
-- [ ] **Cards tab (stacks only)** — miniaturized card list for the stack's children: compact title + field badges + owner avatar; click to open that card's panel (swaps the `?d` target); inherits drag-reorder from 1.7
-- [ ] Resolve active-node highlighting when a stack is open (highlight the stack row header the same way cards highlight)
+- [x] **Stack detail panels** — stacks open the same side panel via `?d=<stackId>`; full parity with card panels (title, description, Posts, Fields, owner/members)
+- [x] **Cards tab (stacks only)** — miniaturized card list for the stack's children; click to open card panel; add-card inline input
+- [x] Resolve active-node highlighting when a stack is open (highlight the stack row header the same way cards highlight)
+- [x] **Board-face inline editing** — click field badges on cards/stacks to change values without opening the panel; hover pencil on cards/stacks for direct title rename; stack QUAM (Rename, Move up/down, Archive)
 
 ### 1.8 Saved Views
 
