@@ -25,9 +25,11 @@ interface StackRowProps {
   stackIndex: number;
   totalStacks: number;
   actors: Record<string, BoardActor>;
+  collapsedColumnIds: string[];
+  onToggleColumnCollapse: (colId: string) => void;
 }
 
-export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId, stackIndex, totalStacks, actors }: StackRowProps) {
+export function StackRow({ stack, workspaceId, columnField, fields, activeDetailId, stackIndex, totalStacks, actors, collapsedColumnIds, onToggleColumnCollapse }: StackRowProps) {
   const router = useRouter();
   const isActive = activeDetailId === stack.id;
 
@@ -105,6 +107,8 @@ export function StackRow({ stack, workspaceId, columnField, fields, activeDetail
                 fields={fields}
                 columnField={columnField}
                 actors={actors}
+                collapsed={collapsedColumnIds.includes(col.id)}
+                onToggleCollapse={() => onToggleColumnCollapse(col.id)}
                 onAddCard={async (title) => {
                   const res = await createCard(
                     stack.id,
@@ -134,6 +138,8 @@ function DroppableColumn({
   fields,
   columnField,
   actors,
+  collapsed,
+  onToggleCollapse,
   onAddCard,
 }: {
   stackId: string;
@@ -144,6 +150,8 @@ function DroppableColumn({
   fields: BoardField[];
   columnField: BoardField | null;
   actors: Record<string, BoardActor>;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   onAddCard: (title: string) => Promise<void | { id: string }>;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -171,6 +179,36 @@ function DroppableColumn({
     });
   };
 
+  // ── Collapsed view ────────────────────────────────────────────────────────
+  if (collapsed) {
+    return (
+      <div
+        ref={setNodeRef}
+        className="flex w-8 shrink-0 cursor-pointer flex-col items-center border-l border-border bg-bg-primary hover:bg-bg-hover transition-colors"
+        onClick={onToggleCollapse}
+        title={`Expand ${col.name} (${cards.length})`}
+      >
+        <div className="flex flex-1 flex-col items-center justify-start pt-3 gap-2">
+          <span
+            className={[
+              "inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-medium",
+              isUnassigned ? "text-text-tertiary" : "bg-bg-hover text-text-secondary",
+            ].join(" ")}
+          >
+            {cards.length}
+          </span>
+          <span
+            className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary"
+            style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+          >
+            {col.name}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Expanded view ─────────────────────────────────────────────────────────
   return (
     <div
       ref={setNodeRef}
@@ -179,8 +217,8 @@ function DroppableColumn({
         isOver ? "bg-bg-hover" : "bg-bg-primary",
       ].join(" ")}
     >
-      <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <div className="group flex items-center gap-2 min-w-0">
+      <div className="group flex items-center justify-between gap-2 px-3 py-2">
+        <div className="flex items-center gap-2 min-w-0">
           {renaming ? (
             <input
               ref={renameRef}
@@ -221,6 +259,16 @@ function DroppableColumn({
             {cards.length}
           </span>
         </div>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label="Collapse column"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100 group/header hover:opacity-100"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 5h6M2 2l3 3-3 3" />
+          </svg>
+        </button>
       </div>
 
       <SortableContext

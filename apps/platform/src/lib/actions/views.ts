@@ -11,7 +11,8 @@ export async function createView(
   columnFieldId: string | null,
   filters: ViewFilter[] = [],
   stackFilters: ViewFilter[] = [],
-  hiddenStackIds: string[] = []
+  hiddenStackIds: string[] = [],
+  collapsedColumnIds: string[] = []
 ): Promise<{ id: string }> {
   const { data, error } = await supabase
     .from("workspace_views")
@@ -23,6 +24,7 @@ export async function createView(
       filters: filters as unknown as Record<string, unknown>[],
       stack_filters: stackFilters as unknown as Record<string, unknown>[],
       hidden_stack_ids: hiddenStackIds,
+      collapsed_column_ids: collapsedColumnIds,
     })
     .select("id")
     .single();
@@ -71,6 +73,19 @@ export async function starView(viewId: string, workspaceId: string): Promise<voi
   if (error) throw error;
   revalidateWorkspaceViews(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
+}
+
+export async function updateViewCollapsedColumns(
+  viewId: string,
+  workspaceId: string,
+  collapsedColumnIds: string[]
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ collapsed_column_ids: collapsedColumnIds, updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
 }
 
 export async function updateViewStackFilters(

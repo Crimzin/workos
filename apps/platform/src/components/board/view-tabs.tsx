@@ -16,6 +16,7 @@ interface ViewTabsProps {
   currentFilters: ViewFilter[];
   currentStackFilters: ViewFilter[];
   currentHiddenStackIds: string[];
+  currentCollapsedColumnIds: string[];
 }
 
 export function ViewTabs({
@@ -28,6 +29,7 @@ export function ViewTabs({
   currentFilters,
   currentStackFilters,
   currentHiddenStackIds,
+  currentCollapsedColumnIds,
 }: ViewTabsProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -66,9 +68,9 @@ export function ViewTabs({
 
   const handleAdd = () => {
     startTransition(async () => {
-      const newView = await createView(workspaceId, "New View", currentColumnFieldId, currentFilters, currentStackFilters, currentHiddenStackIds);
+      const newView = await createView(workspaceId, "New View", currentColumnFieldId, currentFilters, currentStackFilters, currentHiddenStackIds, currentCollapsedColumnIds);
       router.refresh();
-      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId, filters: currentFilters, stack_filters: currentStackFilters, hidden_stack_ids: currentHiddenStackIds });
+      onViewCreated({ id: newView.id, workspace_id: workspaceId, name: "New View", starred: false, column_field_id: currentColumnFieldId, filters: currentFilters, stack_filters: currentStackFilters, hidden_stack_ids: currentHiddenStackIds, collapsed_column_ids: currentCollapsedColumnIds });
       setRenamingId(newView.id);
       setRenameValue("New View");
     });

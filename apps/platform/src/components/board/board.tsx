@@ -25,7 +25,7 @@ import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
-import { updateViewColumnField, updateViewFilters, updateViewStackFilters } from "@/lib/actions/views";
+import { updateViewColumnField, updateViewFilters, updateViewStackFilters, updateViewCollapsedColumns } from "@/lib/actions/views";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
@@ -53,6 +53,7 @@ export function Board({ data, views }: BoardProps) {
   const [filters, setFilters] = useState<ViewFilter[]>(activeView?.filters ?? []);
   const [stackFilters, setStackFilters] = useState<ViewFilter[]>(activeView?.stack_filters ?? []);
   const [hiddenStackIds, setHiddenStackIds] = useState<string[]>(activeView?.hidden_stack_ids ?? []);
+  const [collapsedColumnIds, setCollapsedColumnIds] = useState<string[]>(activeView?.collapsed_column_ids ?? []);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [localStacks, setLocalStacks] = useState<BoardStack[]>(data.stacks);
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
@@ -79,6 +80,15 @@ export function Board({ data, views }: BoardProps) {
     setFilters(view.filters ?? []);
     setStackFilters(view.stack_filters ?? []);
     setHiddenStackIds(view.hidden_stack_ids ?? []);
+    setCollapsedColumnIds(view.collapsed_column_ids ?? []);
+  };
+
+  const handleToggleColumnCollapse = (colId: string) => {
+    const next = collapsedColumnIds.includes(colId)
+      ? collapsedColumnIds.filter((id) => id !== colId)
+      : [...collapsedColumnIds, colId];
+    setCollapsedColumnIds(next);
+    if (activeView) updateViewCollapsedColumns(activeView.id, workspaceId, next);
   };
 
   const handleFiltersChange = (newFilters: ViewFilter[]) => {
@@ -256,11 +266,13 @@ export function Board({ data, views }: BoardProps) {
               setFilters(v.filters ?? []);
               setStackFilters(v.stack_filters ?? []);
               setHiddenStackIds(v.hidden_stack_ids ?? []);
+              setCollapsedColumnIds(v.collapsed_column_ids ?? []);
             }}
             currentColumnFieldId={columnFieldId}
             currentFilters={filters}
             currentStackFilters={stackFilters}
             currentHiddenStackIds={hiddenStackIds}
+            currentCollapsedColumnIds={collapsedColumnIds}
           />
         )}
 
@@ -323,6 +335,8 @@ export function Board({ data, views }: BoardProps) {
                     stackIndex={i}
                     totalStacks={localStacks.length}
                     actors={data.actors}
+                    collapsedColumnIds={collapsedColumnIds}
+                    onToggleColumnCollapse={handleToggleColumnCollapse}
                   />
                 ))}
               </SortableContext>
