@@ -209,30 +209,33 @@ export function Board({ data, views }: BoardProps) {
     if (!over || active.id === over.id) return;
     if (active.data.current?.type !== "card") return;
 
+    // Extract all mutable-ref values immediately — the setLocalStacks updater
+    // runs deferred and must not read refs that dnd-kit may mutate by then.
     const activeId = active.id as string;
     const overId = over.id as string;
     const overType = over.data.current?.type as string | undefined;
 
-    setLocalStacks((prev) => {
-      if (overType === "column") {
-        return applyCardOverColumn(
-          prev, activeId,
-          over.data.current!.stackId as string,
-          over.data.current!.columnId as string,
-          columnFieldId
-        );
-      }
-      if (overType === "card") {
-        // Compare overlay top to over-card midpoint to decide insert before vs after.
-        // closestCenter is symmetric — equidistant cards produce wrong order without this.
-        const translatedTop = active.rect.current.translated?.top ?? null;
-        const insertAfter = translatedTop !== null
-          ? translatedTop > over.rect.top + over.rect.height / 2
-          : false;
-        return applyCardOverCard(prev, activeId, overId, columnFieldId, insertAfter);
-      }
-      return prev;
-    });
+    if (overType === "column") {
+      const stackId = over.data.current!.stackId as string;
+      const columnId = over.data.current!.columnId as string;
+      setLocalStacks((prev) =>
+        applyCardOverColumn(prev, activeId, stackId, columnId, columnFieldId)
+      );
+      return;
+    }
+
+    if (overType === "card") {
+      // Compare overlay top edge to over-card vertical midpoint.
+      // closestCenter is symmetric — without this, equidistant cards (A above, B below
+      // the gap) always resolve to A by array order, inserting before A instead of
+      // between A and B.
+      const translatedTop = active.rect.current.translated?.top ?? null;
+      const overMidpoint = over.rect.top + over.rect.height / 2;
+      const insertAfter = translatedTop !== null ? translatedTop > overMidpoint : false;
+      setLocalStacks((prev) =>
+        applyCardOverCard(prev, activeId, overId, columnFieldId, insertAfter)
+      );
+    }
   }
 
   function handleDragCancel() {
