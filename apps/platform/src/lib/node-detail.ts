@@ -99,13 +99,13 @@ export async function getNodeDetail(
             .from("node_members")
             .select("actor_id")
             .eq("node_id", nodeId),
-          // Only fetch children for stack nodes (for Cards tab)
+          // Only fetch children for stack nodes (for Cards tab).
+          // Include archived cards so the Cards tab can show/unarchive them.
           node.type === "stack"
             ? supabase
                 .from("nodes")
                 .select("*")
                 .eq("parent_id", nodeId)
-                .is("archived_at", null)
                 .order("position", { ascending: true })
             : Promise.resolve({ data: [] as WorkNode[], error: null }),
         ]);

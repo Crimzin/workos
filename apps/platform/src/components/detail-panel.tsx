@@ -9,6 +9,7 @@ import { AddFieldButton } from "./add-field-button";
 import { EditableTitle } from "./editable-title";
 import { DetailPanelTabs } from "./detail-panel-tabs";
 import { AddCardFromPanel } from "./add-card-from-panel";
+import { NodeActions } from "./node-actions";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -100,6 +101,13 @@ function DetailBody({
             {/* Breadcrumb */}
             <Breadcrumb ancestors={ancestors} workspaceId={workspaceId} />
 
+            {/* Archived badge */}
+            {node.archived_at && (
+              <span className="mt-1 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-bg-hover text-text-tertiary">
+                Archived
+              </span>
+            )}
+
             {/* Editable title */}
             <div className="mt-1">
               <EditableTitle
@@ -123,7 +131,17 @@ function DetailBody({
             <OwnerMembersRow owner={owner} members={members} />
           </div>
 
-          <CloseButton href={closeHref} />
+          <div className="flex shrink-0 items-center gap-1">
+            <NodeActions
+              nodeId={node.id}
+              workspaceId={workspaceId}
+              parentId={node.parent_id}
+              nodeType={node.type as "card" | "stack"}
+              isArchived={!!node.archived_at}
+              closeHref={closeHref}
+            />
+            <CloseButton href={closeHref} />
+          </div>
         </div>
       </div>
 
@@ -333,15 +351,25 @@ function CardsTabContent({
           const cardValues = childFieldValues[card.id] ?? [];
           const badges = getCardBadges(card, cardValues, fields);
           return (
-            <li key={card.id}>
+            <li key={card.id} className="group flex items-stretch">
               <Link
                 href={`/n/${workspaceId}?d=${card.id}`}
                 scroll={false}
-                className="flex flex-col gap-1 px-3 py-2.5 transition-colors hover:bg-bg-hover"
+                className={[
+                  "flex min-w-0 flex-1 flex-col gap-1 px-3 py-2.5 transition-colors hover:bg-bg-hover",
+                  card.archived_at ? "opacity-50" : "",
+                ].join(" ")}
               >
-                <span className="text-sm font-medium text-text-primary line-clamp-1">
-                  {card.title}
-                </span>
+                <div className="flex items-center gap-1">
+                  {card.archived_at && (
+                    <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-bg-hover text-text-tertiary">
+                      Archived
+                    </span>
+                  )}
+                  <span className="text-sm font-medium text-text-primary line-clamp-1">
+                    {card.title}
+                  </span>
+                </div>
                 {card.description && (
                   <span className="text-xs text-text-secondary line-clamp-1">
                     {card.description}
@@ -355,6 +383,16 @@ function CardsTabContent({
                   </div>
                 )}
               </Link>
+              <div className="flex shrink-0 items-center px-2 opacity-0 transition-opacity group-hover:opacity-100">
+                <NodeActions
+                  nodeId={card.id}
+                  workspaceId={workspaceId}
+                  parentId={stackId}
+                  nodeType="card"
+                  isArchived={!!card.archived_at}
+                  closeHref={`/n/${workspaceId}?d=${stackId}`}
+                />
+              </div>
             </li>
           );
         })}

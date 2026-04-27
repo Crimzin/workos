@@ -22,6 +22,7 @@ export interface BoardCard {
   description: string | null;
   owner_id: string | null;
   position: number;
+  archived_at: string | null;
   /** fieldId -> list of selected optionIds (single-select will have 0 or 1) */
   field_values: Record<string, string[]>;
 }
@@ -32,6 +33,7 @@ export interface BoardStack {
   description: string | null;
   owner_id: string | null;
   position: number;
+  archived_at: string | null;
   cards: BoardCard[];
   /** fieldId -> list of selected optionIds */
   field_values: Record<string, string[]>;

@@ -29,6 +29,45 @@ export async function archiveNode(
   }
 }
 
+export async function unarchiveNode(
+  nodeId: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("nodes")
+    .update({ archived_at: null })
+    .eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
+export async function deleteNode(
+  nodeId: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  // ON DELETE CASCADE on parent_id means deleting a stack cascades to its cards.
+  // ON DELETE CASCADE on node_id in node_field_values cleans up field values.
+  const { error } = await supabase.from("nodes").delete().eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
 export async function moveStackUpDown(
   stackId: string,
   workspaceId: string,

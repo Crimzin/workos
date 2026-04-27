@@ -9,7 +9,8 @@ import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
-import { createCard, updateNodeTitle, moveStackUpDown, archiveNode } from "@/lib/actions/nodes";
+import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode } from "@/lib/actions/nodes";
+import { ConfirmModal } from "../confirm-modal";
 import { updateFieldOption } from "@/lib/actions/fields";
 import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
@@ -80,13 +81,16 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
     }
   }
 
+  const isArchived = !!stack.archived_at;
+
   return (
-    <div ref={setNodeRef} style={style} className="border-b border-border">
+    <div ref={setNodeRef} style={style} className={["border-b border-border", isArchived ? "opacity-50 grayscale" : ""].join(" ")}>
       <div className="flex items-stretch">
         <StackHeader
           stack={stack}
           workspaceId={workspaceId}
           isActive={isActive}
+          isArchived={isArchived}
           fields={fields}
           dragListeners={listeners}
           dragAttributes={attributes}
@@ -309,6 +313,7 @@ function StackHeader({
   stack,
   workspaceId,
   isActive,
+  isArchived,
   fields,
   dragListeners,
   dragAttributes,
@@ -321,6 +326,7 @@ function StackHeader({
   stack: BoardStack;
   workspaceId: string;
   isActive: boolean;
+  isArchived: boolean;
   fields: BoardField[];
   dragListeners: ReturnType<typeof useSortable>["listeners"];
   dragAttributes: ReturnType<typeof useSortable>["attributes"];
@@ -332,6 +338,7 @@ function StackHeader({
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(stack.title);
   const [pending, startTransition] = useTransition();
@@ -357,6 +364,7 @@ function StackHeader({
   };
 
   return (
+    <>
     <div
       className={[
         "w-60 shrink-0 border-r border-border px-4 py-3 transition-colors",
@@ -529,19 +537,47 @@ function StackHeader({
                   </>
                 )}
                 <div className="my-1 h-px bg-border" />
+                {isArchived ? (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      startTransition(async () => {
+                        await unarchiveNode(stack.id, workspaceId, workspaceId);
+                        router.refresh();
+                      });
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+                  >
+                    Unarchive
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      startTransition(async () => {
+                        await archiveNode(stack.id, workspaceId, workspaceId);
+                        router.refresh();
+                      });
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+                  >
+                    Archive
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={pending}
                   onClick={() => {
                     setMenuOpen(false);
-                    startTransition(async () => {
-                      await archiveNode(stack.id, workspaceId, workspaceId);
-                      router.refresh();
-                    });
+                    setConfirmDelete(true);
                   }}
                   className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:cursor-default disabled:opacity-40"
                 >
-                  Archive
+                  Delete
                 </button>
               </div>
             </>
@@ -549,6 +585,24 @@ function StackHeader({
         </div>
       </div>
     </div>
+
+    {confirmDelete && (
+
+      <ConfirmModal
+        title="Delete stack?"
+        body="Are you sure? Deleted stacks and all their cards can't be recovered."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          setConfirmDelete(false);
+          startTransition(async () => {
+            await deleteNode(stack.id, workspaceId, workspaceId);
+            router.refresh();
+          });
+        }}
+        onCancel={() => setConfirmDelete(false)}
+      />
+    )}
+    </>
   );
 }
 

@@ -15,6 +15,9 @@ interface FilterMenuProps {
   stackFilters: ViewFilter[];
   hiddenStackIds: string[];
   onStackFiltersChange: (stackFilters: ViewFilter[], hiddenStackIds: string[]) => void;
+  // Archived toggle
+  showArchived: boolean;
+  onShowArchivedChange: (v: boolean) => void;
 }
 
 export function FilterMenu({
@@ -25,13 +28,16 @@ export function FilterMenu({
   stackFilters,
   hiddenStackIds,
   onStackFiltersChange,
+  showArchived,
+  onShowArchivedChange,
 }: FilterMenuProps) {
   const [open, setOpen] = useState(false);
 
   const activeCardCount = filters.reduce((n, f) => n + (f.optionIds.length > 0 ? 1 : 0), 0);
   const activeStackFieldCount = stackFilters.reduce((n, f) => n + (f.optionIds.length > 0 ? 1 : 0), 0);
   const activeStackHideCount = hiddenStackIds.length;
-  const totalActive = activeCardCount + activeStackFieldCount + activeStackHideCount;
+  const archivedCount = showArchived ? 1 : 0;
+  const totalActive = activeCardCount + activeStackFieldCount + activeStackHideCount + archivedCount;
 
   // ── Card field toggles ───────────────────────────────────────────────────
   const toggleCardOption = (fieldId: string, optionId: string) => {
@@ -127,6 +133,30 @@ export function FilterMenu({
             </div>
 
             <div className="max-h-[420px] overflow-y-auto">
+              {/* ── Include archived ──────────────────────────────────── */}
+              <div className="border-b border-border px-3 py-2">
+                <label className="flex cursor-pointer items-center justify-between gap-2">
+                  <span className="text-xs text-text-secondary">Include archived</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={showArchived}
+                    onClick={() => onShowArchivedChange(!showArchived)}
+                    className={[
+                      "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors",
+                      showArchived ? "bg-accent" : "bg-bg-hover",
+                    ].join(" ")}
+                  >
+                    <span
+                      className={[
+                        "inline-block h-3 w-3 rounded-full bg-white shadow transition-transform",
+                        showArchived ? "translate-x-3.5" : "translate-x-0.5",
+                      ].join(" ")}
+                    />
+                  </button>
+                </label>
+              </div>
+
               {/* ── Stacks on/off ─────────────────────────────────────── */}
               <Section label="Stacks">
                 {stacks.length === 0 ? (
