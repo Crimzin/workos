@@ -133,10 +133,49 @@ Finishes the 1.5 deferred polish and extends the panel to stacks.
 - [x] View tabs across the top of the board: each saved view stores column field; tab row with starred indicator, double-click rename, hover actions (star/rename/delete), [+] new view ✅ Complete
 - [x] Starred view is the workspace default (loaded on open); switching tabs loads that view's column_field_id; column field changes auto-save back to the active view ✅ Complete
 - [x] Toolbar: Filter (with active-count badge) — field/option picker popover; filters AND across fields, OR within a field; auto-saved to active view; new views clone current filters ✅ Complete
-- [ ] **Per-stack column-field override** — each stack can use a different column field within a view
+- [x] **Per-stack column-field override** — each stack can use a different column field within a view; chosen via "Columns" section in stack QUAM; persists to `workspace_views.stack_column_fields` (migration 0011) ✅ Complete
 - [x] **Column header collapse/expand** — collapse button on header hover; collapsed columns render as 32px vertical strip with rotated name + count; click to re-expand; state persists per view ✅ Complete
-- [ ] **Per-workspace panel layout persistence** — remember which panels are open and at what sizes
+- [x] **Per-workspace panel layout persistence** — detail panel width saved to localStorage; restored on next load ✅ Complete
 - [x] **Member/agent avatars on stack headers and cards** — show owner avatar on board face; `BoardAvatar` component (initials circle, purple ring for agents); actors fetched by instance_id in `board.ts` and threaded through board → stack header + card tile ✅ Complete
+
+### 1.8.5 Delete & Archive
+
+**Goal:** Give cards and stacks a clean lifecycle — archive to hide, delete to permanently remove.
+
+**Archive behavior**
+- No confirmation dialog for either cards or stacks
+- Archived items are hidden from the board by default; revealed via the existing **Filter popover** ("Include archived" toggle — works for both stacks and cards in one control)
+- Archived items render visually dimmed with an "Archived" badge when shown
+- Archive is reversible: unarchive from the same place the item was archived
+
+**Delete behavior**
+- Permanent, irreversible — requires a confirmation modal before executing
+- Confirmation copy: *"Are you sure? Deleted [cards/stacks] can't be recovered."* with Cancel + Delete (destructive) buttons
+- Deleting a stack deletes all its child cards too (cascade)
+
+**Entry points**
+
+| Action | Card | Stack |
+|--------|------|-------|
+| Archive | Card QUAM on board face | Stack QUAM on board face |
+| Archive | Card side panel (button) | Stack side panel (button) |
+| Archive | Stack side panel → Cards tab (per-card) | — |
+| Unarchive | Same entry points when "Include archived" is active | Same |
+| Delete | Card QUAM on board face | Stack QUAM on board face |
+| Delete | Card side panel (button) | Stack side panel (button) |
+
+**Tasks**
+
+- [x] **Confirmation modal** — reusable `ConfirmModal` component (title, body, cancel, destructive confirm); used for both card delete and stack delete
+- [x] **`deleteNode` server action** — hard-deletes node + cascade children; invalidates board cache
+- [x] **`archiveNode` / `unarchiveNode` server actions** — `archiveNode` already existed; added `unarchiveNode` to toggle `archived_at` back to null
+- [x] **Card QUAM** — Archive/Unarchive and Delete added to ⋯ menu on card faces
+- [x] **Card side panel** — Archive/Unarchive and Delete buttons in panel header via `NodeActions` component
+- [x] **Stack QUAM** — Delete added; Archive/Unarchive now toggles based on archived state
+- [x] **Stack side panel** — Archive/Unarchive and Delete buttons in panel header; Cards tab shows all cards (including archived) with per-card `NodeActions`
+- [x] **Filter popover — "Include archived" toggle** — toggle at top of filter popover; counts toward active filter badge; shows dimmed stacks/cards with "Archived" chip
+- [x] **Board rendering** — RPC updated (migration 0012) to always include archived nodes with `archived_at` field; `filteredStacks` removes archived items client-side when toggle is off
+- [x] **Migration 0012** — RPC updated to emit `archived_at` on stacks and cards; `archived_at` column already existed from migration 0002
 
 ### 1.9 Context Linking
 
