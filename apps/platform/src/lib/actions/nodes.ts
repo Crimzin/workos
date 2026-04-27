@@ -9,6 +9,121 @@ import {
   revalidateWorkspaceBoard,
 } from "../cache";
 
+export async function archiveNode(
+  nodeId: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("nodes")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
+export async function unarchiveNode(
+  nodeId: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("nodes")
+    .update({ archived_at: null })
+    .eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
+export async function deleteNode(
+  nodeId: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  // ON DELETE CASCADE on parent_id means deleting a stack cascades to its cards.
+  // ON DELETE CASCADE on node_id in node_field_values cleans up field values.
+  const { error } = await supabase.from("nodes").delete().eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
+export async function moveStackUpDown(
+  stackId: string,
+  workspaceId: string,
+  direction: "up" | "down"
+): Promise<void> {
+  const { data: stacks, error } = await supabase
+    .from("nodes")
+    .select("id, position")
+    .eq("parent_id", workspaceId)
+    .eq("type", "stack")
+    .is("archived_at", null)
+    .order("position", { ascending: true });
+  if (error) throw error;
+  if (!stacks) return;
+
+  const idx = stacks.findIndex((s) => s.id === stackId);
+  if (idx === -1) return;
+  const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (neighborIdx < 0 || neighborIdx >= stacks.length) return;
+
+  const curr = stacks[idx];
+  const neighbor = stacks[neighborIdx];
+  await Promise.all([
+    supabase.from("nodes").update({ position: neighbor.position }).eq("id", curr.id),
+    supabase.from("nodes").update({ position: curr.position }).eq("id", neighbor.id),
+  ]);
+
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+}
+
+export async function updateNodeTitle(
+  nodeId: string,
+  title: string,
+  workspaceId: string,
+  parentId: string | null
+): Promise<void> {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+
+  const { error } = await supabase
+    .from("nodes")
+    .update({ title: trimmed })
+    .eq("id", nodeId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, parentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  // If the renamed node is a workspace, refresh the sidebar tree too.
+  if (!parentId) {
+    revalidateRootNodes();
+    revalidatePath("/", "layout");
+  }
+}
+
 export interface CreateWorkspaceResult {
   id: string;
 }

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { getNode, getChildren } from "@/lib/nodes";
 import { getWorkspaceBoard } from "@/lib/board";
+import { getWorkspaceViews } from "@/lib/views";
 import { Board } from "@/components/board/board";
 import { DetailPanel } from "@/components/detail-panel";
 import { ResizablePanelGroup } from "@/components/resizable-panel-group";
@@ -20,13 +21,16 @@ export default async function NodePage({
   if (!node) notFound();
 
   if (node.type === "workspace") {
-    const board = await getWorkspaceBoard(id);
+    const [board, views] = await Promise.all([
+      getWorkspaceBoard(id),
+      getWorkspaceViews(id),
+    ]);
     if (!board) notFound();
     return (
       <div className="flex h-full flex-col">
         <WorkspaceHeader title={node.title} description={node.description} />
         <ResizablePanelGroup
-          board={<Board data={board} />}
+          board={<Board data={board} views={views} />}
           detail={
             detailId ? (
               <Suspense key={detailId} fallback={<DetailPanelSkeleton />}>

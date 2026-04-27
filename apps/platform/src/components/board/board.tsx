@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Filter, Plus } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Plus } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -11,6 +11,8 @@ import {
   useSensor,
   useSensors,
   closestCenter,
+  pointerWithin,
+  type CollisionDetection,
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
@@ -21,14 +23,18 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board";
-import { UNASSIGNED_COL_ID } from "@/lib/board";
+import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board-types";
+import { UNASSIGNED_COL_ID } from "@/lib/board-types";
+import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
+import { updateViewColumnField, updateViewFilters, updateViewStackFilters, updateViewCollapsedColumns, updateViewStackColumnField } from "@/lib/actions/views";
 import { moveCard, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
 import { StackRow } from "./stack-row";
 import { CardTileOverlay } from "./card-tile";
+import { ViewTabs } from "./view-tabs";
+import { FilterMenu } from "./filter-menu";
 
 type ActiveCard = { type: "card"; card: BoardCard };
 type ActiveStack = { type: "stack"; stack: BoardStack };
@@ -36,34 +42,190 @@ type ActiveItem = ActiveCard | ActiveStack | null;
 
 interface BoardProps {
   data: BoardData;
+  views: WorkspaceView[];
 }
 
-export function Board({ data }: BoardProps) {
-  const [columnFieldId, setColumnFieldId] = useState<string | null>(data.defaultColumnFieldId);
+export function Board({ data, views }: BoardProps) {
+  const starredView = views.find((v) => v.starred) ?? views[0] ?? null;
+  const [activeView, setActiveView] = useState<WorkspaceView | null>(starredView);
+  const [localViews, setLocalViews] = useState<WorkspaceView[]>(views);
+
+  const initialColumnFieldId = activeView?.column_field_id ?? data.defaultColumnFieldId;
+  const [columnFieldId, setColumnFieldId] = useState<string | null>(initialColumnFieldId);
+  const [filters, setFilters] = useState<ViewFilter[]>(activeView?.filters ?? []);
+  const [stackFilters, setStackFilters] = useState<ViewFilter[]>(activeView?.stack_filters ?? []);
+  const [hiddenStackIds, setHiddenStackIds] = useState<string[]>(activeView?.hidden_stack_ids ?? []);
+  const [collapsedColumnIds, setCollapsedColumnIds] = useState<string[]>(activeView?.collapsed_column_ids ?? []);
+  const [stackColumnFields, setStackColumnFields] = useState<Record<string, string | null>>(activeView?.stack_column_fields ?? {});
+  const [showArchived, setShowArchived] = useState(false);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [localStacks, setLocalStacks] = useState<BoardStack[]>(data.stacks);
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
   const preDragStacks = useRef<BoardStack[]>(data.stacks);
+  const lastMoveRef = useRef<{ activeId: string; overId: string; insertAfter: boolean } | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeDetailId = searchParams.get("d");
   const workspaceId = data.workspace.id;
 
   // Sync local state when server data refreshes.
-  useEffect(() => {
-    setLocalStacks(data.stacks);
-  }, [data.stacks]);
+  useEffect(() => { setLocalStacks(data.stacks); }, [data.stacks]);
+  useEffect(() => { setLocalViews(views); }, [views]);
+
+  const handleColumnFieldChange = (fieldId: string | null) => {
+    setColumnFieldId(fieldId);
+    if (activeView) {
+      updateViewColumnField(activeView.id, workspaceId, fieldId);
+    }
+  };
+
+  const handleViewSwitch = (view: WorkspaceView) => {
+    setActiveView(view);
+    setColumnFieldId(view.column_field_id ?? data.defaultColumnFieldId);
+    setFilters(view.filters ?? []);
+    setStackFilters(view.stack_filters ?? []);
+    setHiddenStackIds(view.hidden_stack_ids ?? []);
+    setCollapsedColumnIds(view.collapsed_column_ids ?? []);
+    setStackColumnFields(view.stack_column_fields ?? {});
+  };
+
+  const handleStackColumnFieldChange = (stackId: string, fieldId: string | null) => {
+    const next = { ...stackColumnFields };
+    if (fieldId === null) delete next[stackId];
+    else next[stackId] = fieldId;
+    setStackColumnFields(next);
+    if (activeView) updateViewStackColumnField(activeView.id, workspaceId, stackId, fieldId);
+  };
+
+  const handleToggleColumnCollapse = (colId: string) => {
+    const next = collapsedColumnIds.includes(colId)
+      ? collapsedColumnIds.filter((id) => id !== colId)
+      : [...collapsedColumnIds, colId];
+    setCollapsedColumnIds(next);
+    if (activeView) updateViewCollapsedColumns(activeView.id, workspaceId, next);
+  };
+
+  const handleFiltersChange = (newFilters: ViewFilter[]) => {
+    setFilters(newFilters);
+    if (activeView) updateViewFilters(activeView.id, workspaceId, newFilters);
+  };
+
+  const handleStackFiltersChange = (newStackFilters: ViewFilter[], newHiddenIds: string[]) => {
+    setStackFilters(newStackFilters);
+    setHiddenStackIds(newHiddenIds);
+    if (activeView) updateViewStackFilters(activeView.id, workspaceId, newStackFilters, newHiddenIds);
+  };
 
   const columnField = useMemo(
     () => data.fields.find((f) => f.id === columnFieldId) ?? null,
     [data.fields, columnFieldId]
   );
 
+  // Apply stack-level and card-level filters.
+  const filteredStacks = useMemo(() => {
+    let stacks = localStacks;
+
+    // 0. Archived visibility
+    if (!showArchived) {
+      stacks = stacks
+        .filter((s) => !s.archived_at)
+        .map((s) => ({ ...s, cards: s.cards.filter((c) => !c.archived_at) }));
+    }
+
+    // 1. Stack on/off
+    if (hiddenStackIds.length > 0) {
+      stacks = stacks.filter((s) => !hiddenStackIds.includes(s.id));
+    }
+
+    // 2. Stack field filters (AND across fields, OR within a field)
+    if (stackFilters.length > 0) {
+      stacks = stacks.filter((stack) =>
+        stackFilters.every((f) => {
+          const vals = stack.field_values[f.fieldId] ?? [];
+          return f.optionIds.some((oid) => vals.includes(oid));
+        })
+      );
+    }
+
+    // 3. Card field filters
+    if (filters.length === 0) return stacks;
+    return stacks.map((stack) => ({
+      ...stack,
+      cards: stack.cards.filter((card) =>
+        filters.every((f) => {
+          const vals = card.field_values[f.fieldId] ?? [];
+          return f.optionIds.some((oid) => vals.includes(oid));
+        })
+      ),
+    }));
+  }, [localStacks, filters, stackFilters, hiddenStackIds, showArchived]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  const collisionDetection: CollisionDetection = (args) => {
+    const activeType = args.active?.data?.current?.type as string | undefined;
+
+    if (activeType === "stack") {
+      const stackOnly = args.droppableContainers.filter(
+        (c) => c.data?.current?.type === "stack"
+      );
+      return closestCenter({ ...args, droppableContainers: stackOnly });
+    }
+
+    const colContainers = args.droppableContainers.filter(
+      (c) => c.data?.current?.type === "column"
+    );
+    const cardContainers = args.droppableContainers.filter(
+      (c) => c.data?.current?.type === "card"
+    );
+
+    // Step 1: determine which column the pointer is inside.
+    // Checking columns first (before global card search) is what makes empty
+    // columns work — a global closestCenter on cards would return a card from
+    // another column and the column droppable would never fire.
+    const pointerInColumn = pointerWithin({ ...args, droppableContainers: colContainers });
+
+    if (pointerInColumn.length > 0) {
+      const colRect = args.droppableRects.get(pointerInColumn[0].id);
+
+      if (colRect) {
+        // Scope card search to cards whose centers lie within this column's rect.
+        // (droppableRects are stale during drag, but cards that haven't moved
+        // since drag start will still have accurate rects for this check.)
+        const cardsInColumn = cardContainers.filter((c) => {
+          const r = args.droppableRects.get(c.id);
+          if (!r) return false;
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          return cx >= colRect.left && cx <= colRect.right && cy >= colRect.top && cy <= colRect.bottom;
+        });
+
+        // Prefer card the pointer is directly over; otherwise closest center.
+        const over = pointerWithin({ ...args, droppableContainers: cardsInColumn });
+        if (over.length > 0) return over;
+
+        const closest = closestCenter({ ...args, droppableContainers: cardsInColumn });
+        if (closest.length > 0) return closest;
+      }
+
+      // Column is empty (or rects not yet measured) — return the column droppable.
+      return pointerInColumn;
+    }
+
+    // Pointer not in any column (between columns, over header, etc.).
+    // Fall back to globally closest card so cross-column drags still work.
+    const closest = closestCenter({ ...args, droppableContainers: cardContainers });
+    if (closest.length > 0) return closest;
+
+    return closestCenter({ ...args, droppableContainers: colContainers });
+  };
+
   function handleDragStart({ active }: DragStartEvent) {
     preDragStacks.current = localStacks;
+    lastMoveRef.current = null;
     const type = active.data.current?.type as string;
 
     if (type === "stack") {
@@ -82,31 +244,64 @@ export function Board({ data }: BoardProps) {
     if (active.data.current?.type !== "card") return;
 
     const activeId = active.id as string;
-    const overId = over.id as string;
     const overType = over.data.current?.type as string | undefined;
 
-    setLocalStacks((prev) => {
-      if (overType === "column") {
-        return applyCardOverColumn(
-          prev, activeId,
-          over.data.current!.stackId as string,
-          over.data.current!.columnId as string,
-          columnFieldId
+    const activeLoc = findCardLocation(localStacks, activeId, null);
+    if (!activeLoc) return;
+    const activeCard = localStacks[activeLoc.stackIdx].cards[activeLoc.cardIdx];
+    const activeColId = getCardColumn(activeCard, columnFieldId);
+    const activeStackId = localStacks[activeLoc.stackIdx].id;
+
+    let targetStackId: string;
+    let targetColId: string;
+
+    if (overType === "column") {
+      targetStackId = over.data.current!.stackId as string;
+      targetColId = over.data.current!.columnId as string;
+    } else if (overType === "card") {
+      const overId = over.id as string;
+      const overLoc = findCardLocation(localStacks, overId, null);
+      if (!overLoc) return;
+      const overCard = localStacks[overLoc.stackIdx].cards[overLoc.cardIdx];
+      targetColId = getCardColumn(overCard, columnFieldId);
+      targetStackId = localStacks[overLoc.stackIdx].id;
+
+      if (activeStackId === targetStackId && activeColId === targetColId) {
+        // Same column, same stack — let SortableContext handle the visual preview
+        // and use arrayMove in handleDragOver to update localStacks for live feedback.
+        // Dedup by (activeId, overId) to prevent stale-rect oscillation.
+        if (lastMoveRef.current?.activeId === activeId && lastMoveRef.current?.overId === overId) return;
+        lastMoveRef.current = { activeId, overId, insertAfter: false };
+
+        const stackIdx = activeLoc.stackIdx;
+        if (activeLoc.cardIdx === overLoc.cardIdx) return;
+        const newCards = arrayMove(localStacks[stackIdx].cards, activeLoc.cardIdx, overLoc.cardIdx);
+        setLocalStacks((prev) =>
+          prev.map((s, i) => (i === stackIdx ? { ...s, cards: newCards } : s))
         );
+        return;
       }
-      if (overType === "card") {
-        return applyCardOverCard(prev, activeId, overId, columnFieldId);
-      }
-      return prev;
-    });
+    } else {
+      return;
+    }
+
+    // Cross-column or cross-stack: move card to target, appended to end.
+    // handleDragEnd will use pointer Y to place it precisely within the target column.
+    if (activeStackId === targetStackId && activeColId === targetColId) return;
+    lastMoveRef.current = null;
+    setLocalStacks((prev) =>
+      applyCardOverColumn(prev, activeId, targetStackId, targetColId, columnFieldId)
+    );
   }
 
   function handleDragCancel() {
     setLocalStacks(preDragStacks.current);
     setActiveItem(null);
+    lastMoveRef.current = null;
   }
 
   async function handleDragEnd({ active, over }: DragEndEvent) {
+    lastMoveRef.current = null;
     setActiveItem(null);
     if (!over) { setLocalStacks(preDragStacks.current); return; }
 
@@ -136,7 +331,10 @@ export function Board({ data }: BoardProps) {
     }
 
     if (type === "card") {
-      // localStacks already has the card in its new position from onDragOver.
+      // handleDragOver already positioned the card correctly via arrayMove (same-column)
+      // or applyCardOverColumn (cross-column/stack). Do NOT reposition here — over.rect
+      // is stale during drag so any midpoint comparison would give wrong results and
+      // undo the correct placement handleDragOver already applied.
       const loc = findCardLocation(localStacks, activeId, columnFieldId);
       if (!loc) return;
 
@@ -163,13 +361,38 @@ export function Board({ data }: BoardProps) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
       <div className="flex h-full flex-col">
+        {/* View tabs */}
+        {localViews.length > 0 && activeView && (
+          <ViewTabs
+            views={localViews}
+            activeViewId={activeView.id}
+            workspaceId={workspaceId}
+            onSwitch={handleViewSwitch}
+            onViewCreated={(v) => {
+              setLocalViews((prev) => [...prev, v]);
+              setActiveView(v);
+              setColumnFieldId(v.column_field_id ?? data.defaultColumnFieldId);
+              setFilters(v.filters ?? []);
+              setStackFilters(v.stack_filters ?? []);
+              setHiddenStackIds(v.hidden_stack_ids ?? []);
+              setCollapsedColumnIds(v.collapsed_column_ids ?? []);
+              setStackColumnFields(v.stack_column_fields ?? {});
+            }}
+            currentColumnFieldId={columnFieldId}
+            currentFilters={filters}
+            currentStackFilters={stackFilters}
+            currentHiddenStackIds={hiddenStackIds}
+            currentCollapsedColumnIds={collapsedColumnIds}
+          />
+        )}
+
         {/* Toolbar */}
         <div className="shrink-0 border-b border-border bg-bg-secondary/60 backdrop-blur-sm">
           <div className="flex items-center gap-3 px-6 py-3">
@@ -178,20 +401,22 @@ export function Board({ data }: BoardProps) {
               <ColumnFieldMenu
                 fields={data.fields}
                 currentId={columnFieldId}
-                onSelect={setColumnFieldId}
+                onSelect={handleColumnFieldChange}
                 onAddField={() => setFieldDialogOpen(true)}
               />
             </div>
             <div className="mx-1 h-4 w-px bg-border" />
-            <button
-              type="button"
-              disabled
-              title="Filter (coming soon)"
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
-            >
-              <Filter size={13} />
-              <span>Filter</span>
-            </button>
+            <FilterMenu
+              fields={data.fields}
+              stacks={localStacks}
+              filters={filters}
+              onFiltersChange={handleFiltersChange}
+              stackFilters={stackFilters}
+              hiddenStackIds={hiddenStackIds}
+              onStackFiltersChange={handleStackFiltersChange}
+              showArchived={showArchived}
+              onShowArchivedChange={setShowArchived}
+            />
             <div className="flex-1" />
             <InlineCreate
               label="New Stack"
@@ -218,15 +443,29 @@ export function Board({ data }: BoardProps) {
                 items={localStacks.map((s) => s.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {localStacks.map((stack) => (
-                  <StackRow
-                    key={stack.id}
-                    stack={stack}
-                    workspaceId={workspaceId}
-                    columnField={columnField}
-                    fields={data.fields}
-                  />
-                ))}
+                {filteredStacks.map((stack, i) => {
+                  const overrideFieldId = stackColumnFields[stack.id];
+                  const effectiveColumnField = overrideFieldId !== undefined
+                    ? (data.fields.find((f) => f.id === overrideFieldId) ?? null)
+                    : columnField;
+                  return (
+                    <StackRow
+                      key={stack.id}
+                      stack={stack}
+                      workspaceId={workspaceId}
+                      columnField={effectiveColumnField}
+                      columnFieldId={overrideFieldId !== undefined ? overrideFieldId : columnFieldId}
+                      fields={data.fields}
+                      activeDetailId={activeDetailId}
+                      stackIndex={i}
+                      totalStacks={localStacks.length}
+                      actors={data.actors}
+                      collapsedColumnIds={collapsedColumnIds}
+                      onToggleColumnCollapse={handleToggleColumnCollapse}
+                      onColumnFieldChange={(fieldId) => handleStackColumnFieldChange(stack.id, fieldId)}
+                    />
+                  );
+                })}
               </SortableContext>
             )}
           </div>
@@ -299,40 +538,6 @@ function findCardLocation(
   return null;
 }
 
-function applyCardOverCard(
-  stacks: BoardStack[],
-  activeId: string,
-  overId: string,
-  columnFieldId: string | null
-): BoardStack[] {
-  const activeLoc = findCardLocation(stacks, activeId, null);
-  const overLoc = findCardLocation(stacks, overId, null);
-  if (!activeLoc || !overLoc) return stacks;
-
-  const overCard = stacks[overLoc.stackIdx].cards[overLoc.cardIdx];
-  const overColId = getCardColumn(overCard, columnFieldId);
-  const updatedActive = setCardColumn(stacks[activeLoc.stackIdx].cards[activeLoc.cardIdx], columnFieldId, overColId);
-
-  const next = stacks.map((s) => ({ ...s, cards: [...s.cards] }));
-
-  if (activeLoc.stackIdx === overLoc.stackIdx) {
-    next[activeLoc.stackIdx].cards[activeLoc.cardIdx] = updatedActive;
-    next[activeLoc.stackIdx].cards = arrayMove(
-      next[activeLoc.stackIdx].cards,
-      activeLoc.cardIdx,
-      overLoc.cardIdx
-    );
-  } else {
-    next[activeLoc.stackIdx].cards.splice(activeLoc.cardIdx, 1);
-    const adjustedOverIdx =
-      overLoc.stackIdx > activeLoc.stackIdx
-        ? overLoc.cardIdx
-        : overLoc.cardIdx;
-    next[overLoc.stackIdx].cards.splice(adjustedOverIdx, 0, updatedActive);
-  }
-
-  return next;
-}
 
 function applyCardOverColumn(
   stacks: BoardStack[],

@@ -1,0 +1,155 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { supabase } from "../supabase";
+import { revalidateWorkspaceViews } from "../cache";
+import type { ViewFilter } from "../views";
+
+export async function createView(
+  workspaceId: string,
+  name: string,
+  columnFieldId: string | null,
+  filters: ViewFilter[] = [],
+  stackFilters: ViewFilter[] = [],
+  hiddenStackIds: string[] = [],
+  collapsedColumnIds: string[] = []
+): Promise<{ id: string }> {
+  const { data, error } = await supabase
+    .from("workspace_views")
+    .insert({
+      workspace_id: workspaceId,
+      name,
+      column_field_id: columnFieldId,
+      starred: false,
+      filters: filters as unknown as Record<string, unknown>[],
+      stack_filters: stackFilters as unknown as Record<string, unknown>[],
+      hidden_stack_ids: hiddenStackIds,
+      collapsed_column_ids: collapsedColumnIds,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+  return data as { id: string };
+}
+
+export async function updateViewName(
+  viewId: string,
+  workspaceId: string,
+  name: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ name, updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+}
+
+export async function updateViewColumnField(
+  viewId: string,
+  workspaceId: string,
+  columnFieldId: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ column_field_id: columnFieldId, updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+}
+
+export async function starView(viewId: string, workspaceId: string): Promise<void> {
+  await supabase
+    .from("workspace_views")
+    .update({ starred: false })
+    .eq("workspace_id", workspaceId);
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ starred: true, updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+}
+
+export async function updateViewCollapsedColumns(
+  viewId: string,
+  workspaceId: string,
+  collapsedColumnIds: string[]
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ collapsed_column_ids: collapsedColumnIds, updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+}
+
+export async function updateViewStackFilters(
+  viewId: string,
+  workspaceId: string,
+  stackFilters: ViewFilter[],
+  hiddenStackIds: string[]
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({
+      stack_filters: stackFilters as unknown as Record<string, unknown>[],
+      hidden_stack_ids: hiddenStackIds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+}
+
+export async function updateViewFilters(
+  viewId: string,
+  workspaceId: string,
+  filters: ViewFilter[]
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ filters: filters as unknown as Record<string, unknown>[], updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+}
+
+export async function updateViewStackColumnField(
+  viewId: string,
+  workspaceId: string,
+  stackId: string,
+  fieldId: string | null
+): Promise<void> {
+  const { data: view } = await supabase
+    .from("workspace_views")
+    .select("stack_column_fields")
+    .eq("id", viewId)
+    .single();
+  const current = { ...((view?.stack_column_fields ?? {}) as Record<string, string | null>) };
+  if (fieldId === null) {
+    delete current[stackId];
+  } else {
+    current[stackId] = fieldId;
+  }
+  const { error } = await supabase
+    .from("workspace_views")
+    .update({ stack_column_fields: current, updated_at: new Date().toISOString() })
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+}
+
+export async function deleteView(viewId: string, workspaceId: string): Promise<void> {
+  const { error } = await supabase
+    .from("workspace_views")
+    .delete()
+    .eq("id", viewId);
+  if (error) throw error;
+  revalidateWorkspaceViews(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+}

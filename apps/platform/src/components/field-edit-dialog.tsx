@@ -62,6 +62,11 @@ export function FieldEditDialog({ field, workspaceId, open, onClose }: FieldEdit
     }
   }, [open, field.name, field.description, field.color, field.locked, field.options]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
   if (!open) return null;
 
   const isSelect = field.field_type === "single_select" || field.field_type === "multi_select";
@@ -115,11 +120,6 @@ export function FieldEditDialog({ field, workspaceId, open, onClose }: FieldEdit
       setNewOption("");
     });
   };
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
 
   function handleOptionDragEnd({ active, over }: DragEndEvent) {
     if (!over || active.id === over.id) return;

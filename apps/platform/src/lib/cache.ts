@@ -11,6 +11,7 @@ export const cacheTags = {
   children: (parentId: string) => `node-children:${parentId}`,
   workspaceBoard: (workspaceId: string) => `workspace-board:${workspaceId}`,
   instanceFields: (instanceId: string) => `instance-fields:${instanceId}`,
+  workspaceViews: (workspaceId: string) => `workspace-views:${workspaceId}`,
 };
 
 // Next 16 `revalidateTag` requires a profile arg; "max" = stale-while-revalidate.
@@ -31,4 +32,8 @@ export function revalidateRootNodes() {
 
 export function revalidateInstanceFields(instanceId: string) {
   revalidateTag(cacheTags.instanceFields(instanceId), PROFILE);
+}
+
+export function revalidateWorkspaceViews(workspaceId: string) {
+  revalidateTag(cacheTags.workspaceViews(workspaceId), PROFILE);
 }

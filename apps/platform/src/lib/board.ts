@@ -1,50 +1,10 @@
 import { unstable_cache } from "next/cache";
-
-export const UNASSIGNED_COL_ID = "__unassigned__";
 import { supabase } from "./supabase";
 import { cacheTags } from "./cache";
-import type { WorkNode } from "./types";
+import type { BoardActor, BoardData } from "./board-types";
 
-export interface BoardOption {
-  id: string;
-  name: string;
-  position: number;
-}
-
-export interface BoardField {
-  id: string;
-  name: string;
-  field_type: "single_select" | "multi_select";
-  color: string;
-  description: string | null;
-  locked: boolean;
-  options: BoardOption[];
-}
-
-export interface BoardCard {
-  id: string;
-  title: string;
-  description: string | null;
-  owner_id: string | null;
-  position: number;
-  /** fieldId -> list of selected optionIds (single-select will have 0 or 1) */
-  field_values: Record<string, string[]>;
-}
-
-export interface BoardStack {
-  id: string;
-  title: string;
-  description: string | null;
-  position: number;
-  cards: BoardCard[];
-}
-
-export interface BoardData {
-  workspace: WorkNode;
-  stacks: BoardStack[];
-  fields: BoardField[];
-  defaultColumnFieldId: string | null;
-}
+export { UNASSIGNED_COL_ID } from "./board-types";
+export type { BoardOption, BoardField, BoardCard, BoardStack, BoardData, BoardActor } from "./board-types";
 
 /**
  * Fetch the full board payload in one round trip via the
@@ -61,7 +21,47 @@ export async function getWorkspaceBoard(
       });
       if (error) throw error;
       if (!data) return null;
-      return data as BoardData;
+
+      const board = data as BoardData;
+
+      // RPC only returns card field_values; fetch stack field_values separately.
+      const stackIds = board.stacks.map((s) => s.id);
+      if (stackIds.length > 0) {
+        const { data: sfv } = await supabase
+          .from("node_field_values")
+          .select("node_id, field_id, option_id")
+          .in("node_id", stackIds)
+          .not("option_id", "is", null);
+
+        const byStack: Record<string, Record<string, string[]>> = {};
+        for (const row of sfv ?? []) {
+          const stackVals = (byStack[row.node_id] ??= {});
+          const opts = (stackVals[row.field_id] ??= []);
+          opts.push(row.option_id);
+        }
+        board.stacks = board.stacks.map((s) => ({
+          ...s,
+          field_values: byStack[s.id] ?? {},
+        }));
+      } else {
+        board.stacks = board.stacks.map((s) => ({ ...s, field_values: {} }));
+      }
+
+      // Fetch actors for avatar rendering.
+      const instanceId = (board.workspace as { instance_id?: string }).instance_id;
+      if (instanceId) {
+        const { data: actorRows } = await supabase
+          .from("actors")
+          .select("id, name, kind, avatar_url")
+          .eq("instance_id", instanceId);
+        const actors: Record<string, BoardActor> = {};
+        for (const a of actorRows ?? []) actors[a.id] = a as BoardActor;
+        board.actors = actors;
+      } else {
+        board.actors = {};
+      }
+
+      return board;
     },
     ["workspace-board", workspaceId],
     {
