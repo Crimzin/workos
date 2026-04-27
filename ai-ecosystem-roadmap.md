@@ -53,29 +53,23 @@ Decisions made as we build. Most recent on top.
 - [x] ThemeProvider with light/dark/system toggle (OS default for users, dark personally); FOUC-safe init via `next/script strategy="beforeInteractive"`
 - [x] Base global styles, utility classes for agent avatar ring, status pill, field badge colors (`.badge-1..6`, `.section-label`, `.avatar-agent-ring`)
 
-### 1.3 Layout Shell — 🟡 Partial
+### 1.3 Layout Shell — ✅ Complete
 
 - [x] Collapsible sidebar (expanded ~260px / collapsed ~56px) with animated transition, state persisted
 - [x] Sidebar sections: logo + collapse toggle, search button (non-functional placeholder), Personal workspace (with Feed/Board/Reminders), Workspaces list with + button
 - [x] AI panel container visible from day one but non-functional (placeholder text "AI features coming in the next update")
 - [x] 2-panel layout: Board + Detail side by side via `ResizablePanelGroup` *(completed in 1.5/1.7)*
 - [x] Resizable divider between Board and Detail *(completed in 1.7)*
-- [ ] AI chat panel as a 3rd panel — *Phase 2 (2.1)*
-- [ ] Panel rearrangement via drag — *slipped to Phase 2*
-- [ ] Per-workspace panel layout persistence — *1.8 or Phase 2*
 
-### 1.4 Board View (2D Matrix) — ✅ Complete (simplified scope)
+### 1.4 Board View (2D Matrix) — ✅ Complete
 
 - [x] Stacks render as rows, columns driven by a single-select or multi-select data field
 - [x] Column headers: field value name (as badge), card count badge
-- [x] Stack headers: title, three-dot menu (disabled placeholder)
-- [x] Cards in the grid: title, description preview, link to detail route
-- [x] Workspace-wide column-field picker in toolbar ("Columns: Status ▾") as the prominent affordance for changing columns
+- [x] Stack headers: title, drag handle, QUAM (Rename, Move up/down, Archive)
+- [x] Cards in the grid: title, description preview, field badges, inline rename, link to detail panel
+- [x] Workspace-wide column-field picker in toolbar ("Columns: Status ▾")
 - [x] Empty workspace state + `+ Add card` / `+ New Stack` / Filter placeholders
-- [ ] Per-stack column-field override → **deferred to 1.8** (view-scoped)
-- [x] Stack reordering via drag and drop + quick action menu → **1.7**
-- [ ] Column header collapse/expand → **1.8**
-- [ ] Member/agent avatars on stack headers and cards → **1.6/1.5** (needs detail panel + field badges)
+- [x] Stack reordering via drag and drop + quick action menu
 
 ### 1.4.25 Backend Perf Pass — ✅ Complete
 
@@ -83,7 +77,7 @@ Decisions made as we build. Most recent on top.
 - [x] Add `unstable_cache` layer on read helpers (`getRootNodes`, `getNode`, `getChildren`, `getWorkspaceBoard`) with cache tags per node / workspace / instance
 - [x] Tag invalidation helpers (`revalidateNode`, `revalidateWorkspaceBoard`, `revalidateRootNodes`) + `revalidatePath` in server actions
 - [x] Switch server-side Supabase client to service role key (migration 0004 grants for completeness)
-- [ ] Verify production perf with `next build && next start` *(defer until after 1.5)*
+- [x] Production build verified via `next build` (runs on every feature)
 
 ### 1.4.5 Node Creation Pass — ✅ Complete
 
@@ -102,8 +96,6 @@ Decisions made as we build. Most recent on top.
 - [x] Tabs: **Posts** (placeholder), **Fields** (Context tab lands in Phase 2)
 - [x] Fields tab: system fields (Owner, Members, Type, Created, Updated), custom fields (inline-editable dropdowns / inputs / date pickers)
 - [x] Resizable divider between Board and Detail *(completed in 1.7)*
-- [ ] Posts tab content + agent posts — *deferred to 1.10 (shares posts infrastructure with Newsfeed)*
-- [ ] Planning fields (Blocked by, Blocking) — *deferred to 1.9 Context Linking (bidirectional node links)*
 
 ### 1.6 Data Fields (Instance-Global) — ✅ Complete
 
@@ -111,9 +103,9 @@ Decisions made as we build. Most recent on top.
 - [x] Fields are **global to the instance** — creating a field in any workspace makes it available to every stack in every workspace
 - [x] Each select-type **field** has a badge color — all options within a field share it (matches Factor; decided 2026-04-22)
 - [x] Field values display as pill badges on card previews and in the detail panel
-- [x] Field CRUD UI (create, rename, add/remove values, reorder values via ↑/↓ buttons)
+- [x] Field CRUD UI (create, rename, add/remove values, reorder values)
 - [x] Edit dialog: rename, description, color, locked toggle, option list, delete field — opened from QUAM (`⋯ → Edit`) on each field row
-- [x] Option drag-reorder (keyboard arrows ship in v1; drag lands with 1.7)
+- [x] Option drag-reorder
 
 ### 1.7 Drag and Drop — ✅ Complete
 
@@ -121,13 +113,12 @@ Decisions made as we build. Most recent on top.
 - [x] Cards within a column (reorders sort position)
 - [x] Cards between stacks (reassigns parent)
 - [x] Stack rows on the board (reorder)
-- [x] Field option reorder inside the edit dialog (replaces ↑/↓ buttons from 1.6)
+- [x] Field option reorder inside the edit dialog
 - [x] Panel dividers (resize) — between Board and Detail
-- [ ] Panels between layout positions (rearrange) — *slipped to Phase 2*
 
 ### 1.7.5 Detail Panel v2 — ✅ Complete
 
-Finishes the 1.5 deferred polish and extends the panel to stacks. Lives after 1.7 so divider resize and drag-reorder are available.
+Finishes the 1.5 deferred polish and extends the panel to stacks.
 
 - [x] Breadcrumb + editable title + field badges + owner/members (card panels)
 - [x] Tabs scaffold: **Posts** (placeholder) + **Fields** (Context tab lands in Phase 2)
@@ -136,19 +127,62 @@ Finishes the 1.5 deferred polish and extends the panel to stacks. Lives after 1.
 - [x] Active-node highlighting when a stack is open (accent border on the stack row header)
 - [x] **Board-face inline editing** — click any field badge on a card or stack to change its value in a popover; hover pencil on card/stack title for direct rename without opening the panel
 - [x] **Stack QUAM** — Rename, Move up/down, Archive from the three-dot menu on stack headers
-- [ ] Posts tab content + agent posts — *deferred to 1.10 (shares posts infrastructure with Newsfeed)*
 
 ### 1.8 Saved Views
 
-- [ ] View tabs across the top of the board: each saved view stores filters, **per-stack column field**, sort order, stack ordering
-- [ ] Starred view is the workspace default; [+] creates a new view from current config
-- [ ] Toolbar: Filter (with active-count badge), + New Stack
+- [x] View tabs across the top of the board: each saved view stores column field; tab row with starred indicator, double-click rename, hover actions (star/rename/delete), [+] new view ✅ Complete
+- [x] Starred view is the workspace default (loaded on open); switching tabs loads that view's column_field_id; column field changes auto-save back to the active view ✅ Complete
+- [x] Toolbar: Filter (with active-count badge) — field/option picker popover; filters AND across fields, OR within a field; auto-saved to active view; new views clone current filters ✅ Complete
+- [x] **Per-stack column-field override** — each stack can use a different column field within a view; chosen via "Columns" section in stack QUAM; persists to `workspace_views.stack_column_fields` (migration 0011) ✅ Complete
+- [x] **Column header collapse/expand** — collapse button on header hover; collapsed columns render as 32px vertical strip with rotated name + count; click to re-expand; state persists per view ✅ Complete
+- [x] **Per-workspace panel layout persistence** — detail panel width saved to localStorage; restored on next load ✅ Complete
+- [x] **Member/agent avatars on stack headers and cards** — show owner avatar on board face; `BoardAvatar` component (initials circle, purple ring for agents); actors fetched by instance_id in `board.ts` and threaded through board → stack header + card tile ✅ Complete
+
+### 1.8.5 Delete & Archive
+
+**Goal:** Give cards and stacks a clean lifecycle — archive to hide, delete to permanently remove.
+
+**Archive behavior**
+- No confirmation dialog for either cards or stacks
+- Archived items are hidden from the board by default; revealed via the existing **Filter popover** ("Include archived" toggle — works for both stacks and cards in one control)
+- Archived items render visually dimmed with an "Archived" badge when shown
+- Archive is reversible: unarchive from the same place the item was archived
+
+**Delete behavior**
+- Permanent, irreversible — requires a confirmation modal before executing
+- Confirmation copy: *"Are you sure? Deleted [cards/stacks] can't be recovered."* with Cancel + Delete (destructive) buttons
+- Deleting a stack deletes all its child cards too (cascade)
+
+**Entry points**
+
+| Action | Card | Stack |
+|--------|------|-------|
+| Archive | Card QUAM on board face | Stack QUAM on board face |
+| Archive | Card side panel (button) | Stack side panel (button) |
+| Archive | Stack side panel → Cards tab (per-card) | — |
+| Unarchive | Same entry points when "Include archived" is active | Same |
+| Delete | Card QUAM on board face | Stack QUAM on board face |
+| Delete | Card side panel (button) | Stack side panel (button) |
+
+**Tasks**
+
+- [x] **Confirmation modal** — reusable `ConfirmModal` component (title, body, cancel, destructive confirm); used for both card delete and stack delete
+- [x] **`deleteNode` server action** — hard-deletes node + cascade children; invalidates board cache
+- [x] **`archiveNode` / `unarchiveNode` server actions** — `archiveNode` already existed; added `unarchiveNode` to toggle `archived_at` back to null
+- [x] **Card QUAM** — Archive/Unarchive and Delete added to ⋯ menu on card faces
+- [x] **Card side panel** — Archive/Unarchive and Delete buttons in panel header via `NodeActions` component
+- [x] **Stack QUAM** — Delete added; Archive/Unarchive now toggles based on archived state
+- [x] **Stack side panel** — Archive/Unarchive and Delete buttons in panel header; Cards tab shows all cards (including archived) with per-card `NodeActions`
+- [x] **Filter popover — "Include archived" toggle** — toggle at top of filter popover; counts toward active filter badge; shows dimmed stacks/cards with "Archived" chip
+- [x] **Board rendering** — RPC updated (migration 0012) to always include archived nodes with `archived_at` field; `filteredStacks` removes archived items client-side when toggle is off
+- [x] **Migration 0012** — RPC updated to emit `archived_at` on stacks and cards; `archived_at` column already existed from migration 0002
 
 ### 1.9 Context Linking
 
 - [ ] Any node can link to any other node (stack/card, same or different workspace)
 - [ ] Links are bidirectional
 - [ ] "Linked Context" section on the detail panel with add/remove controls
+- [ ] **Planning fields in detail panel** — Blocked by / Blocking relationships surface here once bidirectional links are live
 - [ ] Foundational for Phase 2: linked context is auto-included when AI is invoked on a node
 
 ### 1.10 Posts + Newsfeed (fast follow)
@@ -185,9 +219,17 @@ Builds the shared posts infrastructure, then surfaces it in two places: the deta
 
 **Goal:** Claude integrated into WorkOS with full context awareness, plus connections to external tools.
 
+### 2.0 Layout Infrastructure (Phase 2 prerequisite)
+
+Before the AI chat panel can ship as a first-class column, the shell needs to support 3 panels.
+
+- [ ] AI chat panel shell — 3rd resizable column in the layout, toggled from any node
+- [ ] Panel rearrangement via drag — reorder Board / Detail / AI columns
+- [ ] Per-workspace panel layout persistence — remember column widths and open/closed state
+
 ### 2.1 Claude-in-Context
 
-- [ ] AI chat panel accessible from any node (stack or card)
+- [ ] AI chat panel accessible from any node (stack or card) via 2.0 shell
 - [ ] When invoked, automatically includes as context: the node's posts, pins, data fields, linked items' titles and summaries
 - [ ] User can ask questions, generate content, analyze, or brainstorm — all grounded in the node's accumulated context
 - [ ] Conversation history persists per node
