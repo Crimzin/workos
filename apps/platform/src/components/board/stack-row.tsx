@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { GripVertical, MoreHorizontal, Pencil, Plus } from "lucide-react";
+import { GitFork, GripVertical, MoreHorizontal, Pencil, Plus, Unlink } from "lucide-react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
-import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode } from "@/lib/actions/nodes";
+import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode, unmirrorNode } from "@/lib/actions/nodes";
 import { ConfirmModal } from "../confirm-modal";
 import { updateFieldOption } from "@/lib/actions/fields";
 import { InlineCreate } from "../inline-create";
@@ -339,6 +339,7 @@ function StackHeader({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(stack.title);
   const [pending, startTransition] = useTransition();
@@ -419,6 +420,13 @@ function StackHeader({
               >
                 {stack.title}
               </h3>
+              {stack.is_mirrored && (
+                <GitFork
+                  size={10}
+                  className="mt-2 shrink-0 text-text-tertiary"
+                  aria-label="Mirrored"
+                />
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -568,6 +576,21 @@ function StackHeader({
                     Archive
                   </button>
                 )}
+                {/* Mirror context: "Remove from this workspace" before Delete */}
+                {stack.is_mirror_here && (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setConfirmRemove(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+                  >
+                    <Unlink size={12} />
+                    Remove from here
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={pending}
@@ -577,7 +600,7 @@ function StackHeader({
                   }}
                   className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:cursor-default disabled:opacity-40"
                 >
-                  Delete
+                  {stack.is_mirror_here || stack.is_mirrored ? "Delete from everywhere" : "Delete"}
                 </button>
               </div>
             </>
@@ -587,11 +610,16 @@ function StackHeader({
     </div>
 
     {confirmDelete && (
-
       <ConfirmModal
         title="Delete stack?"
-        body="Are you sure? Deleted stacks and all their cards can't be recovered."
-        confirmLabel="Delete"
+        body={
+          stack.is_mirror_here
+            ? "This deletes the stack from all workspaces, including all its cards. This cannot be undone."
+            : stack.is_mirrored
+            ? "This stack appears in other workspaces. Deleting it removes it everywhere, including all its cards. This cannot be undone."
+            : "Are you sure? Deleted stacks and all their cards can't be recovered."
+        }
+        confirmLabel={stack.is_mirror_here || stack.is_mirrored ? "Delete from everywhere" : "Delete"}
         onConfirm={() => {
           setConfirmDelete(false);
           startTransition(async () => {
@@ -600,6 +628,21 @@ function StackHeader({
           });
         }}
         onCancel={() => setConfirmDelete(false)}
+      />
+    )}
+    {confirmRemove && (
+      <ConfirmModal
+        title="Remove from this workspace?"
+        body="This removes the stack from this workspace. It stays in all other workspaces where it appears."
+        confirmLabel="Remove"
+        onConfirm={() => {
+          setConfirmRemove(false);
+          startTransition(async () => {
+            await unmirrorNode(stack.id, workspaceId, workspaceId);
+            router.refresh();
+          });
+        }}
+        onCancel={() => setConfirmRemove(false)}
       />
     )}
     </>

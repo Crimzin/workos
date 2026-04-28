@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { X, User } from "lucide-react";
-import { getNodeDetail } from "@/lib/node-detail";
+import { getNodeDetail, getMirrorTargets } from "@/lib/node-detail";
 import type { DetailField, DetailFieldValue, NodeAncestor } from "@/lib/node-detail";
 import type { WorkNode } from "@/lib/types";
+import type { NodeMirrorPlacement } from "@/lib/board-types";
 import { FieldBadge } from "./field-badge";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
@@ -11,6 +12,7 @@ import { DetailPanelTabs } from "./detail-panel-tabs";
 import { AddCardFromPanel } from "./add-card-from-panel";
 import { NodeActions } from "./node-actions";
 import { CardsTabContent } from "./cards-tab-content";
+import { MirrorsSection } from "./mirrors-section";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -25,10 +27,19 @@ export async function DetailPanel({
 }: DetailPanelProps) {
   const detail = await getNodeDetail(nodeId);
 
+  // Fetch mirror targets for the "Appears in" add-mirror dropdown.
+  // This runs in parallel with the rest of the panel render.
+  const mirrorTargets = detail
+    ? await getMirrorTargets(
+        detail.node.instance_id,
+        detail.node.type as "stack" | "card"
+      )
+    : [];
+
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -47,12 +58,22 @@ function DetailBody({
   detail,
   workspaceId,
   closeHref,
+  mirrorTargets,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
   closeHref: string;
+  mirrorTargets: { id: string; title: string; type: string }[];
 }) {
-  const { node, owner, members, ancestors, fields, values, children, childFieldValues } = detail;
+  const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
+
+  // Determine if we're viewing from the node's home context or a mirror context.
+  const homePlacement = mirrorPlacements.find((p) => p.is_home);
+  const homeWorkspaceId = homePlacement?.parent.id ?? workspaceId;
+  const isHomeContext = homeWorkspaceId === workspaceId;
+  const isMirrored = mirrorPlacements.length > 1;
+  // If viewing from a mirror workspace, this is the mirror_parent_id to unlink.
+  const mirrorParentId = !isHomeContext ? workspaceId : undefined;
 
   // Header field badges: select-type fields that have a value set
   const valuesByField = new Map<string, DetailFieldValue[]>();
@@ -79,6 +100,9 @@ function DetailBody({
       fields={fields}
       values={values}
       workspaceId={workspaceId}
+      mirrorPlacements={mirrorPlacements}
+      mirrorTargets={mirrorTargets}
+      homeWorkspaceId={homeWorkspaceId}
     />
   );
 
@@ -140,6 +164,10 @@ function DetailBody({
               nodeType={node.type as "card" | "stack"}
               isArchived={!!node.archived_at}
               closeHref={closeHref}
+              isHomeContext={isHomeContext}
+              isMirrored={isMirrored}
+              mirrorParentId={mirrorParentId}
+              homeWorkspaceId={homeWorkspaceId}
             />
             <CloseButton href={closeHref} />
           </div>
@@ -271,12 +299,18 @@ function FieldsTabContent({
   fields,
   values,
   workspaceId,
+  mirrorPlacements,
+  mirrorTargets,
+  homeWorkspaceId,
 }: {
   node: WorkNode;
   owner: { name: string } | null;
   fields: DetailField[];
   values: DetailFieldValue[];
   workspaceId: string;
+  mirrorPlacements: NodeMirrorPlacement[];
+  mirrorTargets: { id: string; title: string; type: string }[];
+  homeWorkspaceId: string;
 }) {
   const valuesByField = new Map<string, DetailFieldValue[]>();
   for (const v of values) {
@@ -286,12 +320,12 @@ function FieldsTabContent({
   }
 
   return (
-    <div className="px-5 py-5">
-      <div className="flex items-center justify-between">
+    <div className="py-5">
+      <div className="flex items-center justify-between px-5">
         <div className="section-label">Fields</div>
         <AddFieldButton workspaceId={workspaceId} />
       </div>
-      <dl className="mt-2 divide-y divide-border rounded-md border border-border bg-bg-card">
+      <dl className="mt-2 mx-5 divide-y divide-border rounded-md border border-border bg-bg-card">
         <SystemRow label="Owner" value={owner?.name ?? "—"} />
         <SystemRow label="Type" value={node.type} />
         <SystemRow label="Created" value={formatDate(node.created_at)} />
@@ -312,6 +346,16 @@ function FieldsTabContent({
           />
         ))}
       </dl>
+
+      {/* "Appears in" section */}
+      <MirrorsSection
+        nodeId={node.id}
+        nodeType={node.type as "stack" | "card"}
+        workspaceId={workspaceId}
+        homeWorkspaceId={homeWorkspaceId}
+        placements={mirrorPlacements}
+        availableTargets={mirrorTargets}
+      />
     </div>
   );
 }

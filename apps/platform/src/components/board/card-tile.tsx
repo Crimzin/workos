@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MoreHorizontal, Pencil } from "lucide-react";
+import { GitFork, MoreHorizontal, Pencil } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardCard, BoardField } from "@/lib/board-types";
@@ -134,6 +134,9 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
                 </span>
               )}
               <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
+              {card.is_mirrored && (
+                <GitFork size={9} className="shrink-0 text-text-tertiary" aria-label="Mirrored" />
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
               {/* Rename pencil */}
@@ -198,7 +201,7 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmDelete(true); }}
                         className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:opacity-40"
                       >
-                        Delete
+                        {card.is_mirrored ? "Delete from everywhere" : "Delete"}
                       </button>
                     </div>
                   </>
@@ -234,8 +237,12 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
       {confirmDelete && (
         <ConfirmModal
           title="Delete card?"
-          body="Are you sure? Deleted cards can't be recovered."
-          confirmLabel="Delete"
+          body={
+            card.is_mirrored
+              ? "This card appears in other stacks. Deleting it removes it everywhere. This cannot be undone."
+              : "Are you sure? Deleted cards can't be recovered."
+          }
+          confirmLabel={card.is_mirrored ? "Delete from everywhere" : "Delete"}
           onConfirm={handleDelete}
           onCancel={() => setConfirmDelete(false)}
         />

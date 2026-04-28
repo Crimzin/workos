@@ -23,6 +23,8 @@ Decisions made as we build. Most recent on top.
 - **2026-04-23 — Stack detail panels + Cards tab folded into Detail Panel v2 (1.7.5).** Stacks use the same side-panel shell as cards (same `?d=<nodeId>` URL contract, same Posts/Fields tabs); stack panels additionally get a "Cards" tab rendering a miniaturized list of child cards. Placement after 1.7 so divider resize ships once, and so the Cards tab can inherit drag-reorder from the cards-between-stacks work. All remaining 1.5 tab/breadcrumb work lives in 1.7.5 to keep panel polish in one section.
 - **2026-04-24 — 1.7 Drag and Drop complete.** Cards drag between columns (updates field value), within a column (reorders position), and between stacks (reassigns parent). Stack rows drag to reorder. Field options drag-reorder in edit dialog (replaces ↑/↓ buttons). Resizable divider between Board and Detail via `ResizablePanelGroup`. All persisted via `moveCard` / `reorderStack` server actions with midpoint position calculation + cache invalidation. Panel rearrangement (layout positions) slipped to Phase 2 — no multi-panel infrastructure yet.
 - **2026-04-23 — 1.6 Data Fields v1 complete.** Four field types live (single-select, multi-select, text, date). Detail panel renders a Fields section with inline editors; card previews show field badges; column field uses the same data. Field CRUD via QUAM (`⋯ → Edit`) dialog per Factor parity: rename, description, field-level color (all option badges in a field share it), locked toggle, option list add/rename/reorder/delete, delete field. "Add field" on the board toolbar opens a create dialog with type pills, color, and starter options. Migration 0005 moved color from `data_field_options` to `data_fields`; options keep only name + position. Drag-reorder of options deferred to 1.7.
+- **2026-04-27 — 1.8.75 Node Mirroring design.** A stack can be mirrored into multiple workspaces; a card can be mirrored into multiple stacks. Data and field values are shared (same node record). Position on the board is independent per context (`node_mirrors.position`). "Appears in" section in the detail panel shows all placements with add/remove chip UI. Mirror indicator (`GitFork` icon) on board face. QUAM splits "Remove from this workspace" (unlinking only) vs "Delete from everywhere" when in a mirror context. Migration 0013.
+- **2026-04-27 — Swapped 1.9 and 1.10.** 1.9 = Posts + Newsfeed (was 1.10), 1.10 = Context Linking (was 1.9). Posts infrastructure is shared by both the detail-panel Posts tab and the newsfeed, so they ship together.
 - **2026-04-24 — 1.7.5 Detail Panel v2 complete (posts tab deferred to 1.10).** Breadcrumb, editable title, field badge header, owner/members avatar row. Stack panels open via `?d=<stackId>` with full Fields + Cards tabs; Cards tab has inline "+ Add card". Stack active state highlights the row header with accent border. Board-face inline editing: clicking any field badge on a card or stack opens a value-picker popover; hover pencil on card/stack title for direct rename without opening the panel. Stack QUAM (three-dot menu): Rename, Move up/down, Archive. Posts tab deferred — it requires the same `posts` table and feed infrastructure as 1.10 Newsfeed, so both will land together.
 
 ---
@@ -138,54 +140,19 @@ Finishes the 1.5 deferred polish and extends the panel to stacks.
 - [x] **Per-workspace panel layout persistence** — detail panel width saved to localStorage; restored on next load ✅ Complete
 - [x] **Member/agent avatars on stack headers and cards** — show owner avatar on board face; `BoardAvatar` component (initials circle, purple ring for agents); actors fetched by instance_id in `board.ts` and threaded through board → stack header + card tile ✅ Complete
 
-### 1.8.5 Delete & Archive
+### 1.8.75 Node Mirroring
 
-**Goal:** Give cards and stacks a clean lifecycle — archive to hide, delete to permanently remove.
+- [ ] **Stack mirroring** — a stack can be mirrored into any number of workspaces; it appears on each workspace's board with independent position and saved-view state; field values are shared (same node record)
+- [ ] **Card mirroring** — a card can be mirrored into any number of stacks with the same semantics
+- [ ] **`node_mirrors` table** — `(node_id, mirror_parent_id, position, created_at)`; cascade-on-delete both ways; migration 0013
+- [ ] **Board RPC updated** — UNION of home + mirrored stacks; `is_mirror_here` and `is_mirrored` flags on stacks and cards; `display_position` used for ordering
+- [ ] **"Appears in" section in detail panel** — home chip (with Home icon) first, mirror chips after; hover X to remove; search dropdown to add; `MirrorsSection` client component
+- [ ] **Mirror indicator** — `GitFork` icon on board face for any mirrored stack or card
+- [ ] **QUAM split** — from home workspace: "Delete" with multi-workspace warning; from mirror workspace: "Remove from this workspace" (unlinks only) + "Delete from everywhere"
+- [ ] **Mirror-aware `reorderStack`** — writes to `node_mirrors.position` when in mirror context, `nodes.position` when in home context
+- [ ] **Deferred** — card-level mirror display on board (appears in "Appears in" panel, not yet on board grid); `moveStackUpDown` for mirror context
 
-**Archive behavior**
-- No confirmation dialog for either cards or stacks
-- Archived items are hidden from the board by default; revealed via the existing **Filter popover** ("Include archived" toggle — works for both stacks and cards in one control)
-- Archived items render visually dimmed with an "Archived" badge when shown
-- Archive is reversible: unarchive from the same place the item was archived
-
-**Delete behavior**
-- Permanent, irreversible — requires a confirmation modal before executing
-- Confirmation copy: *"Are you sure? Deleted [cards/stacks] can't be recovered."* with Cancel + Delete (destructive) buttons
-- Deleting a stack deletes all its child cards too (cascade)
-
-**Entry points**
-
-| Action | Card | Stack |
-|--------|------|-------|
-| Archive | Card QUAM on board face | Stack QUAM on board face |
-| Archive | Card side panel (button) | Stack side panel (button) |
-| Archive | Stack side panel → Cards tab (per-card) | — |
-| Unarchive | Same entry points when "Include archived" is active | Same |
-| Delete | Card QUAM on board face | Stack QUAM on board face |
-| Delete | Card side panel (button) | Stack side panel (button) |
-
-**Tasks**
-
-- [x] **Confirmation modal** — reusable `ConfirmModal` component (title, body, cancel, destructive confirm); used for both card delete and stack delete
-- [x] **`deleteNode` server action** — hard-deletes node + cascade children; invalidates board cache
-- [x] **`archiveNode` / `unarchiveNode` server actions** — `archiveNode` already existed; added `unarchiveNode` to toggle `archived_at` back to null
-- [x] **Card QUAM** — Archive/Unarchive and Delete added to ⋯ menu on card faces
-- [x] **Card side panel** — Archive/Unarchive and Delete buttons in panel header via `NodeActions` component
-- [x] **Stack QUAM** — Delete added; Archive/Unarchive now toggles based on archived state
-- [x] **Stack side panel** — Archive/Unarchive and Delete buttons in panel header; Cards tab shows all cards (including archived) with per-card `NodeActions`
-- [x] **Filter popover — "Include archived" toggle** — toggle at top of filter popover; counts toward active filter badge; shows dimmed stacks/cards with "Archived" chip
-- [x] **Board rendering** — RPC updated (migration 0012) to always include archived nodes with `archived_at` field; `filteredStacks` removes archived items client-side when toggle is off
-- [x] **Migration 0012** — RPC updated to emit `archived_at` on stacks and cards; `archived_at` column already existed from migration 0002
-
-### 1.9 Context Linking
-
-- [ ] Any node can link to any other node (stack/card, same or different workspace)
-- [ ] Links are bidirectional
-- [ ] "Linked Context" section on the detail panel with add/remove controls
-- [ ] **Planning fields in detail panel** — Blocked by / Blocking relationships surface here once bidirectional links are live
-- [ ] Foundational for Phase 2: linked context is auto-included when AI is invoked on a node
-
-### 1.10 Posts + Newsfeed (fast follow)
+### 1.9 Posts + Newsfeed (fast follow)
 
 Builds the shared posts infrastructure, then surfaces it in two places: the detail panel Posts tab and the workspace newsfeed. These share a single `posts` table and feed-query layer, so they ship together.
 
@@ -206,6 +173,14 @@ Builds the shared posts infrastructure, then surfaces it in two places: the deta
 - [ ] In other workspaces: **My Feed** / **Workspace Feed** tabs
 - [ ] Feed items: source node header, actor avatar + timestamp, content (post, field change, new card, new link)
 - [ ] Clicking a feed item opens the relevant card/stack in the detail panel
+
+### 1.10 Context Linking
+
+- [ ] Any node can link to any other node (stack/card, same or different workspace)
+- [ ] Links are bidirectional
+- [ ] "Linked Context" section on the detail panel with add/remove controls
+- [ ] **Planning fields in detail panel** — Blocked by / Blocking relationships surface here once bidirectional links are live
+- [ ] Foundational for Phase 2: linked context is auto-included when AI is invoked on a node
 
 ### 1.11 Data Migration (Burn + Personal Factor)
 

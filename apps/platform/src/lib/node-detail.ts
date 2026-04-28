@@ -7,6 +7,7 @@ import type {
   DataFieldOption,
   WorkNode,
 } from "./types";
+import type { NodeMirrorPlacement } from "./board-types";
 
 export interface DetailField extends DataField {
   options: DataFieldOption[];
@@ -34,6 +35,7 @@ export interface NodeDetail {
   values: DetailFieldValue[];
   children: WorkNode[];
   childFieldValues: Record<string, DetailFieldValue[]>;
+  mirrorPlacements: NodeMirrorPlacement[];
 }
 
 export async function getNodeDetail(
@@ -73,7 +75,7 @@ export async function getNodeDetail(
         .filter((a): a is NonNullable<typeof a> => a !== null)
         .map(({ id, title, type }) => ({ id, title, type }));
 
-      const [ownerRes, fieldsRes, optionsRes, valuesRes, membershipsRes, childrenRes] =
+      const [ownerRes, fieldsRes, optionsRes, valuesRes, membershipsRes, childrenRes, mirrorsRes] =
         await Promise.all([
           node.owner_id
             ? supabase
@@ -108,6 +110,12 @@ export async function getNodeDetail(
                 .eq("parent_id", nodeId)
                 .order("position", { ascending: true })
             : Promise.resolve({ data: [] as WorkNode[], error: null }),
+          // Fetch mirror placements for the "Appears in" section.
+          supabase
+            .from("node_mirrors")
+            .select("id, mirror_parent_id, created_at")
+            .eq("node_id", nodeId)
+            .order("created_at", { ascending: true }),
         ]);
 
       if (ownerRes.error) throw ownerRes.error;
@@ -115,6 +123,7 @@ export async function getNodeDetail(
       if (optionsRes.error) throw optionsRes.error;
       if (valuesRes.error) throw valuesRes.error;
       if (childrenRes.error) throw childrenRes.error;
+      if (mirrorsRes.error) throw mirrorsRes.error;
 
       // Fetch member actor details
       const memberActorIds = (membershipsRes?.data ?? []).map(
@@ -162,6 +171,39 @@ export async function getNodeDetail(
         }
       }
 
+      // Assemble "Appears in" placements.
+      // Home placement is always first (nodes.parent_id / node.created_at).
+      const mirrorRows = mirrorsRes.data ?? [];
+      let mirrorPlacements: NodeMirrorPlacement[] = [];
+      if (parent) {
+        const homePlacement: NodeMirrorPlacement = {
+          parent: { id: parent.id, title: parent.title, type: parent.type },
+          is_home: true,
+          mirror_id: null,
+          created_at: node.created_at,
+        };
+        let otherPlacements: NodeMirrorPlacement[] = [];
+        if (mirrorRows.length > 0) {
+          const mirrorParentIds = mirrorRows.map((m: { mirror_parent_id: string }) => m.mirror_parent_id);
+          const { data: mirrorParents } = await supabase
+            .from("nodes")
+            .select("id, title, type")
+            .in("id", mirrorParentIds);
+          const mirrorParentsById = Object.fromEntries(
+            (mirrorParents ?? []).map((p: { id: string; title: string; type: string }) => [p.id, p])
+          );
+          otherPlacements = mirrorRows
+            .filter((m: { mirror_parent_id: string }) => mirrorParentsById[m.mirror_parent_id])
+            .map((m: { id: string; mirror_parent_id: string; created_at: string }) => ({
+              parent: mirrorParentsById[m.mirror_parent_id],
+              is_home: false,
+              mirror_id: m.id,
+              created_at: m.created_at,
+            }));
+        }
+        mirrorPlacements = [homePlacement, ...otherPlacements];
+      }
+
       return {
         node,
         owner: ownerRes.data ?? null,
@@ -171,6 +213,7 @@ export async function getNodeDetail(
         values: valuesRes.data ?? [],
         children,
         childFieldValues,
+        mirrorPlacements,
       };
     },
     ["node-detail", nodeId],
@@ -180,4 +223,39 @@ export async function getNodeDetail(
     }
   );
   return cached();
+}
+
+/**
+ * Returns all candidate parent nodes for mirroring the given node type.
+ * For stacks: returns workspaces (where the stack can be mirrored into).
+ * For cards:  returns stacks (where the card can be mirrored into).
+ * Called server-side at panel render time; results passed as props to MirrorsSection.
+ */
+export async function getMirrorTargets(
+  instanceId: string,
+  nodeType: "stack" | "card"
+): Promise<{ id: string; title: string; type: string }[]> {
+  const targetType = nodeType === "stack" ? "workspace" : "stack";
+  const { data, error } = await supabase
+    .from("nodes")
+    .select("id, title, type")
+    .eq("instance_id", instanceId)
+    .eq("type", targetType)
+    .is("archived_at", null)
+    .order("title", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as { id: string; title: string; type: string }[];
+}
+
+/**
+ * Returns the number of mirror placements for a node.
+ * Not cached — called on demand before showing delete confirmations.
+ */
+export async function getNodeMirrorCount(nodeId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("node_mirrors")
+    .select("id", { count: "exact", head: true })
+    .eq("node_id", nodeId);
+  if (error) throw error;
+  return count ?? 0;
 }

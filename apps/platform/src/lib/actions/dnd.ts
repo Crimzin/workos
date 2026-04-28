@@ -46,11 +46,29 @@ export async function reorderStack(
   workspaceId: string,
   newPosition: number
 ): Promise<void> {
-  const { error } = await supabase
+  // Check whether this workspace is the stack's home or a mirror context.
+  const { data: node } = await supabase
     .from("nodes")
-    .update({ position: newPosition })
-    .eq("id", stackId);
-  if (error) throw error;
+    .select("parent_id")
+    .eq("id", stackId)
+    .maybeSingle();
+
+  if (node?.parent_id === workspaceId) {
+    // Home context: update the canonical position on the node.
+    const { error } = await supabase
+      .from("nodes")
+      .update({ position: newPosition })
+      .eq("id", stackId);
+    if (error) throw error;
+  } else {
+    // Mirror context: update position within the mirror placement.
+    const { error } = await supabase
+      .from("node_mirrors")
+      .update({ position: newPosition })
+      .eq("node_id", stackId)
+      .eq("mirror_parent_id", workspaceId);
+    if (error) throw error;
+  }
 
   revalidateWorkspaceBoard(workspaceId);
   revalidatePath(`/n/${workspaceId}`);

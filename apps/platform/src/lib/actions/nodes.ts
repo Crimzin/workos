@@ -223,6 +223,74 @@ export async function createStack(
   return { id: stack.id };
 }
 
+// ---------------------------------------------------------------------------
+// Mirroring
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors a node (stack or card) into an additional parent context.
+ * - For stacks: mirrorParentId = target workspace id
+ * - For cards:  mirrorParentId = target stack id
+ * Pass homeWorkspaceId and targetWorkspaceId so both boards are revalidated.
+ */
+export async function mirrorNode(
+  nodeId: string,
+  mirrorParentId: string,
+  homeWorkspaceId: string,
+  targetWorkspaceId: string
+): Promise<void> {
+  // Guard: don't allow mirroring into the node's own home parent.
+  const { data: node } = await supabase
+    .from("nodes")
+    .select("parent_id")
+    .eq("id", nodeId)
+    .maybeSingle();
+  if (node?.parent_id === mirrorParentId) return;
+
+  // Next position in the mirror parent context.
+  const { data: posRows } = await supabase
+    .from("node_mirrors")
+    .select("position")
+    .eq("mirror_parent_id", mirrorParentId)
+    .order("position", { ascending: false })
+    .limit(1);
+  const nextPos = ((posRows?.[0]?.position) ?? -1) + 1;
+
+  const { error } = await supabase.from("node_mirrors").insert({
+    node_id: nodeId,
+    mirror_parent_id: mirrorParentId,
+    position: nextPos,
+  });
+  if (error) throw error;
+
+  revalidateNode(nodeId, null);
+  revalidateWorkspaceBoard(homeWorkspaceId);
+  revalidateWorkspaceBoard(targetWorkspaceId);
+  revalidatePath(`/n/${homeWorkspaceId}`);
+  revalidatePath(`/n/${targetWorkspaceId}`);
+}
+
+/**
+ * Removes a mirror placement for a node.
+ * The node and its home placement are not affected.
+ */
+export async function unmirrorNode(
+  nodeId: string,
+  mirrorParentId: string,
+  affectedWorkspaceId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("node_mirrors")
+    .delete()
+    .eq("node_id", nodeId)
+    .eq("mirror_parent_id", mirrorParentId);
+  if (error) throw error;
+
+  revalidateNode(nodeId, null);
+  revalidateWorkspaceBoard(affectedWorkspaceId);
+  revalidatePath(`/n/${affectedWorkspaceId}`);
+}
+
 export async function createCard(
   stackId: string,
   workspaceId: string,

@@ -104,6 +104,9 @@ export function CardsTabContent({
                     nodeType="card"
                     isArchived={!!card.archived_at}
                     closeHref={`/n/${workspaceId}?d=${stackId}`}
+                    isHomeContext={true}
+                    isMirrored={false}
+                    homeWorkspaceId={workspaceId}
                   />
                 </div>
               </li>
