@@ -28,6 +28,7 @@ Decisions made as we build. Most recent on top.
 - **2026-04-28 — Stack priority states distinct from card priority.** Stacks get `Prioritized | Deprioritized | Completed | Archived` lifecycle (commitment signal); cards get `P0 | P1 | P2 | P3` (urgency ranking). Conflating them loses signal Swarm/BrainShare need: weekly-focus reasoning needs initiative-level prioritization separately from card-level urgency, and priority-drift detection (Tier 1 inborn pattern per spec §5.1) needs stack-level state to fire. Implementation lands with 1.10.5.
 - **2026-04-28 — Default card status field set.** New workspaces ship with a built-in single-select status field: `backlog | next up | planning | in progress | done`. Overrides the spec's `Ideate → Plan → Perform → Reflect` based on practical use of the platform to date. Field stays user-editable per workspace. Implementation lands with 1.10.5.
 - **2026-04-28 — Migration deferred to Phase 4.** Spec section 6 frames migration as the first BrainShare magic moment — a *diagnostic*, not a data import. Pre-BrainShare migration is just rote data porting and misses the moat (the structure BrainShare imposes is what makes it compelling). 1.11 removed from Phase 1; full plan + dogfooding deferred until BrainShare's structured-memory layer exists. Design framing captured in `migration-design.md` so it doesn't decay.
+- **2026-04-28 — 1.10 Context Linking complete.** `node_links` table (migration 0015) with `link_type` enum (`related` | `blocks`); bidirectional read via `getNodeLinks` walks 3-level ancestry for cross-workspace workspace labels; `searchLinkableNodes` powers a debounced picker. "Linked Context" section in detail panel renders 3 groups (Related / Blocks / Blocked by) with hover-X removal. AI auto-inclusion deferred to Phase 2 BrainShare.
 - **2026-04-28 — 1.10.5 Memory-Object Foundations + Priority carved out.** Spec §2.1 mandates `rationale`, `assumptions`, `decisions` schema "from day one" because BrainShare reads these as primary memory objects. Bundled with the priority field rollout (cards P0–P3, stacks 4-state lifecycle) and default-status seeding since both are "schema must be present" work. Lands as a dedicated Phase 1 item between 1.10 and the Phase 2 boundary; concrete plan TBD after 1.10 ships.
 - **2026-04-28 — 1.9 Posts + Newsfeed complete.** BlockNote rich text editor (chosen over TipTap — faster integration, zero config, built-in slash menu and image upload); `card_created` activity entries logged to the parent stack on card creation; `link_created` deferred to 1.10. Feed route at `/n/[id]/feed`; My Feed = Workspace Feed in solo mode (distinguished once auth lands). Sidebar Feed + Board links wired for personal + regular workspaces. Migration 0014.
 - **2026-04-28 — @mentions architecture.** Mentions stored as BlockNote inline content (`type: "mention"`, props: `id`, `name`, `kind`) inside the post body JSON. Mention data survives serialization; future notification routing and agent-triggering code can query post bodies for mention nodes and extract actor IDs without schema changes. Currently cosmetic — no notifications fire. 5 actors exist (Will + 4 agents: BrainShare, Claude, Claude Code, Swarm).
@@ -195,14 +196,15 @@ Builds the shared posts infrastructure, then surfaces it in two places: the deta
 - [x] **Workspace rename** — pencil icon on hover; inline input with Enter/blur to save, Escape to cancel; calls `updateNodeTitle(id, title, id, null)`
 - [x] **Workspace QUAM** — ⋯ button on hover; currently: Rename only; designed for Archive / Delete / Open panel in future
 
-### 1.10 Context Linking
+### 1.10 Context Linking — ✅ Complete
 
-- [ ] Any node can link to any other node (stack/card, same or different workspace) via `node_links` table (migration 0015)
-- [ ] Two link types: `related` (mutual / symmetric) and `blocks` (directional — `blocks` from one side, `blocked by` from the other)
-- [ ] "Linked Context" section in the detail panel with three groups (Related / Blocks / Blocked by); add/remove chip UI
-- [ ] Cross-workspace linking — chips show workspace name as dim suffix when target lives elsewhere
-- [ ] **Planning fields** — Blocked by / Blocking relationships surface in Linked Context (no separate section)
-- [ ] Foundational for Phase 2: linked context auto-included when AI is invoked on a node
+- [x] Any node can link to any other node (stack/card, same or different workspace) via `node_links` table (migration 0015)
+- [x] Two link types: `related` (mutual / symmetric) and `blocks` (directional — `blocks` from one side, `blocked by` from the other)
+- [x] "Linked Context" section in the detail panel with three groups (Related / Blocks / Blocked by); add/remove chip UI with debounced search picker
+- [x] Cross-workspace linking — chips show workspace name as dim suffix when target lives elsewhere
+- [x] **Planning fields** — Blocked by / Blocking relationships surface in Linked Context (no separate section)
+- [ ] **Deferred** — linked-context auto-inclusion in AI invocations (Phase 2 BrainShare territory)
+- [ ] **Deferred** — link-type swap (related ↔ blocks) without delete + recreate
 
 ### 1.10.5 Memory-Object Foundations + Priority
 
