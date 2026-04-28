@@ -40,7 +40,11 @@ export function PostEditor({
   const { resolvedTheme } = useTheme();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const editor = useCreateBlockNote({ initialContent });
+  const editor = useCreateBlockNote({
+    initialContent,
+    // Only active when editable — view-only instances skip the callback.
+    uploadFile: editable ? uploadImage : undefined,
+  });
 
   // Intercept Cmd/Ctrl+Enter and Escape in the capture phase so we get them
   // before ProseMirror's own keymap handlers.
@@ -74,6 +78,24 @@ export function PostEditor({
       />
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Image upload (called by BlockNote when user inserts an image block)
+// ---------------------------------------------------------------------------
+
+async function uploadImage(file: File): Promise<string> {
+  const body = new FormData();
+  body.append("file", file);
+
+  const res = await fetch("/api/upload", { method: "POST", body });
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: "Upload failed" }));
+    throw new Error(error ?? "Upload failed");
+  }
+
+  const { url } = await res.json();
+  return url as string;
 }
 
 // ---------------------------------------------------------------------------
