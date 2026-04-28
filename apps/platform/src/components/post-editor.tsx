@@ -2,37 +2,79 @@
 
 import "@blocknote/mantine/style.css";
 import { useEffect, useRef } from "react";
-import { useCreateBlockNote } from "@blocknote/react";
+import { useCreateBlockNote, createReactInlineContentSpec, SuggestionMenuController } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
+import { BlockNoteSchema, defaultInlineContentSpecs } from "@blocknote/core";
 import type { Block, PartialBlock } from "@blocknote/core";
+import type { ActorForMention } from "@/lib/actor";
 import { useTheme } from "./theme-provider";
 
 // ---------------------------------------------------------------------------
-// PostEditor
+// Mention inline content spec
+// Defined at module level so the schema reference is stable across renders.
 // ---------------------------------------------------------------------------
 
-interface PostEditorProps {
-  /** Pre-populated blocks for editing or viewing existing content. */
+const MentionSpec = createReactInlineContentSpec(
+  {
+    type: "mention" as const,
+    propSchema: {
+      id:   { default: "" },
+      name: { default: "Unknown" },
+      kind: { default: "human" },    // "human" | "agent"
+    },
+    content: "none" as const,
+  },
+  {
+    render: ({ inlineContent }) => {
+      const { name, kind } = inlineContent.props;
+      return (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            borderRadius: 3,
+            padding: "0 3px",
+            fontSize: "0.9em",
+            fontWeight: 500,
+            background: kind === "agent" ? "var(--agent-accent-bg, rgba(124,58,237,0.12))" : "rgba(var(--accent-rgb, 79,70,229), 0.12)",
+            color: kind === "agent" ? "var(--agent-accent, #7C3AED)" : "var(--accent, #4F46E5)",
+            cursor: "default",
+          }}
+          data-mention-id={inlineContent.props.id}
+        >
+          @{name}
+        </span>
+      );
+    },
+  }
+);
+
+// Schema that includes the mention spec alongside all default inline content.
+const schema = BlockNoteSchema.create({
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    mention: MentionSpec,
+  },
+});
+
+// ---------------------------------------------------------------------------
+// PostEditor component
+// ---------------------------------------------------------------------------
+
+export interface PostEditorProps {
   initialContent?: PartialBlock[];
-  /** False = read-only viewer; true (default) = full editor. */
   editable?: boolean;
-  /**
-   * Fired on every content change so the parent can track current blocks
-   * (e.g. for a "Post" button outside the editor).
-   */
+  /** Actors available for @mention suggestions (edit mode only). */
+  actors?: ActorForMention[];
   onChange?: (blocks: Block[]) => void;
-  /**
-   * Called when the user submits (Cmd/Ctrl+Enter).
-   * Not wired in editable=false mode.
-   */
   onSubmit?: (blocks: Block[]) => void;
-  /** Called on Escape in edit mode. */
   onCancel?: () => void;
 }
 
 export function PostEditor({
   initialContent,
   editable = true,
+  actors,
   onChange,
   onSubmit,
   onCancel,
@@ -41,29 +83,25 @@ export function PostEditor({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const editor = useCreateBlockNote({
+    schema,
     initialContent,
-    // Only active when editable — view-only instances skip the callback.
     uploadFile: editable ? uploadImage : undefined,
   });
 
-  // Intercept Cmd/Ctrl+Enter and Escape in the capture phase so we get them
-  // before ProseMirror's own keymap handlers.
+  // Cmd/Ctrl+Enter → submit; Escape → cancel. Uses capture phase so we beat
+  // ProseMirror's own keymap handlers.
   useEffect(() => {
     if (!editable) return;
     const el = wrapperRef.current;
     if (!el) return;
-
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        onSubmit?.(editor.document);
+        onSubmit?.(editor.document as Block[]);
       }
-      if (e.key === "Escape") {
-        onCancel?.();
-      }
+      if (e.key === "Escape") onCancel?.();
     };
-
     el.addEventListener("keydown", handler, true);
     return () => el.removeEventListener("keydown", handler, true);
   }, [editable, editor, onSubmit, onCancel]);
@@ -74,9 +112,70 @@ export function PostEditor({
         editor={editor}
         theme={resolvedTheme}
         editable={editable}
-        onChange={() => onChange?.(editor.document)}
-      />
+        onChange={() => onChange?.(editor.document as Block[])}
+      >
+        {/* @mention suggestion menu — only in edit mode with actors available */}
+        {editable && actors && actors.length > 0 && (
+          <SuggestionMenuController
+            triggerCharacter="@"
+            getItems={async (query) => {
+              const q = query.toLowerCase();
+              return actors
+                .filter((a) => a.name.toLowerCase().includes(q))
+                .map((a) => ({
+                  title: a.name,
+                  subtext: a.kind === "agent" ? "Agent" : "Human",
+                  icon: <ActorInitialIcon actor={a} />,
+                  group: a.kind === "agent" ? "Agents" : "People",
+                  onItemClick: () => {
+                    editor.insertInlineContent([
+                      {
+                        type: "mention",
+                        props: { id: a.id, name: a.name, kind: a.kind },
+                      },
+                      " ", // space after mention so cursor moves past it
+                    ]);
+                  },
+                }));
+            }}
+          />
+        )}
+      </BlockNoteView>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Small avatar shown inside the @mention suggestion menu
+// ---------------------------------------------------------------------------
+
+function ActorInitialIcon({ actor }: { actor: ActorForMention }) {
+  const initials = actor.name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        width: 20,
+        height: 20,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "50%",
+        background: actor.kind === "agent" ? "rgba(124,58,237,0.15)" : "var(--bg-hover)",
+        fontSize: 9,
+        fontWeight: 700,
+        color: actor.kind === "agent" ? "#7C3AED" : "var(--text-secondary)",
+        outline: actor.kind === "agent" ? "2px solid rgba(124,58,237,0.4)" : "none",
+        outlineOffset: 1,
+      }}
+    >
+      {initials}
+    </span>
   );
 }
 
@@ -87,13 +186,11 @@ export function PostEditor({
 async function uploadImage(file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
-
   const res = await fetch("/api/upload", { method: "POST", body });
   if (!res.ok) {
     const { error } = await res.json().catch(() => ({ error: "Upload failed" }));
     throw new Error(error ?? "Upload failed");
   }
-
   const { url } = await res.json();
   return url as string;
 }
@@ -102,12 +199,6 @@ async function uploadImage(file: File): Promise<string> {
 // Serialisation helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Parse a stored post body into BlockNote blocks.
- * Handles both:
- *  - New format: JSON array of BlockNote blocks
- *  - Legacy format: plain text (wraps each line in a paragraph block)
- */
 export function parsePostBody(body: string | null): PartialBlock[] | undefined {
   if (!body) return undefined;
   try {
@@ -116,17 +207,13 @@ export function parsePostBody(body: string | null): PartialBlock[] | undefined {
       return parsed as PartialBlock[];
     }
   } catch {
-    // Not valid JSON — treat as legacy plain text below.
+    // Not valid JSON — legacy plain text below.
   }
-  // Legacy plain text: split by newlines, each line → paragraph block.
   const lines = body.split("\n").filter(Boolean);
   if (lines.length === 0) return undefined;
   return lines.map((line) => ({ type: "paragraph" as const, content: line }));
 }
 
-/**
- * Serialize BlockNote blocks to a JSON string for storage.
- */
 export function serializePostBody(blocks: Block[]): string {
   return JSON.stringify(blocks);
 }

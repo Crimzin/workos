@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
-import { getNode } from "@/lib/nodes";
-import { getRootNodes } from "@/lib/nodes";
+import { getNode, getRootNodes } from "@/lib/nodes";
 import { getWorkspaceFeed } from "@/lib/posts";
-import { getCurrentActor } from "@/lib/actor";
+import { getCurrentActor, getActors } from "@/lib/actor";
 import { WorkspaceFeed } from "@/components/workspace-feed";
 
 export default async function FeedPage({
@@ -11,10 +10,11 @@ export default async function FeedPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [node, roots, actor] = await Promise.all([
+  const [node, roots, actor, actors] = await Promise.all([
     getNode(id),
     getRootNodes(),
     getCurrentActor(),
+    getActors(),
   ]);
 
   if (!node || node.type !== "workspace") notFound();
@@ -41,6 +41,7 @@ export default async function FeedPage({
           workspaceFeed={workspaceFeed}
           allFeed={allFeed}
           actorId={actor.id}
+          actors={actors}
           isPersonal={isPersonal}
         />
       </div>
