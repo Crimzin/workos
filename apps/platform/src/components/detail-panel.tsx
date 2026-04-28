@@ -4,6 +4,8 @@ import { getNodeDetail, getMirrorTargets } from "@/lib/node-detail";
 import type { DetailField, DetailFieldValue, NodeAncestor } from "@/lib/node-detail";
 import type { WorkNode } from "@/lib/types";
 import type { NodeMirrorPlacement } from "@/lib/board-types";
+import { getNodePosts } from "@/lib/posts";
+import { getCurrentActor } from "@/lib/actor";
 import { FieldBadge } from "./field-badge";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
@@ -13,6 +15,7 @@ import { AddCardFromPanel } from "./add-card-from-panel";
 import { NodeActions } from "./node-actions";
 import { CardsTabContent } from "./cards-tab-content";
 import { MirrorsSection } from "./mirrors-section";
+import { PostsTabContent } from "./posts-tab-content";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -25,21 +28,23 @@ export async function DetailPanel({
   workspaceId,
   closeHref,
 }: DetailPanelProps) {
-  const detail = await getNodeDetail(nodeId);
+  const [detail, actor] = await Promise.all([
+    getNodeDetail(nodeId),
+    getCurrentActor(),
+  ]);
 
-  // Fetch mirror targets for the "Appears in" add-mirror dropdown.
-  // This runs in parallel with the rest of the panel render.
-  const mirrorTargets = detail
-    ? await getMirrorTargets(
-        detail.node.instance_id,
-        detail.node.type as "stack" | "card"
-      )
-    : [];
+  // Fetch mirror targets + posts in parallel with detail panel render.
+  const [mirrorTargets, posts] = await Promise.all([
+    detail
+      ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
+      : Promise.resolve([]),
+    detail ? getNodePosts(nodeId) : Promise.resolve([]),
+  ]);
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} actor={actor} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -59,11 +64,15 @@ function DetailBody({
   workspaceId,
   closeHref,
   mirrorTargets,
+  posts,
+  actor,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
   closeHref: string;
   mirrorTargets: { id: string; title: string; type: string }[];
+  posts: import("@/lib/posts").PostRecord[];
+  actor: import("@/lib/actor").CurrentActor;
 }) {
   const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
 
@@ -92,6 +101,16 @@ function DetailBody({
       if (opt) headerBadges.push({ id: `${field.id}:${opt.id}`, name: opt.name, color: field.color });
     }
   }
+
+  const postsContent = (
+    <PostsTabContent
+      nodeId={node.id}
+      workspaceId={workspaceId}
+      initialPosts={posts}
+      currentActorId={actor.id}
+      currentActorName={actor.name}
+    />
+  );
 
   const fieldsContent = (
     <FieldsTabContent
@@ -179,6 +198,7 @@ function DetailBody({
         nodeType={node.type}
         fieldsContent={fieldsContent}
         cardsContent={cardsContent}
+        postsContent={postsContent}
       />
     </>
   );

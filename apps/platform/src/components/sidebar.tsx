@@ -102,8 +102,18 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
           />
           {!collapsed && (
             <div className="ml-5 mt-0.5 flex flex-col">
-              <SubItem icon={<Rss size={13} />} label="Feed" />
-              <SubItem icon={<LayoutGrid size={13} />} label="Board" />
+              <SubItem
+                icon={<Rss size={13} />}
+                label="Feed"
+                href={`/n/${personal.id}/feed`}
+                active={pathname === `/n/${personal.id}/feed`}
+              />
+              <SubItem
+                icon={<LayoutGrid size={13} />}
+                label="Board"
+                href={`/n/${personal.id}`}
+                active={pathname === `/n/${personal.id}`}
+              />
               <SubItem icon={<Calendar size={13} />} label="Reminders" />
             </div>
           )}
@@ -133,12 +143,23 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
           </div>
         )}
         {workspaces.map((w) => (
-          <SidebarWorkspaceItem
-            key={w.id}
-            node={w}
-            collapsed={collapsed}
-            active={pathname === `/n/${w.id}`}
-          />
+          <div key={w.id}>
+            <SidebarWorkspaceItem
+              node={w}
+              collapsed={collapsed}
+              active={pathname === `/n/${w.id}`}
+            />
+            {!collapsed && (
+              <div className="ml-5 mt-0.5 mb-0.5 flex flex-col">
+                <SubItem
+                  icon={<Rss size={13} />}
+                  label="Feed"
+                  href={`/n/${w.id}/feed`}
+                  active={pathname === `/n/${w.id}/feed`}
+                />
+              </div>
+            )}
+          </div>
         ))}
         {!collapsed && creating && (
           <div className="px-2 py-1">
@@ -238,18 +259,38 @@ function SidebarWorkspaceItem({
 function SubItem({
   icon,
   label,
+  href,
+  active,
 }: {
   icon: React.ReactNode;
   label: string;
+  href?: string;
+  active?: boolean;
 }) {
+  const className = [
+    "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
+    active
+      ? "bg-bg-selected text-text-primary"
+      : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary",
+  ].join(" ");
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        <span>{icon}</span>
+        <span>{label}</span>
+      </Link>
+    );
+  }
+
   return (
     <button
       type="button"
       disabled
       title={`${label} (coming soon)`}
-      className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+      className={className}
     >
-      <span className="text-text-tertiary">{icon}</span>
+      <span>{icon}</span>
       <span>{label}</span>
     </button>
   );

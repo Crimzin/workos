@@ -25,6 +25,7 @@ Decisions made as we build. Most recent on top.
 - **2026-04-23 — 1.6 Data Fields v1 complete.** Four field types live (single-select, multi-select, text, date). Detail panel renders a Fields section with inline editors; card previews show field badges; column field uses the same data. Field CRUD via QUAM (`⋯ → Edit`) dialog per Factor parity: rename, description, field-level color (all option badges in a field share it), locked toggle, option list add/rename/reorder/delete, delete field. "Add field" on the board toolbar opens a create dialog with type pills, color, and starter options. Migration 0005 moved color from `data_field_options` to `data_fields`; options keep only name + position. Drag-reorder of options deferred to 1.7.
 - **2026-04-27 — 1.8.75 Node Mirroring design.** A stack can be mirrored into multiple workspaces; a card can be mirrored into multiple stacks. Data and field values are shared (same node record). Position on the board is independent per context (`node_mirrors.position`). "Appears in" section in the detail panel shows all placements with add/remove chip UI. Mirror indicator (`GitFork` icon) on board face. QUAM splits "Remove from this workspace" (unlinking only) vs "Delete from everywhere" when in a mirror context. Migration 0013.
 - **2026-04-27 — Swapped 1.9 and 1.10.** 1.9 = Posts + Newsfeed (was 1.10), 1.10 = Context Linking (was 1.9). Posts infrastructure is shared by both the detail-panel Posts tab and the newsfeed, so they ship together.
+- **2026-04-28 — 1.9 Posts + Newsfeed complete.** Plain-text posts only (no TipTap for MVP); `card_created` activity entries logged to the parent stack on card creation; `link_created` deferred to 1.10. Feed route at `/n/[id]/feed`; My Feed = Workspace Feed in solo mode (distinguished once auth lands). Sidebar Feed links wired for personal + regular workspaces. Migration 0014.
 - **2026-04-24 — 1.7.5 Detail Panel v2 complete (posts tab deferred to 1.10).** Breadcrumb, editable title, field badge header, owner/members avatar row. Stack panels open via `?d=<stackId>` with full Fields + Cards tabs; Cards tab has inline "+ Add card". Stack active state highlights the row header with accent border. Board-face inline editing: clicking any field badge on a card or stack opens a value-picker popover; hover pencil on card/stack title for direct rename without opening the panel. Stack QUAM (three-dot menu): Rename, Move up/down, Archive. Posts tab deferred — it requires the same `posts` table and feed infrastructure as 1.10 Newsfeed, so both will land together.
 
 ---
@@ -140,39 +141,43 @@ Finishes the 1.5 deferred polish and extends the panel to stacks.
 - [x] **Per-workspace panel layout persistence** — detail panel width saved to localStorage; restored on next load ✅ Complete
 - [x] **Member/agent avatars on stack headers and cards** — show owner avatar on board face; `BoardAvatar` component (initials circle, purple ring for agents); actors fetched by instance_id in `board.ts` and threaded through board → stack header + card tile ✅ Complete
 
-### 1.8.75 Node Mirroring
+### 1.8.75 Node Mirroring — ✅ Complete
 
-- [ ] **Stack mirroring** — a stack can be mirrored into any number of workspaces; it appears on each workspace's board with independent position and saved-view state; field values are shared (same node record)
-- [ ] **Card mirroring** — a card can be mirrored into any number of stacks with the same semantics
-- [ ] **`node_mirrors` table** — `(node_id, mirror_parent_id, position, created_at)`; cascade-on-delete both ways; migration 0013
-- [ ] **Board RPC updated** — UNION of home + mirrored stacks; `is_mirror_here` and `is_mirrored` flags on stacks and cards; `display_position` used for ordering
-- [ ] **"Appears in" section in detail panel** — home chip (with Home icon) first, mirror chips after; hover X to remove; search dropdown to add; `MirrorsSection` client component
-- [ ] **Mirror indicator** — `GitFork` icon on board face for any mirrored stack or card
-- [ ] **QUAM split** — from home workspace: "Delete" with multi-workspace warning; from mirror workspace: "Remove from this workspace" (unlinks only) + "Delete from everywhere"
-- [ ] **Mirror-aware `reorderStack`** — writes to `node_mirrors.position` when in mirror context, `nodes.position` when in home context
+- [x] **Stack mirroring** — a stack can be mirrored into any number of workspaces; it appears on each workspace's board with independent position and saved-view state; field values are shared (same node record)
+- [x] **Card mirroring** — a card can be mirrored into any number of stacks with the same semantics
+- [x] **`node_mirrors` table** — `(node_id, mirror_parent_id, position, created_at)`; cascade-on-delete both ways; migration 0013
+- [x] **Board RPC updated** — UNION of home + mirrored stacks; `is_mirror_here` and `is_mirrored` flags on stacks and cards; `display_position` used for ordering
+- [x] **"Appears in" section in detail panel** — home chip (with Home icon) first, mirror chips after; hover X to remove; search dropdown to add; `MirrorsSection` client component
+- [x] **Mirror indicator** — `GitFork` icon on board face for any mirrored stack or card
+- [x] **QUAM split** — from home workspace: "Delete" with multi-workspace warning; from mirror workspace: "Remove from this workspace" (unlinks only) + "Delete from everywhere"
+- [x] **Mirror-aware `reorderStack`** — writes to `node_mirrors.position` when in mirror context, `nodes.position` when in home context
 - [ ] **Deferred** — card-level mirror display on board (appears in "Appears in" panel, not yet on board grid); `moveStackUpDown` for mirror context
 
-### 1.9 Posts + Newsfeed (fast follow)
+### 1.9 Posts + Newsfeed — ✅ Complete
 
 Builds the shared posts infrastructure, then surfaces it in two places: the detail panel Posts tab and the workspace newsfeed. These share a single `posts` table and feed-query layer, so they ship together.
 
 **Posts infrastructure (required by both)**
-- [ ] `posts` table: node_id, actor_id, body (rich text), pinned, created_at; migration 0006
-- [ ] `post_reactions` or inline field-change log entries (TBD schema)
-- [ ] Server actions: createPost, updatePost, deletePost, pinPost
+- [x] `posts` table: `node_id`, `actor_id`, `body`, `pinned`, `post_type` ('post' | 'card_created' | 'link_created'), `metadata` JSONB, `created_at`; migration 0014
+- [x] Server actions: `createPost`, `updatePost`, `deletePost`, `pinPost`
+- [x] `card_created` activity logged to parent stack on card creation
+- [ ] Field-change log entries — deferred (too invasive; every field action would need updating)
+- [ ] Post reactions (`post_reactions` table) — deferred to Phase 2
 
 **Detail panel Posts tab (cards + stacks)**
-- [ ] Pinned posts above chronological feed; post item (avatar, name, timestamp, rich text body)
-- [ ] Field-change log entries interspersed in the feed
-- [ ] Post composer: plain text for now, slash commands + @ mentions in Phase 2; Cmd+Enter to submit
-- [ ] Pin / edit / delete actions on each post
-- [ ] Agent posts render with purple-ring avatar + small "AI" label
+- [x] Pinned posts above chronological feed with pin divider; post item (avatar, name, relative timestamp, plain-text body)
+- [x] Post composer: plain text (no TipTap for MVP); Cmd+Enter to submit; "Post" button
+- [x] Pin / edit (inline textarea) / delete (inline confirm) actions on each post
+- [x] Agent posts render with purple-ring avatar (`ring-2 ring-agent-accent`)
+- [x] `card_created` activity entries link to the card via `?d=[card_id]`; no pin/edit on activity items
 
 **Workspace Newsfeed**
-- [ ] In personal workspace: **My Feed** / **Workspace Feed** / **All Feed** tabs
-- [ ] In other workspaces: **My Feed** / **Workspace Feed** tabs
-- [ ] Feed items: source node header, actor avatar + timestamp, content (post, field change, new card, new link)
-- [ ] Clicking a feed item opens the relevant card/stack in the detail panel
+- [x] Feed route at `/n/[id]/feed` — server component, validates workspace
+- [x] In personal workspace: **My Feed** / **Workspace** / **All** tabs (My Feed = Workspace in solo mode)
+- [x] In other workspaces: **My Feed** / **Workspace** tabs
+- [x] Feed items: source node header (stack/card icon + title), actor avatar + timestamp, content
+- [x] Clicking a feed item's node header opens the relevant node in the detail panel
+- [x] Sidebar Feed links wired for personal workspace (Feed + Board) and all regular workspaces (Feed)
 
 ### 1.10 Context Linking
 

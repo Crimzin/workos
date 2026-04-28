@@ -7,6 +7,8 @@ import {
   revalidateRootNodes,
   revalidateNode,
   revalidateWorkspaceBoard,
+  revalidateNodePosts,
+  revalidateWorkspaceFeed,
 } from "../cache";
 
 export async function archiveNode(
@@ -330,7 +332,17 @@ export async function createCard(
     if (vErr) throw vErr;
   }
 
+  // Log a card_created activity post on the parent stack.
+  await supabase.from("posts").insert({
+    node_id: stackId,
+    actor_id: actor.id,
+    post_type: "card_created",
+    metadata: { card_id: card.id, card_title: trimmed },
+  });
+
   revalidateWorkspaceBoard(workspaceId);
+  revalidateNodePosts(stackId);
+  revalidateWorkspaceFeed(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
   return { id: card.id };
 }

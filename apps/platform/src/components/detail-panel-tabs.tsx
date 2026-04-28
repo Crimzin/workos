@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { MessageSquare } from "lucide-react";
 
 type TabId = "posts" | "fields" | "cards";
 
@@ -9,12 +8,14 @@ interface DetailPanelTabsProps {
   nodeType: string;
   fieldsContent: React.ReactNode;
   cardsContent: React.ReactNode;
+  postsContent: React.ReactNode;
 }
 
 export function DetailPanelTabs({
   nodeType,
   fieldsContent,
   cardsContent,
+  postsContent,
 }: DetailPanelTabsProps) {
   const tabs: { id: TabId; label: string }[] = [
     { id: "posts", label: "Posts" },
@@ -45,25 +46,9 @@ export function DetailPanelTabs({
       </div>
 
       <div className="flex-1 overflow-auto">
-        {active === "posts" && <PostsPlaceholder />}
+        {active === "posts" && postsContent}
         {active === "fields" && fieldsContent}
         {active === "cards" && cardsContent}
-      </div>
-    </div>
-  );
-}
-
-function PostsPlaceholder() {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-bg-hover">
-        <MessageSquare size={18} className="text-text-tertiary" />
-      </div>
-      <div>
-        <div className="text-sm font-medium text-text-secondary">Posts coming soon</div>
-        <div className="mt-1 text-xs text-text-tertiary">
-          Rich text posts, mentions, and activity feed land in the next update.
-        </div>
       </div>
     </div>
   );
