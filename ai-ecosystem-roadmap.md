@@ -25,7 +25,11 @@ Decisions made as we build. Most recent on top.
 - **2026-04-23 — 1.6 Data Fields v1 complete.** Four field types live (single-select, multi-select, text, date). Detail panel renders a Fields section with inline editors; card previews show field badges; column field uses the same data. Field CRUD via QUAM (`⋯ → Edit`) dialog per Factor parity: rename, description, field-level color (all option badges in a field share it), locked toggle, option list add/rename/reorder/delete, delete field. "Add field" on the board toolbar opens a create dialog with type pills, color, and starter options. Migration 0005 moved color from `data_field_options` to `data_fields`; options keep only name + position. Drag-reorder of options deferred to 1.7.
 - **2026-04-27 — 1.8.75 Node Mirroring design.** A stack can be mirrored into multiple workspaces; a card can be mirrored into multiple stacks. Data and field values are shared (same node record). Position on the board is independent per context (`node_mirrors.position`). "Appears in" section in the detail panel shows all placements with add/remove chip UI. Mirror indicator (`GitFork` icon) on board face. QUAM splits "Remove from this workspace" (unlinking only) vs "Delete from everywhere" when in a mirror context. Migration 0013.
 - **2026-04-27 — Swapped 1.9 and 1.10.** 1.9 = Posts + Newsfeed (was 1.10), 1.10 = Context Linking (was 1.9). Posts infrastructure is shared by both the detail-panel Posts tab and the newsfeed, so they ship together.
-- **2026-04-28 — 1.9 Posts + Newsfeed complete.** Plain-text posts only (no TipTap for MVP); `card_created` activity entries logged to the parent stack on card creation; `link_created` deferred to 1.10. Feed route at `/n/[id]/feed`; My Feed = Workspace Feed in solo mode (distinguished once auth lands). Sidebar Feed links wired for personal + regular workspaces. Migration 0014.
+- **2026-04-28 — 1.9 Posts + Newsfeed complete.** BlockNote rich text editor (chosen over TipTap — faster integration, zero config, built-in slash menu and image upload); `card_created` activity entries logged to the parent stack on card creation; `link_created` deferred to 1.10. Feed route at `/n/[id]/feed`; My Feed = Workspace Feed in solo mode (distinguished once auth lands). Sidebar Feed + Board links wired for personal + regular workspaces. Migration 0014.
+- **2026-04-28 — @mentions architecture.** Mentions stored as BlockNote inline content (`type: "mention"`, props: `id`, `name`, `kind`) inside the post body JSON. Mention data survives serialization; future notification routing and agent-triggering code can query post bodies for mention nodes and extract actor IDs without schema changes. Currently cosmetic — no notifications fire. 5 actors exist (Will + 4 agents: BrainShare, Claude, Claude Code, Swarm).
+- **2026-04-28 — Image upload via Supabase Storage.** Bucket `post-attachments` (public, 10 MB, image/* only). Upload route at `POST /api/upload`; BlockNote's native image block calls `uploadFile` callback which posts the file and returns the public CDN URL. Images stored at `posts/{date}/{slug}.{ext}`.
+- **2026-04-28 — Workspace side panel deferred to Phase 2.** Rationale: (1) Opening a panel "about" the workspace while you're inside it is spatially confusing; (2) membership management requires auth/multi-user which isn't built yet; (3) "workspace posts" vs. workspace Feed needs careful design. Decision: add "Open panel" to workspace QUAM as the future hook. Defer design to when auth lands.
+- **2026-04-28 — Workspace QUAM + rename shipped alongside 1.9.** Pencil icon + ⋯ QUAM on every workspace row in sidebar. Currently: Rename only (calls existing `updateNodeTitle` with `parentId=null`). QUAM designed to receive Archive, Delete, Open panel in future sessions.
 - **2026-04-24 — 1.7.5 Detail Panel v2 complete (posts tab deferred to 1.10).** Breadcrumb, editable title, field badge header, owner/members avatar row. Stack panels open via `?d=<stackId>` with full Fields + Cards tabs; Cards tab has inline "+ Add card". Stack active state highlights the row header with accent border. Board-face inline editing: clicking any field badge on a card or stack opens a value-picker popover; hover pencil on card/stack title for direct rename without opening the panel. Stack QUAM (three-dot menu): Rename, Move up/down, Archive. Posts tab deferred — it requires the same `posts` table and feed infrastructure as 1.10 Newsfeed, so both will land together.
 
 ---
@@ -165,19 +169,27 @@ Builds the shared posts infrastructure, then surfaces it in two places: the deta
 - [ ] Post reactions (`post_reactions` table) — deferred to Phase 2
 
 **Detail panel Posts tab (cards + stacks)**
-- [x] Pinned posts above chronological feed with pin divider; post item (avatar, name, relative timestamp, plain-text body)
-- [x] Post composer: plain text (no TipTap for MVP); Cmd+Enter to submit; "Post" button
-- [x] Pin / edit (inline textarea) / delete (inline confirm) actions on each post
+- [x] **BlockNote rich text editor** — slash menu, headings, bullets, code blocks, images; `MentionSpec` inline content type for @mentions; schema stable at module level
+- [x] Post composer: BlockNote editor with Cmd+Enter to submit; "Post" button enabled only when content exists; editor reset via `composerKey` remount after submit
+- [x] Pinned posts: in-place pin decoration (pin icon, no reordering); pinned-count badge at top toggles pinned-only filter; pin icon revealed on hover
+- [x] Edit (inline BlockNote editor) / delete (inline confirm) on own posts
 - [x] Agent posts render with purple-ring avatar (`ring-2 ring-agent-accent`)
 - [x] `card_created` activity entries link to the card via `?d=[card_id]`; no pin/edit on activity items
+- [x] **Image upload** — Supabase Storage bucket `post-attachments`; `POST /api/upload`; 10 MB / image/* limit; BlockNote image block calls `uploadFile` callback
+- [x] **@mentions** — `@` triggers suggestion menu grouped by People / Agents; mention stored as BlockNote inline content with `{ id, name, kind }` props; currently cosmetic (no notifications); architecture ready for agent triggering
 
 **Workspace Newsfeed**
 - [x] Feed route at `/n/[id]/feed` — server component, validates workspace
 - [x] In personal workspace: **My Feed** / **Workspace** / **All** tabs (My Feed = Workspace in solo mode)
 - [x] In other workspaces: **My Feed** / **Workspace** tabs
-- [x] Feed items: source node header (stack/card icon + title), actor avatar + timestamp, content
+- [x] Feed items: source node header (stack/card icon + title), actor avatar + timestamp, BlockNote content rendered read-only
 - [x] Clicking a feed item's node header opens the relevant node in the detail panel
-- [x] Sidebar Feed links wired for personal workspace (Feed + Board) and all regular workspaces (Feed)
+
+**Sidebar (shipped with 1.9)**
+- [x] Board + Feed sub-items on every workspace (personal and regular); Reminders removed
+- [x] Workspace name row no longer highlights when a sub-item is active; collapsed icon highlights on any sub-page
+- [x] **Workspace rename** — pencil icon on hover; inline input with Enter/blur to save, Escape to cancel; calls `updateNodeTitle(id, title, id, null)`
+- [x] **Workspace QUAM** — ⋯ button on hover; currently: Rename only; designed for Archive / Delete / Open panel in future
 
 ### 1.10 Context Linking
 
