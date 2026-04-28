@@ -217,3 +217,40 @@ samp {
   letter-spacing: 0.05em;
   color: var(--text-tertiary);
 }
+
+/* =============================================================================
+   BlockNote editor integration
+   ============================================================================= */
+
+/* Remove BlockNote's outer chrome — we provide our own border/bg wrapper */
+.bn-post-editor .bn-editor {
+  padding: 8px 12px;
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: transparent;
+  min-height: 80px;
+}
+
+/* Viewer mode (editable=false): tighter padding, no min-height */
+.prose-post .bn-post-editor .bn-editor {
+  padding: 0;
+  min-height: 0;
+}
+
+/* Match text colours to our tokens */
+.bn-post-editor .bn-editor,
+.bn-post-editor [data-node-type="blockContainer"] {
+  color: var(--text-primary);
+}
+
+/* Placeholder text */
+.bn-post-editor .bn-editor [data-placeholder]::before {
+  color: var(--text-tertiary);
+}
+
+/* Slash-menu and formatting toolbar use their own z-index; ensure they float above the panel */
+.bn-slash-menu,
+.bn-formatting-toolbar {
+  z-index: 9999 !important;
+}
