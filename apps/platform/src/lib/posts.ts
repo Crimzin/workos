@@ -30,19 +30,8 @@ export function getNodePosts(nodeId: string): Promise<PostRecord[]> {
         .order("created_at", { ascending: false });
       if (error) throw error;
 
-      const rows = (data ?? []) as PostRecord[];
-
-      // Sort: pinned first (by pinned_at asc so oldest pin is at top), then non-pinned by created_at desc
-      rows.sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        if (a.pinned && b.pinned) {
-          return new Date(a.pinned_at!).getTime() - new Date(b.pinned_at!).getTime();
-        }
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
-
-      return rows;
+      // Pure chronological sort; pinned decoration is handled client-side.
+      return (data ?? []) as PostRecord[];
     },
     [`posts-node-${nodeId}`],
     { tags: [cacheTags.nodePosts(nodeId)], revalidate: false }

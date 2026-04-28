@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Pin } from "lucide-react";
 import type { PostRecord } from "@/lib/posts";
 import { createPost } from "@/lib/actions/posts";
@@ -19,14 +20,24 @@ export function PostsTabContent({
   workspaceId,
   initialPosts,
   currentActorId,
-  currentActorName,
 }: PostsTabContentProps) {
+  // Local mutable copy of the post list. Mutations (pin/delete/edit) update
+  // this immediately for instant feedback; createPost calls router.refresh()
+  // which causes the server to re-pass new initialPosts → synced via useEffect.
+  const [posts, setPosts] = useState<PostRecord[]>(initialPosts);
   const [body, setBody] = useState("");
+  const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const pinned = initialPosts.filter((p) => p.pinned);
-  const feed = initialPosts.filter((p) => !p.pinned);
+  // Keep local state in sync when server passes fresh data (e.g. after createPost + router.refresh()).
+  useEffect(() => {
+    setPosts(initialPosts);
+  }, [initialPosts]);
+
+  const pinnedCount = posts.filter((p) => p.pinned).length;
+  const visiblePosts = showPinnedOnly ? posts.filter((p) => p.pinned) : posts;
 
   const handleSubmit = () => {
     const trimmed = body.trim();
@@ -34,8 +45,32 @@ export function PostsTabContent({
     startTransition(async () => {
       await createPost(nodeId, workspaceId, trimmed);
       setBody("");
+      router.refresh(); // re-renders server component → new initialPosts → synced above
       textareaRef.current?.focus();
     });
+  };
+
+  // Callbacks for child PostItem — update local state without a round-trip refresh.
+  const handlePinToggle = (postId: string, pinned: boolean) => {
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId
+          ? { ...p, pinned, pinned_at: pinned ? new Date().toISOString() : null }
+          : p
+      )
+    );
+    // If we toggled the last pinned post off and the filter is active, collapse it.
+    if (!pinned && pinnedCount - 1 === 0) setShowPinnedOnly(false);
+  };
+
+  const handleDelete = (postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  };
+
+  const handleUpdate = (postId: string, newBody: string) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, body: newBody } : p))
+    );
   };
 
   return (
@@ -69,44 +104,46 @@ export function PostsTabContent({
         </div>
       </div>
 
+      {/* Pinned-posts filter toggle — only when at least one post is pinned */}
+      {pinnedCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowPinnedOnly((v) => !v)}
+          className={[
+            "flex w-full items-center gap-1.5 border-b border-border px-5 py-2 text-left text-xs transition-colors",
+            showPinnedOnly
+              ? "bg-accent/5 text-accent"
+              : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary",
+          ].join(" ")}
+        >
+          <Pin size={11} className="shrink-0" />
+          <span>
+            {pinnedCount} pinned
+            {showPinnedOnly && " · click to show all"}
+          </span>
+        </button>
+      )}
+
       {/* Empty state */}
-      {initialPosts.length === 0 && (
+      {visiblePosts.length === 0 && (
         <p className="py-10 text-center text-sm text-text-tertiary">
-          No posts yet. Be the first to post.
+          {showPinnedOnly ? "No pinned posts." : "No posts yet. Be the first to post."}
         </p>
       )}
 
-      {/* Pinned section */}
-      {pinned.length > 0 && (
-        <>
-          <div className="flex items-center gap-1.5 px-5 py-2 border-b border-border">
-            <Pin size={11} className="text-text-tertiary" />
-            <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Pinned</span>
-          </div>
-          <div className="divide-y divide-border border-b border-border">
-            {pinned.map((post) => (
-              <PostItem
-                key={post.id}
-                post={post}
-                nodeId={nodeId}
-                workspaceId={workspaceId}
-                currentActorId={currentActorId}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Feed */}
-      {feed.length > 0 && (
+      {/* Feed — all posts in chronological order; pinned ones are decorated in-place */}
+      {visiblePosts.length > 0 && (
         <div className="divide-y divide-border">
-          {feed.map((post) => (
+          {visiblePosts.map((post) => (
             <PostItem
               key={post.id}
               post={post}
               nodeId={nodeId}
               workspaceId={workspaceId}
               currentActorId={currentActorId}
+              onPinToggle={handlePinToggle}
+              onDelete={handleDelete}
+              onUpdate={handleUpdate}
             />
           ))}
         </div>

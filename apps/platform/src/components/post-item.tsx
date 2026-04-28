@@ -11,9 +11,25 @@ interface PostItemProps {
   nodeId: string;
   workspaceId: string;
   currentActorId: string;
+  /** Called after a successful pin/unpin so the parent can update its list. */
+  onPinToggle?: (postId: string, pinned: boolean) => void;
+  /** Called after a successful delete so the parent can remove the item. */
+  onDelete?: (postId: string) => void;
+  /** Called after a successful edit so the parent can update the body. */
+  onUpdate?: (postId: string, newBody: string) => void;
 }
 
-export function PostItem({ post, nodeId, workspaceId, currentActorId }: PostItemProps) {
+export function PostItem({
+  post,
+  nodeId,
+  workspaceId,
+  currentActorId,
+  onPinToggle,
+  onDelete,
+  onUpdate,
+}: PostItemProps) {
+  // Local pinned state for instant visual feedback before the server round-trip.
+  const [localPinned, setLocalPinned] = useState(post.pinned);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(post.body ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -33,6 +49,7 @@ export function PostItem({ post, nodeId, workspaceId, currentActorId }: PostItem
     startTransition(async () => {
       await updatePost(post.id, nodeId, workspaceId, trimmed);
       setEditing(false);
+      onUpdate?.(post.id, trimmed);
     });
   };
 
@@ -40,12 +57,16 @@ export function PostItem({ post, nodeId, workspaceId, currentActorId }: PostItem
     setConfirmDelete(false);
     startTransition(async () => {
       await deletePost(post.id, nodeId, workspaceId);
+      onDelete?.(post.id);
     });
   };
 
   const handlePin = () => {
+    const newPinned = !localPinned;
+    setLocalPinned(newPinned); // optimistic update
     startTransition(async () => {
-      await pinPost(post.id, nodeId, workspaceId, !post.pinned);
+      await pinPost(post.id, nodeId, workspaceId, newPinned);
+      onPinToggle?.(post.id, newPinned);
     });
   };
 
@@ -60,9 +81,9 @@ export function PostItem({ post, nodeId, workspaceId, currentActorId }: PostItem
 
   return (
     <div className="group relative px-5 py-3 hover:bg-bg-hover/40 transition-colors">
-      {/* Pin indicator */}
-      {post.pinned && (
-        <div className="absolute right-4 top-3 text-text-tertiary">
+      {/* Pin decoration — shown in top-right when pinned */}
+      {localPinned && (
+        <div className="absolute right-4 top-3 text-accent/60">
           <Pin size={11} />
         </div>
       )}
@@ -118,10 +139,12 @@ export function PostItem({ post, nodeId, workspaceId, currentActorId }: PostItem
                 type="button"
                 disabled={pending}
                 onClick={handlePin}
-                title={post.pinned ? "Unpin" : "Pin"}
+                title={localPinned ? "Unpin" : "Pin"}
                 className={[
-                  "inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors",
-                  post.pinned ? "text-accent" : "",
+                  "inline-flex h-5 w-5 items-center justify-center rounded transition-colors hover:bg-bg-hover",
+                  localPinned
+                    ? "text-accent hover:text-accent/70"
+                    : "text-text-tertiary hover:text-text-secondary",
                 ].join(" ")}
               >
                 <Pin size={11} />
@@ -140,7 +163,7 @@ export function PostItem({ post, nodeId, workspaceId, currentActorId }: PostItem
               </button>
             </>
           )}
-          {(isOwn || !isActivity) && (
+          {isOwn && (
             <button
               type="button"
               disabled={pending}
@@ -219,6 +242,9 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-    year: new Date(iso).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
+    year:
+      new Date(iso).getFullYear() !== new Date().getFullYear()
+        ? "numeric"
+        : undefined,
   });
 }
