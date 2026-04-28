@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
-  Calendar,
   ChevronLeft,
   LayoutGrid,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Rss,
   Search,
 } from "lucide-react";
 import type { WorkNode } from "@/lib/types";
-import { createWorkspace } from "@/lib/actions/nodes";
+import { createWorkspace, updateNodeTitle } from "@/lib/actions/nodes";
 import { ThemeToggle } from "./theme-toggle";
 import { InlineCreate } from "./inline-create";
 
@@ -27,6 +28,7 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -95,28 +97,14 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
       {/* Personal workspace */}
       {personal && (
         <SidebarSection label="Personal" collapsed={collapsed}>
-          <SidebarWorkspaceItem
+          <WorkspaceRow
             node={personal}
             collapsed={collapsed}
-            active={pathname === `/n/${personal.id}`}
+            pathname={pathname}
+            renamingId={renamingId}
+            setRenamingId={setRenamingId}
+            router={router}
           />
-          {!collapsed && (
-            <div className="ml-5 mt-0.5 flex flex-col">
-              <SubItem
-                icon={<Rss size={13} />}
-                label="Feed"
-                href={`/n/${personal.id}/feed`}
-                active={pathname === `/n/${personal.id}/feed`}
-              />
-              <SubItem
-                icon={<LayoutGrid size={13} />}
-                label="Board"
-                href={`/n/${personal.id}`}
-                active={pathname === `/n/${personal.id}`}
-              />
-              <SubItem icon={<Calendar size={13} />} label="Reminders" />
-            </div>
-          )}
         </SidebarSection>
       )}
 
@@ -143,23 +131,15 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
           </div>
         )}
         {workspaces.map((w) => (
-          <div key={w.id}>
-            <SidebarWorkspaceItem
-              node={w}
-              collapsed={collapsed}
-              active={pathname === `/n/${w.id}`}
-            />
-            {!collapsed && (
-              <div className="ml-5 mt-0.5 mb-0.5 flex flex-col">
-                <SubItem
-                  icon={<Rss size={13} />}
-                  label="Feed"
-                  href={`/n/${w.id}/feed`}
-                  active={pathname === `/n/${w.id}/feed`}
-                />
-              </div>
-            )}
-          </div>
+          <WorkspaceRow
+            key={w.id}
+            node={w}
+            collapsed={collapsed}
+            pathname={pathname}
+            renamingId={renamingId}
+            setRenamingId={setRenamingId}
+            router={router}
+          />
         ))}
         {!collapsed && creating && (
           <div className="px-2 py-1">
@@ -196,6 +176,219 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// WorkspaceRow — workspace item + Board/Feed sub-items + rename + QUAM
+// ---------------------------------------------------------------------------
+
+function WorkspaceRow({
+  node,
+  collapsed,
+  pathname,
+  renamingId,
+  setRenamingId,
+  router,
+}: {
+  node: WorkNode;
+  collapsed: boolean;
+  pathname: string;
+  renamingId: string | null;
+  setRenamingId: (id: string | null) => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const isRenaming = renamingId === node.id;
+  const isOnBoard = pathname === `/n/${node.id}`;
+  const isOnFeed = pathname === `/n/${node.id}/feed`;
+  const isAnyActive = isOnBoard || isOnFeed;
+
+  const initial = node.title.charAt(0).toUpperCase();
+
+  // When collapsed: single clickable row; active when on any sub-page.
+  if (collapsed) {
+    return (
+      <Link
+        href={`/n/${node.id}`}
+        title={node.title}
+        className={[
+          "flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+          isAnyActive
+            ? "bg-bg-selected text-text-primary"
+            : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
+        ].join(" ")}
+      >
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded text-[10px] font-semibold bg-bg-card border border-border text-text-secondary">
+          {initial}
+        </span>
+      </Link>
+    );
+  }
+
+  return (
+    <div>
+      {/* Workspace name row */}
+      <WorkspaceNameRow
+        node={node}
+        initial={initial}
+        isRenaming={isRenaming}
+        setRenamingId={setRenamingId}
+        router={router}
+      />
+
+      {/* Sub-items */}
+      <div className="ml-5 mt-0.5 mb-0.5 flex flex-col">
+        <SubItem
+          icon={<LayoutGrid size={13} />}
+          label="Board"
+          href={`/n/${node.id}`}
+          active={isOnBoard}
+        />
+        <SubItem
+          icon={<Rss size={13} />}
+          label="Feed"
+          href={`/n/${node.id}/feed`}
+          active={isOnFeed}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WorkspaceNameRow — the header row with rename + QUAM
+// ---------------------------------------------------------------------------
+
+function WorkspaceNameRow({
+  node,
+  initial,
+  isRenaming,
+  setRenamingId,
+  router,
+}: {
+  node: WorkNode;
+  initial: string;
+  isRenaming: boolean;
+  setRenamingId: (id: string | null) => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [title, setTitle] = useState(node.title);
+  const [quamOpen, setQuamOpen] = useState(false);
+  const [, startTransition] = useTransition();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const quamRef = useRef<HTMLDivElement>(null);
+
+  // Focus input when rename starts.
+  useEffect(() => {
+    if (isRenaming) {
+      setTitle(node.title);
+      requestAnimationFrame(() => inputRef.current?.select());
+    }
+  }, [isRenaming, node.title]);
+
+  // Close QUAM on outside click.
+  useEffect(() => {
+    if (!quamOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (quamRef.current && !quamRef.current.contains(e.target as Node)) {
+        setQuamOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [quamOpen]);
+
+  const commitRename = () => {
+    const trimmed = title.trim();
+    if (!trimmed || trimmed === node.title) {
+      setRenamingId(null);
+      return;
+    }
+    startTransition(async () => {
+      await updateNodeTitle(node.id, trimmed, node.id, null);
+      setRenamingId(null);
+      router.refresh();
+    });
+  };
+
+  return (
+    <div className="group relative flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors">
+      {/* Initial icon — always links to board */}
+      <Link
+        href={`/n/${node.id}`}
+        tabIndex={-1}
+        className="shrink-0 inline-flex h-5 w-5 items-center justify-center rounded text-[10px] font-semibold bg-bg-card border border-border text-text-secondary"
+        onClick={(e) => isRenaming && e.preventDefault()}
+      >
+        {initial}
+      </Link>
+
+      {/* Title or rename input */}
+      {isRenaming ? (
+        <input
+          ref={inputRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+            if (e.key === "Escape") { setRenamingId(null); }
+          }}
+          className="flex-1 min-w-0 rounded bg-bg-card border border-accent px-1 py-0 text-sm text-text-primary outline-none"
+        />
+      ) : (
+        <Link
+          href={`/n/${node.id}`}
+          className="flex-1 min-w-0 truncate font-medium"
+        >
+          {node.title}
+        </Link>
+      )}
+
+      {/* Hover actions (hidden when renaming) */}
+      {!isRenaming && (
+        <div className="opacity-0 group-hover:opacity-100 flex shrink-0 items-center gap-0.5 transition-opacity">
+          {/* Rename shortcut */}
+          <button
+            type="button"
+            title="Rename"
+            onClick={() => setRenamingId(node.id)}
+            className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors"
+          >
+            <Pencil size={11} />
+          </button>
+
+          {/* QUAM trigger */}
+          <div className="relative" ref={quamRef}>
+            <button
+              type="button"
+              title="More options"
+              onClick={() => setQuamOpen((v) => !v)}
+              className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors"
+            >
+              <MoreHorizontal size={11} />
+            </button>
+
+            {quamOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 min-w-[140px] rounded-md border border-border bg-bg-primary shadow-lg py-1">
+                <button
+                  type="button"
+                  onClick={() => { setQuamOpen(false); setRenamingId(node.id); }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+                >
+                  <Pencil size={11} />
+                  Rename
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SidebarSection
+// ---------------------------------------------------------------------------
+
 function SidebarSection({
   label,
   collapsed,
@@ -221,40 +414,9 @@ function SidebarSection({
   );
 }
 
-function SidebarWorkspaceItem({
-  node,
-  collapsed,
-  active,
-}: {
-  node: WorkNode;
-  collapsed: boolean;
-  active: boolean;
-}) {
-  const initial = node.title.charAt(0).toUpperCase();
-  return (
-    <Link
-      href={`/n/${node.id}`}
-      title={collapsed ? node.title : undefined}
-      className={[
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-        active
-          ? "bg-bg-selected text-text-primary"
-          : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
-        collapsed ? "justify-center" : "",
-      ].join(" ")}
-    >
-      <span
-        className={[
-          "inline-flex h-5 w-5 items-center justify-center rounded text-[10px] font-semibold",
-          "bg-bg-card border border-border text-text-secondary",
-        ].join(" ")}
-      >
-        {initial}
-      </span>
-      {!collapsed && <span className="truncate">{node.title}</span>}
-    </Link>
-  );
-}
+// ---------------------------------------------------------------------------
+// SubItem
+// ---------------------------------------------------------------------------
 
 function SubItem({
   icon,
