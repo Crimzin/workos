@@ -13,7 +13,7 @@ import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNod
 import { ConfirmModal } from "../confirm-modal";
 import { updateFieldOption } from "@/lib/actions/fields";
 import { InlineCreate } from "../inline-create";
-import { CardTile } from "./card-tile";
+import { CardTile, MirrorCardTile } from "./card-tile";
 import { InlineFieldEditor } from "./inline-field-editor";
 import { BoardAvatar } from "./board-avatar";
 
@@ -54,7 +54,7 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
       ]
     : [{ id: UNASSIGNED_COL_ID, name: "All", color: null as string | null }];
 
-  // Assign each card to exactly one column (first matching value) for DnD correctness.
+  // Assign each home card to exactly one column (first matching value) for DnD correctness.
   const cardsByColumn = new Map<string, BoardStack["cards"]>();
   for (const col of columns) cardsByColumn.set(col.id, []);
 
@@ -81,6 +81,29 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
     }
   }
 
+  // Assign mirror cards to columns (same logic, but these are non-draggable).
+  const mirrorCardsByColumn = new Map<string, BoardStack["mirror_cards"]>();
+  for (const col of columns) mirrorCardsByColumn.set(col.id, []);
+
+  for (const card of stack.mirror_cards ?? []) {
+    if (!columnField) {
+      mirrorCardsByColumn.get(UNASSIGNED_COL_ID)!.push(card);
+      continue;
+    }
+    const values = card.field_values[columnField.id] ?? [];
+    let assigned = false;
+    for (const optionId of values) {
+      if (mirrorCardsByColumn.has(optionId)) {
+        mirrorCardsByColumn.get(optionId)!.push(card);
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) {
+      mirrorCardsByColumn.get(UNASSIGNED_COL_ID)!.push(card);
+    }
+  }
+
   const isArchived = !!stack.archived_at;
 
   return (
@@ -103,6 +126,7 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
         <div className="flex flex-1 min-w-0">
           {columns.map((col) => {
             const cards = cardsByColumn.get(col.id) ?? [];
+            const mirrorCards = mirrorCardsByColumn.get(col.id) ?? [];
             const isUnassigned = col.id === UNASSIGNED_COL_ID;
             return (
               <DroppableColumn
@@ -110,6 +134,7 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                 stackId={stack.id}
                 col={col}
                 cards={cards}
+                mirrorCards={mirrorCards}
                 isUnassigned={isUnassigned}
                 workspaceId={workspaceId}
                 fields={fields}
@@ -141,6 +166,7 @@ function DroppableColumn({
   stackId,
   col,
   cards,
+  mirrorCards,
   isUnassigned,
   workspaceId,
   fields,
@@ -153,6 +179,7 @@ function DroppableColumn({
   stackId: string;
   col: { id: string; name: string; color: string | null };
   cards: BoardStack["cards"];
+  mirrorCards: BoardStack["mirror_cards"];
   isUnassigned: boolean;
   workspaceId: string;
   fields: BoardField[];
@@ -203,7 +230,7 @@ function DroppableColumn({
               isUnassigned ? "text-text-tertiary" : "bg-bg-hover text-text-secondary",
             ].join(" ")}
           >
-            {cards.length}
+            {cards.length + mirrorCards.length}
           </span>
           <span
             className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary"
@@ -264,7 +291,7 @@ function DroppableColumn({
               isUnassigned ? "text-text-tertiary" : "bg-bg-hover text-text-secondary",
             ].join(" ")}
           >
-            {cards.length}
+            {cards.length + mirrorCards.length}
           </span>
         </div>
         <button
@@ -303,6 +330,22 @@ function DroppableColumn({
             buttonClassName="mt-1 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border py-1.5 text-xs text-text-tertiary hover:border-border-strong hover:text-text-secondary hover:bg-bg-hover transition-colors"
             inputClassName="mt-1 w-full rounded-md border border-border-strong bg-bg-card px-2 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
           />
+          {/* Mirror copies — non-draggable, shown below home cards */}
+          {mirrorCards.length > 0 && (
+            <div className="mt-1 flex flex-col gap-2">
+              {mirrorCards.map((c) => (
+                <MirrorCardTile
+                  key={`mirror-${c.id}`}
+                  card={c}
+                  workspaceId={workspaceId}
+                  stackId={stackId}
+                  fields={fields}
+                  columnFieldId={columnField?.id ?? null}
+                  actors={actors}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </SortableContext>
     </div>

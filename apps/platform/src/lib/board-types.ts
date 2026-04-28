@@ -25,6 +25,8 @@ export interface BoardCard {
   archived_at: string | null;
   /** True if this card has any mirror placements anywhere in the instance. */
   is_mirrored: boolean;
+  /** True if this appearance is via a node_mirrors row (not the card's home stack). */
+  is_mirror_here: boolean;
   /** fieldId -> list of selected optionIds (single-select will have 0 or 1) */
   field_values: Record<string, string[]>;
 }
@@ -37,6 +39,8 @@ export interface BoardStack {
   position: number;
   archived_at: string | null;
   cards: BoardCard[];
+  /** Cards mirrored into this stack (non-draggable; shown separately from home cards). */
+  mirror_cards: BoardCard[];
   /** fieldId -> list of selected optionIds */
   field_values: Record<string, string[]>;
   /** True if this stack has any mirror placements anywhere in the instance. */

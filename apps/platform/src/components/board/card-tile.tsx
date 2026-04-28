@@ -7,7 +7,7 @@ import { GitFork, MoreHorizontal, Pencil } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardCard, BoardField } from "@/lib/board-types";
-import { updateNodeTitle, archiveNode, unarchiveNode, deleteNode } from "@/lib/actions/nodes";
+import { updateNodeTitle, archiveNode, unarchiveNode, deleteNode, unmirrorNode } from "@/lib/actions/nodes";
 import { FieldBadge } from "../field-badge";
 import { InlineFieldEditor } from "./inline-field-editor";
 import { BoardAvatar } from "./board-avatar";
@@ -276,6 +276,129 @@ export function CardTileOverlay({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MirrorCardTile — non-draggable read-only tile for mirror copies of cards.
+// Shown below the home cards in a stack. QUAM limited to "Remove from stack".
+// ---------------------------------------------------------------------------
+
+interface MirrorCardTileProps {
+  card: BoardCard;
+  workspaceId: string;
+  stackId: string;
+  fields: BoardField[];
+  columnFieldId: string | null;
+  actors: Record<string, BoardActor>;
+}
+
+export function MirrorCardTile({ card, workspaceId, stackId, fields, columnFieldId, actors }: MirrorCardTileProps) {
+  const search = useSearchParams();
+  const isActive = search.get("d") === card.id;
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  const badges = getStaticBadges(card, fields, columnFieldId);
+
+  const handleRemove = () => {
+    setConfirmRemove(false);
+    startTransition(async () => {
+      await unmirrorNode(card.id, stackId, workspaceId);
+      router.refresh();
+    });
+  };
+
+  return (
+    <>
+      <div>
+        <Link
+          href={`/n/${workspaceId}?d=${card.id}`}
+          scroll={false}
+          aria-current={isActive ? "true" : undefined}
+          className={[
+            "group block rounded-md border p-2.5 transition-colors",
+            isActive
+              ? "border-accent bg-bg-selected"
+              : "border-border border-dashed bg-bg-card/60 hover:border-border-strong hover:bg-bg-hover",
+          ].join(" ")}
+        >
+          <div className="flex items-start justify-between gap-1">
+            <div className="flex items-center gap-1 min-w-0">
+              <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
+              {/* GitFork always visible on mirror copies */}
+              <GitFork size={9} className="shrink-0 text-accent/70 flex-none" aria-label="Mirrored here" />
+            </div>
+            {/* QUAM */}
+            <div className="relative flex-none">
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((v) => !v); }}
+                aria-label="Card actions"
+                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
+              >
+                <MoreHorizontal size={12} />
+              </button>
+              {menuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    aria-hidden
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); }}
+                  />
+                  <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+                    <Link
+                      href={`/n/${workspaceId}?d=${card.id}`}
+                      scroll={false}
+                      onClick={() => setMenuOpen(false)}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                    >
+                      Open
+                    </Link>
+                    <div className="my-1 h-px bg-border" />
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmRemove(true); }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+                    >
+                      Remove from this stack
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          {card.description && (
+            <div className="mt-1 text-xs text-text-secondary line-clamp-2">{card.description}</div>
+          )}
+          {(badges.length > 0 || (card.owner_id && actors[card.owner_id])) && (
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
+              <div className="flex flex-wrap gap-1">
+                {badges.map((b) => (
+                  <FieldBadge key={b.id} name={b.name} color={b.color} />
+                ))}
+              </div>
+              {card.owner_id && actors[card.owner_id] && (
+                <BoardAvatar actor={actors[card.owner_id]} size={20} />
+              )}
+            </div>
+          )}
+        </Link>
+      </div>
+
+      {confirmRemove && (
+        <ConfirmModal
+          title="Remove from this stack?"
+          body="This removes the card from this stack. It stays in all other stacks where it appears."
+          confirmLabel="Remove"
+          onConfirm={handleRemove}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      )}
+    </>
   );
 }
 

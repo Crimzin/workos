@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabase } from "../supabase";
-import { revalidateWorkspaceBoard } from "../cache";
+import { revalidateWorkspaceBoard, revalidateNode } from "../cache";
 
 export async function moveCard(
   cardId: string,
@@ -17,6 +17,16 @@ export async function moveCard(
     .update({ parent_id: newStackId, position: newPosition })
     .eq("id", cardId);
   if (nodeErr) throw nodeErr;
+
+  // Guard: if the card was previously mirrored into newStackId, that mirror row
+  // is now redundant (the card is home there). Delete it to prevent the detail
+  // panel from showing the same stack as both home AND a mirror.
+  const { error: mirrorCleanupErr } = await supabase
+    .from("node_mirrors")
+    .delete()
+    .eq("node_id", cardId)
+    .eq("mirror_parent_id", newStackId);
+  if (mirrorCleanupErr) throw mirrorCleanupErr;
 
   if (columnFieldId) {
     const { error: delErr } = await supabase
@@ -37,6 +47,7 @@ export async function moveCard(
     }
   }
 
+  revalidateNode(cardId, null);
   revalidateWorkspaceBoard(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
 }
