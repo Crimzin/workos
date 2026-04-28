@@ -25,6 +25,10 @@ Decisions made as we build. Most recent on top.
 - **2026-04-23 — 1.6 Data Fields v1 complete.** Four field types live (single-select, multi-select, text, date). Detail panel renders a Fields section with inline editors; card previews show field badges; column field uses the same data. Field CRUD via QUAM (`⋯ → Edit`) dialog per Factor parity: rename, description, field-level color (all option badges in a field share it), locked toggle, option list add/rename/reorder/delete, delete field. "Add field" on the board toolbar opens a create dialog with type pills, color, and starter options. Migration 0005 moved color from `data_field_options` to `data_fields`; options keep only name + position. Drag-reorder of options deferred to 1.7.
 - **2026-04-27 — 1.8.75 Node Mirroring design.** A stack can be mirrored into multiple workspaces; a card can be mirrored into multiple stacks. Data and field values are shared (same node record). Position on the board is independent per context (`node_mirrors.position`). "Appears in" section in the detail panel shows all placements with add/remove chip UI. Mirror indicator (`GitFork` icon) on board face. QUAM splits "Remove from this workspace" (unlinking only) vs "Delete from everywhere" when in a mirror context. Migration 0013.
 - **2026-04-27 — Swapped 1.9 and 1.10.** 1.9 = Posts + Newsfeed (was 1.10), 1.10 = Context Linking (was 1.9). Posts infrastructure is shared by both the detail-panel Posts tab and the newsfeed, so they ship together.
+- **2026-04-28 — Stack priority states distinct from card priority.** Stacks get `Prioritized | Deprioritized | Completed | Archived` lifecycle (commitment signal); cards get `P0 | P1 | P2 | P3` (urgency ranking). Conflating them loses signal Swarm/BrainShare need: weekly-focus reasoning needs initiative-level prioritization separately from card-level urgency, and priority-drift detection (Tier 1 inborn pattern per spec §5.1) needs stack-level state to fire. Implementation lands with 1.10.5.
+- **2026-04-28 — Default card status field set.** New workspaces ship with a built-in single-select status field: `backlog | next up | planning | in progress | done`. Overrides the spec's `Ideate → Plan → Perform → Reflect` based on practical use of the platform to date. Field stays user-editable per workspace. Implementation lands with 1.10.5.
+- **2026-04-28 — Migration deferred to Phase 4.** Spec section 6 frames migration as the first BrainShare magic moment — a *diagnostic*, not a data import. Pre-BrainShare migration is just rote data porting and misses the moat (the structure BrainShare imposes is what makes it compelling). 1.11 removed from Phase 1; full plan + dogfooding deferred until BrainShare's structured-memory layer exists. Design framing captured in `migration-design.md` so it doesn't decay.
+- **2026-04-28 — 1.10.5 Memory-Object Foundations + Priority carved out.** Spec §2.1 mandates `rationale`, `assumptions`, `decisions` schema "from day one" because BrainShare reads these as primary memory objects. Bundled with the priority field rollout (cards P0–P3, stacks 4-state lifecycle) and default-status seeding since both are "schema must be present" work. Lands as a dedicated Phase 1 item between 1.10 and the Phase 2 boundary; concrete plan TBD after 1.10 ships.
 - **2026-04-28 — 1.9 Posts + Newsfeed complete.** BlockNote rich text editor (chosen over TipTap — faster integration, zero config, built-in slash menu and image upload); `card_created` activity entries logged to the parent stack on card creation; `link_created` deferred to 1.10. Feed route at `/n/[id]/feed`; My Feed = Workspace Feed in solo mode (distinguished once auth lands). Sidebar Feed + Board links wired for personal + regular workspaces. Migration 0014.
 - **2026-04-28 — @mentions architecture.** Mentions stored as BlockNote inline content (`type: "mention"`, props: `id`, `name`, `kind`) inside the post body JSON. Mention data survives serialization; future notification routing and agent-triggering code can query post bodies for mention nodes and extract actor IDs without schema changes. Currently cosmetic — no notifications fire. 5 actors exist (Will + 4 agents: BrainShare, Claude, Claude Code, Swarm).
 - **2026-04-28 — Image upload via Supabase Storage.** Bucket `post-attachments` (public, 10 MB, image/* only). Upload route at `POST /api/upload`; BlockNote's native image block calls `uploadFile` callback which posts the file and returns the public CDN URL. Images stored at `posts/{date}/{slug}.{ext}`.
@@ -193,17 +197,24 @@ Builds the shared posts infrastructure, then surfaces it in two places: the deta
 
 ### 1.10 Context Linking
 
-- [ ] Any node can link to any other node (stack/card, same or different workspace)
-- [ ] Links are bidirectional
-- [ ] "Linked Context" section on the detail panel with add/remove controls
-- [ ] **Planning fields in detail panel** — Blocked by / Blocking relationships surface here once bidirectional links are live
-- [ ] Foundational for Phase 2: linked context is auto-included when AI is invoked on a node
+- [ ] Any node can link to any other node (stack/card, same or different workspace) via `node_links` table (migration 0015)
+- [ ] Two link types: `related` (mutual / symmetric) and `blocks` (directional — `blocks` from one side, `blocked by` from the other)
+- [ ] "Linked Context" section in the detail panel with three groups (Related / Blocks / Blocked by); add/remove chip UI
+- [ ] Cross-workspace linking — chips show workspace name as dim suffix when target lives elsewhere
+- [ ] **Planning fields** — Blocked by / Blocking relationships surface in Linked Context (no separate section)
+- [ ] Foundational for Phase 2: linked context auto-included when AI is invoked on a node
 
-### 1.11 Data Migration (Burn + Personal Factor)
+### 1.10.5 Memory-Object Foundations + Priority
 
-- [ ] Screen-scraping (no Factor API access)
-- [ ] Map Factor workspaces → WorkOS workspaces, Factor stacks → stacks, Factor cards → cards, posts → posts, data fields → data fields (promoting to instance-global as needed)
-- [ ] **Treat the migration itself as a live test of the "magic moment" migration concept** from the product spec: observe what surprises, what's missing, what the system could have inferred better. Capture those observations for the Path B cold-start migration design.
+Spec §2.1 mandates these as day-one schema for BrainShare to read. Plan TBD; lands after 1.10.
+
+- [ ] `rationale` rich text (BlockNote, same editor as posts) on cards + stacks — "WHY this exists; the causal claim"
+- [ ] `assumptions` structured list per card/stack — `{ statement, status: untested|validated|invalidated, evidence?, linked_decision_ids[] }`
+- [ ] `decisions` structured list per card/stack — `{ statement, rationale, status: active|superseded|reversed, participants[], created_at }`
+- [ ] **Card priority** built-in select field: `P0 (red) | P1 (orange) | P2 (blue) | P3 (gray)` — ships as a non-deletable instance-global field
+- [ ] **Stack priority lifecycle** — header dot reflecting `Prioritized | Deprioritized | Completed | Archived` state; transitions exposed in stack QUAM
+- [ ] **Default status field** seeded on workspace creation: `backlog | next up | planning | in progress | done` (single-select, editable)
+- [ ] Migration ID 0016+ (TBD)
 
 ---
 
@@ -287,7 +298,20 @@ Before the AI chat panel can ship as a first-class column, the shell needs to su
 
 ---
 
-## Phase 4: Setup Optimization
+## Phase 4: Migration + Setup
+
+### 4.0 Migration as Diagnostic
+
+**Design source of truth:** [`migration-design.md`](migration-design.md). Build deferred until BrainShare's structured-memory layer exists — what makes migration magical is the diagnostic insight BrainShare can produce, not the data move itself. Pre-BrainShare migration is just data porting.
+
+- [ ] **Factor migration** (Will's immediate dogfooding need — Burn workspace + personal Factor)
+- [ ] **Notion migration** (next priority per spec §6.2)
+- [ ] **Slack ingest** (decisions buried in threads — highest-value source per migration design doc)
+- [ ] **ClickUp / Linear / Asana** connectors
+- [ ] **Diagnostic preview** UI — the "magic moment" surface (3–5 punchy findings on connect)
+- [ ] **Dogfooding capture** — observations from Will's migration feed back into the Path B cold-start design
+
+### 4.1 Setup Optimization
 
 **Handle as needed throughout the build, not as a dedicated phase. Move items here when they become painful.**
 

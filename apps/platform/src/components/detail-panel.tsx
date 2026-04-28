@@ -5,7 +5,9 @@ import type { DetailField, DetailFieldValue, NodeAncestor } from "@/lib/node-det
 import type { WorkNode } from "@/lib/types";
 import type { NodeMirrorPlacement } from "@/lib/board-types";
 import { getNodePosts } from "@/lib/posts";
-import { getCurrentActor } from "@/lib/actor";
+import { getNodeLinks } from "@/lib/links";
+import type { NodeLinks } from "@/lib/links";
+import { getCurrentActor, getActors } from "@/lib/actor";
 import { FieldBadge } from "./field-badge";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
@@ -15,6 +17,7 @@ import { AddCardFromPanel } from "./add-card-from-panel";
 import { NodeActions } from "./node-actions";
 import { CardsTabContent } from "./cards-tab-content";
 import { MirrorsSection } from "./mirrors-section";
+import { NodeLinksSection } from "./node-links-section";
 import { PostsTabContent } from "./posts-tab-content";
 
 interface DetailPanelProps {
@@ -28,23 +31,27 @@ export async function DetailPanel({
   workspaceId,
   closeHref,
 }: DetailPanelProps) {
-  const [detail, actor] = await Promise.all([
+  const [detail, actor, actors] = await Promise.all([
     getNodeDetail(nodeId),
     getCurrentActor(),
+    getActors(),
   ]);
 
-  // Fetch mirror targets + posts in parallel with detail panel render.
-  const [mirrorTargets, posts] = await Promise.all([
+  // Fetch mirror targets + posts + links in parallel with detail panel render.
+  const [mirrorTargets, posts, links] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
     detail ? getNodePosts(nodeId) : Promise.resolve([]),
+    detail
+      ? getNodeLinks(nodeId)
+      : Promise.resolve({ related: [], blocks: [], blockedBy: [] } as NodeLinks),
   ]);
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} actor={actor} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} actor={actor} actors={actors} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -65,14 +72,18 @@ function DetailBody({
   closeHref,
   mirrorTargets,
   posts,
+  links,
   actor,
+  actors,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
   closeHref: string;
   mirrorTargets: { id: string; title: string; type: string }[];
   posts: import("@/lib/posts").PostRecord[];
+  links: NodeLinks;
   actor: import("@/lib/actor").CurrentActor;
+  actors: import("@/lib/actor").ActorForMention[];
 }) {
   const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
 
@@ -109,6 +120,7 @@ function DetailBody({
       initialPosts={posts}
       currentActorId={actor.id}
       currentActorName={actor.name}
+      actors={actors}
     />
   );
 
@@ -122,6 +134,7 @@ function DetailBody({
       mirrorPlacements={mirrorPlacements}
       mirrorTargets={mirrorTargets}
       homeWorkspaceId={homeWorkspaceId}
+      links={links}
     />
   );
 
@@ -322,6 +335,7 @@ function FieldsTabContent({
   mirrorPlacements,
   mirrorTargets,
   homeWorkspaceId,
+  links,
 }: {
   node: WorkNode;
   owner: { name: string } | null;
@@ -331,6 +345,7 @@ function FieldsTabContent({
   mirrorPlacements: NodeMirrorPlacement[];
   mirrorTargets: { id: string; title: string; type: string }[];
   homeWorkspaceId: string;
+  links: NodeLinks;
 }) {
   const valuesByField = new Map<string, DetailFieldValue[]>();
   for (const v of values) {
@@ -375,6 +390,13 @@ function FieldsTabContent({
         homeWorkspaceId={homeWorkspaceId}
         placements={mirrorPlacements}
         availableTargets={mirrorTargets}
+      />
+
+      {/* "Linked Context" section */}
+      <NodeLinksSection
+        nodeId={node.id}
+        workspaceId={workspaceId}
+        links={links}
       />
     </div>
   );

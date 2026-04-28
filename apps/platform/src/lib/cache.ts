@@ -14,6 +14,7 @@ export const cacheTags = {
   workspaceViews: (workspaceId: string) => `workspace-views:${workspaceId}`,
   nodePosts: (nodeId: string) => `posts:${nodeId}`,
   workspaceFeed: (workspaceId: string) => `workspace-feed:${workspaceId}`,
+  nodeLinks: (nodeId: string) => `links:${nodeId}`,
 };
 
 // Next 16 `revalidateTag` requires a profile arg; "max" = stale-while-revalidate.
@@ -46,4 +47,10 @@ export function revalidateNodePosts(nodeId: string) {
 
 export function revalidateWorkspaceFeed(workspaceId: string) {
   revalidateTag(cacheTags.workspaceFeed(workspaceId), PROFILE);
+}
+
+export function revalidateNodeLinksFor(nodeIds: string[]) {
+  for (const id of nodeIds) {
+    revalidateTag(cacheTags.nodeLinks(id), PROFILE);
+  }
 }
