@@ -32,6 +32,23 @@ curl "http://localhost:3100/pull?query=React" \
 
 **Expected**: You should see success responses, and a `brainshare-dev-store.json` file created in the app directory unless `BRAINSHARE_STORE_FILE` points elsewhere.
 
+### Step 1.3: Optional Graphiti Backend
+Graphiti requires Python 3.10+ plus Neo4j. The default local API still uses JSON storage so the service runs on the current macOS Python 3.9 runtime.
+
+To try the graph-backed path:
+```bash
+cd /Users/williamcorbett/BrainShare
+docker compose up -d neo4j
+cd app
+BRAINSHARE_STORE_BACKEND=graphiti \
+NEO4J_URI=bolt://localhost:7687 \
+NEO4J_USER=neo4j \
+NEO4J_PASSWORD=brainshare-dev \
+python3.10 app.py
+```
+
+The API will still expose the same endpoints. In graph mode, writes also flow through Graphiti's `add_episode` API.
+
 ## Phase 2: Add Claude Code Integration (20 minutes)
 
 ### Step 2.1: Configure Claude Code

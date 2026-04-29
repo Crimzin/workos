@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 from uuid import uuid4
@@ -88,8 +88,132 @@ class AnalyzeRequest(BaseModel):
     source_llm: Optional[str] = None
 
 
+class WorkOSMemoryPrimitiveIn(BaseModel):
+    id: str
+    instance_id: str
+    node_id: str
+    type: Literal["rationale", "assumption", "decision"]
+    statement: str = ""
+    body: Optional[Any] = None
+    status: Optional[str] = None
+    conviction: float = Field(default=0.5, ge=0, le=1)
+    source_post_id: Optional[str] = None
+    source_label: Optional[str] = None
+    external_episode_id: Optional[str] = None
+    created_by_actor_id: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def parse_reference_time(value: Optional[str]) -> datetime:
+    if not value:
+        return datetime.now(timezone.utc)
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def body_to_text(body: Optional[Any]) -> str:
+    if body is None:
+        return ""
+    if isinstance(body, str):
+        return body
+    return json.dumps(body, sort_keys=True)
+
+
+def graphiti_primitive_type(workos_type: str) -> PrimitiveType:
+    if workos_type == "rationale":
+        return "work_item"
+    if workos_type == "assumption":
+        return "assumption"
+    return "decision"
+
+
+def map_workos_memory_primitive(
+    payload: WorkOSMemoryPrimitiveIn,
+) -> tuple[EpisodeCreate, PrimitiveCreate]:
+    """Map WorkOS memory rows into BrainShare's graph vocabulary.
+
+    WorkOS keeps rationale/assumption/decision as a node-local Memory tab
+    surface. BrainShare keeps typed graph primitives. Rationale maps to the
+    WorkItem context for the WorkOS node; assumptions and decisions map
+    directly.
+    """
+
+    statement = payload.statement.strip()
+    if not statement:
+        statement = f"{payload.type.title()} for WorkOS node {payload.node_id}"
+
+    mapped_type = graphiti_primitive_type(payload.type)
+    body_text = body_to_text(payload.body)
+    graph_body = {
+        "source": "workos.memory_primitives",
+        "mapping": {
+            "workos_type": payload.type,
+            "brainshare_type": mapped_type,
+            "rationale_maps_to": "work_item_context",
+        },
+        "memory_primitive": payload.model_dump(),
+    }
+
+    episode = EpisodeCreate(
+        source_tool="workos",
+        source_location=f"memory_primitives:{payload.node_id}",
+        raw_content=json.dumps(graph_body, sort_keys=True),
+        timestamp_start=payload.created_at,
+        timestamp_end=payload.updated_at or payload.created_at,
+        actors=[payload.created_by_actor_id] if payload.created_by_actor_id else [],
+        message_count=None,
+        metadata={
+            "episode_type": "json",
+            "instance_id": payload.instance_id,
+            "node_id": payload.node_id,
+            "memory_primitive_id": payload.id,
+            "memory_primitive_type": payload.type,
+            "source_post_id": payload.source_post_id,
+            "source_label": payload.source_label,
+            "external_episode_id": payload.external_episode_id,
+        },
+    )
+
+    source_episode_ids = [payload.external_episode_id] if payload.external_episode_id else []
+    primitive = PrimitiveCreate(
+        type=mapped_type,
+        statement=statement,
+        body=body_text or None,
+        status=payload.status,
+        conviction=payload.conviction,
+        source_episode_ids=source_episode_ids,
+        actors=[payload.created_by_actor_id] if payload.created_by_actor_id else [],
+        related_node_id=payload.node_id,
+        metadata={
+            "source": "workos.memory_primitives",
+            "workos_memory_primitive_id": payload.id,
+            "workos_memory_primitive_type": payload.type,
+            "workos_instance_id": payload.instance_id,
+            "workos_node_id": payload.node_id,
+            "source_post_id": payload.source_post_id,
+            "source_label": payload.source_label,
+            "external_episode_id": payload.external_episode_id,
+            "body_json": payload.body if not isinstance(payload.body, str) else None,
+            **payload.metadata,
+        },
+    )
+
+    return episode, primitive
+
+
 class DevStore:
     """Small JSON-backed store until the Graphiti adapter is wired in."""
+
+    backend_name = "json-dev"
+    graph_status = "metadata-only"
 
     def __init__(self, path: Path):
         self.path = path
@@ -112,7 +236,7 @@ class DevStore:
             json.dump(data, f, indent=2)
         tmp.replace(self.path)
 
-    def add_episode(self, payload: EpisodeCreate) -> Episode:
+    async def add_episode(self, payload: EpisodeCreate) -> Episode:
         data = self.load()
         episode = Episode(
             id=f"ep_{uuid4().hex}",
@@ -125,7 +249,7 @@ class DevStore:
         self.save(data)
         return episode
 
-    def add_primitive(self, payload: PrimitiveCreate) -> Primitive:
+    async def add_primitive(self, payload: PrimitiveCreate) -> Primitive:
         data = self.load()
         primitive = Primitive(
             id=f"prim_{uuid4().hex}",
@@ -137,7 +261,7 @@ class DevStore:
         self.save(data)
         return primitive
 
-    def add_legacy_context(self, payload: PushRequest) -> dict[str, Any]:
+    async def add_legacy_context(self, payload: PushRequest) -> dict[str, Any]:
         data = self.load()
         item = {
             "content": payload.content,
@@ -153,7 +277,95 @@ class DevStore:
         return item
 
 
-store = DevStore(STORE_FILE)
+class GraphitiStore(DevStore):
+    """Graphiti write-through store with JSON metadata for dev/API listing."""
+
+    backend_name = "graphiti"
+    graph_status = "neo4j-write-through"
+
+    def __init__(self, path: Path):
+        super().__init__(path)
+        try:
+            from graphiti_core import Graphiti
+            from graphiti_core.nodes import EpisodeType
+        except ImportError as exc:
+            raise RuntimeError(
+                "BRAINSHARE_STORE_BACKEND=graphiti requires graphiti-core and Python 3.10+"
+            ) from exc
+
+        self.EpisodeType = EpisodeType
+        self.group_id = os.getenv("BRAINSHARE_GRAPHITI_GROUP_ID", "workos-dev")
+        self.graphiti = Graphiti(
+            os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+            os.getenv("NEO4J_USER", "neo4j"),
+            os.getenv("NEO4J_PASSWORD", "brainshare-dev"),
+        )
+
+    async def add_episode(self, payload: EpisodeCreate) -> Episode:
+        episode = await super().add_episode(payload)
+        await self._add_episode_to_graphiti(payload, episode.id)
+        return episode
+
+    async def add_primitive(self, payload: PrimitiveCreate) -> Primitive:
+        primitive = await super().add_primitive(payload)
+        await self._add_primitive_to_graphiti(primitive)
+        return primitive
+
+    async def _add_episode_to_graphiti(
+        self,
+        payload: EpisodeCreate,
+        episode_id: str,
+    ) -> None:
+        source = self._episode_type(payload)
+        body: Any = payload.raw_content
+        if source == self.EpisodeType.json:
+            try:
+                body = json.loads(payload.raw_content)
+            except json.JSONDecodeError:
+                body = {"raw_content": payload.raw_content}
+
+        await self.graphiti.add_episode(
+            name=episode_id,
+            episode_body=body,
+            source=source,
+            source_description=f"{payload.source_tool}:{payload.source_location}",
+            reference_time=parse_reference_time(payload.timestamp_start),
+            group_id=self.group_id,
+        )
+
+    async def _add_primitive_to_graphiti(self, primitive: Primitive) -> None:
+        await self.graphiti.add_episode(
+            name=f"primitive:{primitive.id}",
+            episode_body=primitive.model_dump(),
+            source=self.EpisodeType.json,
+            source_description=f"BrainShare typed primitive: {primitive.type}",
+            reference_time=parse_reference_time(primitive.created_at),
+            group_id=self.group_id,
+        )
+
+    def _episode_type(self, payload: EpisodeCreate) -> Any:
+        requested = str(payload.metadata.get("episode_type", "")).lower()
+        if requested == "json":
+            return self.EpisodeType.json
+        if requested == "message":
+            return self.EpisodeType.message
+        if requested == "text":
+            return self.EpisodeType.text
+        if payload.source_tool in {"discord", "slack"}:
+            return self.EpisodeType.message
+        if payload.source_tool == "workos":
+            return self.EpisodeType.json
+        return self.EpisodeType.text
+
+
+def build_store() -> DevStore:
+    backend = os.getenv("BRAINSHARE_STORE_BACKEND", "json").lower()
+    if backend == "graphiti":
+        return GraphitiStore(STORE_FILE)
+    return DevStore(STORE_FILE)
+
+
+store = build_store()
 app = FastAPI(
     title="BrainShare API",
     version="0.2.0",
@@ -166,14 +378,14 @@ def health() -> dict[str, str]:
     return {
         "status": "healthy",
         "version": "0.2.0",
-        "store": "json-dev",
-        "graph": "graphiti-adapter-pending",
+        "store": store.backend_name,
+        "graph": store.graph_status,
     }
 
 
 @app.post("/episodes", dependencies=[Depends(require_auth)])
-def create_episode(payload: EpisodeCreate) -> dict[str, Any]:
-    episode = store.add_episode(payload)
+async def create_episode(payload: EpisodeCreate) -> dict[str, Any]:
+    episode = await store.add_episode(payload)
     return {"success": True, "episode": episode.model_dump()}
 
 
@@ -184,8 +396,8 @@ def list_episodes(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any
 
 
 @app.post("/primitives", dependencies=[Depends(require_auth)])
-def create_primitive(payload: PrimitiveCreate) -> dict[str, Any]:
-    primitive = store.add_primitive(payload)
+async def create_primitive(payload: PrimitiveCreate) -> dict[str, Any]:
+    primitive = await store.add_primitive(payload)
     return {"success": True, "primitive": primitive.model_dump()}
 
 
@@ -208,8 +420,8 @@ def list_primitives(
 
 
 @app.post("/analyze", dependencies=[Depends(require_auth)])
-def analyze(payload: AnalyzeRequest) -> dict[str, Any]:
-    episode = store.add_episode(
+async def analyze(payload: AnalyzeRequest) -> dict[str, Any]:
+    episode = await store.add_episode(
         EpisodeCreate(
             source_tool=payload.source_llm or "manual",
             source_location=f"analysis:{payload.trigger_type}",
@@ -234,7 +446,7 @@ def analyze(payload: AnalyzeRequest) -> dict[str, Any]:
     ]
     if any(trigger in lower_chunk for trigger in decision_triggers):
         extracted.append(
-            store.add_primitive(
+            await store.add_primitive(
                 PrimitiveCreate(
                     type="decision",
                     statement=f"Extracted decision from conversation: {payload.conversation_chunk[:120]}",
@@ -263,12 +475,12 @@ def analyze(payload: AnalyzeRequest) -> dict[str, Any]:
 
 
 @app.post("/push", dependencies=[Depends(require_auth)])
-def push(payload: PushRequest) -> dict[str, Any]:
-    item = store.add_legacy_context(payload)
+async def push(payload: PushRequest) -> dict[str, Any]:
+    item = await store.add_legacy_context(payload)
     primitive_type: PrimitiveType = "context_update"
     if payload.category in {"decision", "assumption", "question"}:
         primitive_type = payload.category  # type: ignore[assignment]
-    primitive = store.add_primitive(
+    primitive = await store.add_primitive(
         PrimitiveCreate(
             type=primitive_type,
             statement=payload.content,
@@ -283,6 +495,28 @@ def push(payload: PushRequest) -> dict[str, Any]:
         "category": payload.category,
         "primitive_id": primitive.id,
         "timestamp": item["timestamp"],
+    }
+
+
+@app.post("/workos/memory-primitives", dependencies=[Depends(require_auth)])
+async def ingest_workos_memory_primitive(
+    payload: WorkOSMemoryPrimitiveIn,
+) -> dict[str, Any]:
+    episode_payload, primitive_payload = map_workos_memory_primitive(payload)
+    episode = await store.add_episode(episode_payload)
+    primitive_payload.source_episode_ids = [
+        episode.id,
+        *primitive_payload.source_episode_ids,
+    ]
+    primitive = await store.add_primitive(primitive_payload)
+    return {
+        "success": True,
+        "episode": episode.model_dump(),
+        "primitive": primitive.model_dump(),
+        "mapping": {
+            "workos_type": payload.type,
+            "brainshare_type": primitive.type,
+        },
     }
 
 

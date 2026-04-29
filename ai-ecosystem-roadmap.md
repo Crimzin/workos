@@ -244,8 +244,9 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 - [x] Define environment/config contract between WorkOS (Next/Supabase) and BrainShare (FastAPI/Graphiti)
 - [x] Create Graphiti episode ingestion API — immutable raw source data with source tool, source location, timestamps, actors, raw content, and message counts
 - [x] Create typed primitive API surface for `Decision`, `Assumption`, `Action`, `Question`, `ContextUpdate`, `Actor`, `Goal`, `WorkItem`, `Standard`, `Signal`, and `Episode`
-- [ ] Replace JSON dev storage with a Graphiti adapter backed by Neo4j
-- [ ] Map WorkOS memory primitives (`rationale`, `assumption`, `decision`) to Graphiti entities/episodes without forcing WorkOS to become the graph database
+- [x] Add optional Graphiti write-through adapter backed by Neo4j (`BRAINSHARE_STORE_BACKEND=graphiti`), with JSON metadata retained for dev listing/debug
+- [x] Map WorkOS memory primitives (`rationale`, `assumption`, `decision`) to Graphiti entities/episodes without forcing WorkOS to become the graph database
+- [ ] Make Graphiti the default backend once the BrainShare runtime is upgraded to Python 3.10+ and Neo4j/Graphiti ingestion is verified end-to-end
 
 ### 2.1 Reference Extraction Pipeline: Discord First
 
