@@ -29,6 +29,12 @@ export interface BoardCard {
   is_mirror_here: boolean;
   /** fieldId -> list of selected optionIds (single-select will have 0 or 1) */
   field_values: Record<string, string[]>;
+  /**
+   * Compound DnD identifier: `${id}:${stackId}`.
+   * Unique per appearance so the same card can exist in multiple stacks without
+   * dnd-kit ID collisions. Populated by board.ts after the RPC fetch.
+   */
+  dnd_id: string;
 }
 
 export interface BoardStack {

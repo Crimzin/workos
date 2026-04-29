@@ -1,6 +1,30 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "./supabase";
 
+// ---------------------------------------------------------------------------
+// All actors (for @mention lists)
+// ---------------------------------------------------------------------------
+
+export interface ActorForMention {
+  id: string;
+  name: string;
+  kind: "human" | "agent";
+}
+
+/** Returns all actors in the instance, humans first then agents, alphabetical. */
+export async function getActors(): Promise<ActorForMention[]> {
+  const { data, error } = await supabase
+    .from("actors")
+    .select("id, name, kind")
+    .order("kind", { ascending: true }) // "agent" < "human" alphabetically → humans first
+    .order("name", { ascending: true });
+  if (error) throw error;
+  // Swap so humans come before agents
+  const humans = (data ?? []).filter((a) => a.kind === "human");
+  const agents = (data ?? []).filter((a) => a.kind === "agent");
+  return [...humans, ...agents] as ActorForMention[];
+}
+
 export interface CurrentActor {
   id: string;
   instance_id: string;

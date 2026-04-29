@@ -28,7 +28,7 @@ import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
 import { updateViewColumnField, updateViewFilters, updateViewStackFilters, updateViewCollapsedColumns, updateViewStackColumnField } from "@/lib/actions/views";
-import { moveCard, reorderStack } from "@/lib/actions/dnd";
+import { moveCardAppearance, reorderStack } from "@/lib/actions/dnd";
 import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
 import { StackRow } from "./stack-row";
@@ -233,7 +233,7 @@ export function Board({ data, views }: BoardProps) {
       if (stack) setActiveItem({ type: "stack", stack });
     } else if (type === "card") {
       for (const stack of localStacks) {
-        const card = stack.cards.find((c) => c.id === active.id);
+        const card = stack.cards.find((c) => c.dnd_id === active.id);
         if (card) { setActiveItem({ type: "card", card }); break; }
       }
     }
@@ -341,15 +341,22 @@ export function Board({ data, views }: BoardProps) {
       const colCards = localStacks[loc.stackIdx].cards.filter(
         (c) => getCardColumn(c, columnFieldId) === loc.columnId
       );
-      const cardIdxInCol = colCards.findIndex((c) => c.id === activeId);
+      const cardIdxInCol = colCards.findIndex((c) => c.dnd_id === activeId);
       const newPos = midpoint(
         colCards[cardIdxInCol - 1]?.position ?? null,
         colCards[cardIdxInCol + 1]?.position ?? null
       );
       const newOptionId = loc.columnId === UNASSIGNED_COL_ID ? null : loc.columnId;
 
+      // Compound dnd_id = "${cardId}:${stackId}" — parse both parts.
+      // UUIDs use only hyphens so splitting on ":" gives exactly two parts.
+      const colonIdx = activeId.indexOf(":");
+      const realCardId = activeId.slice(0, colonIdx);
+      const sourceStackId = activeId.slice(colonIdx + 1);
+      const targetStackId = localStacks[loc.stackIdx].id;
+
       try {
-        await moveCard(activeId, workspaceId, localStacks[loc.stackIdx].id, newPos, columnFieldId, newOptionId);
+        await moveCardAppearance(realCardId, sourceStackId, targetStackId, newPos, columnFieldId, newOptionId, workspaceId);
         router.refresh();
       } catch {
         setLocalStacks(preDragStacks.current);
@@ -522,11 +529,11 @@ function setCardColumn(card: BoardCard, columnFieldId: string | null, colId: str
 
 function findCardLocation(
   stacks: BoardStack[],
-  cardId: string,
+  dndId: string,
   columnFieldId: string | null
 ): { stackIdx: number; cardIdx: number; columnId: string } | null {
   for (let si = 0; si < stacks.length; si++) {
-    const ci = stacks[si].cards.findIndex((c) => c.id === cardId);
+    const ci = stacks[si].cards.findIndex((c) => c.dnd_id === dndId);
     if (ci !== -1) {
       return {
         stackIdx: si,

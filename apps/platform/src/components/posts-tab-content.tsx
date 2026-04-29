@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Pin } from "lucide-react";
 import type { Block } from "@blocknote/core";
+import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
 import { createPost } from "@/lib/actions/posts";
 import { PostEditor, serializePostBody } from "./post-editor";
@@ -15,6 +16,7 @@ interface PostsTabContentProps {
   initialPosts: PostRecord[];
   currentActorId: string;
   currentActorName: string;
+  actors: ActorForMention[];
 }
 
 /** True when the document has only a single empty paragraph (nothing typed). */
@@ -33,6 +35,7 @@ export function PostsTabContent({
   workspaceId,
   initialPosts,
   currentActorId,
+  actors,
 }: PostsTabContentProps) {
   const [posts, setPosts] = useState<PostRecord[]>(initialPosts);
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
@@ -96,6 +99,7 @@ export function PostsTabContent({
           <PostEditor
             key={composerKey}
             editable
+            actors={actors}
             onChange={(blocks) => {
               currentBlocksRef.current = blocks;
               setHasContent(!isEditorEmpty(blocks));
@@ -157,6 +161,7 @@ export function PostsTabContent({
               nodeId={nodeId}
               workspaceId={workspaceId}
               currentActorId={currentActorId}
+              actors={actors}
               onPinToggle={handlePinToggle}
               onDelete={handleDelete}
               onUpdate={handleUpdate}

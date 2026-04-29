@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Pin, Pencil, Trash2 } from "lucide-react";
 import type { Block } from "@blocknote/core";
+import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
 import { updatePost, deletePost, pinPost } from "@/lib/actions/posts";
 import { PostEditor, parsePostBody, serializePostBody } from "./post-editor";
@@ -13,6 +14,7 @@ interface PostItemProps {
   nodeId: string;
   workspaceId: string;
   currentActorId: string;
+  actors?: ActorForMention[];
   onPinToggle?: (postId: string, pinned: boolean) => void;
   onDelete?: (postId: string) => void;
   onUpdate?: (postId: string, newBody: string) => void;
@@ -23,6 +25,7 @@ export function PostItem({
   nodeId,
   workspaceId,
   currentActorId,
+  actors,
   onPinToggle,
   onDelete,
   onUpdate,
@@ -102,6 +105,7 @@ export function PostItem({
           <PostEditor
             initialContent={initialContent}
             editable
+            actors={actors}
             onSubmit={handleSaveEdit}
             onCancel={() => setEditing(false)}
           />

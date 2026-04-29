@@ -9,11 +9,12 @@ import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
-import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode, unmirrorNode } from "@/lib/actions/nodes";
+import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode, unmirrorNode, mirrorNode, getWorkspacesForStack } from "@/lib/actions/nodes";
 import { ConfirmModal } from "../confirm-modal";
 import { updateFieldOption } from "@/lib/actions/fields";
 import { InlineCreate } from "../inline-create";
-import { CardTile, MirrorCardTile } from "./card-tile";
+import { CardTile } from "./card-tile";
+import { MirrorToSubmenu } from "./mirror-to-submenu";
 import { InlineFieldEditor } from "./inline-field-editor";
 import { BoardAvatar } from "./board-avatar";
 
@@ -54,53 +55,33 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
       ]
     : [{ id: UNASSIGNED_COL_ID, name: "All", color: null as string | null }];
 
-  // Assign each home card to exactly one column (first matching value) for DnD correctness.
+  // Assign each card (home + mirror) to exactly one column for DnD correctness.
+  // All appearances share the same cards array after the board.ts merge.
   const cardsByColumn = new Map<string, BoardStack["cards"]>();
   for (const col of columns) cardsByColumn.set(col.id, []);
 
   const placed = new Set<string>();
   for (const card of stack.cards) {
+    // Use dnd_id as the dedup key so two appearances of the same card in different
+    // stacks are treated independently.
     if (!columnField) {
       cardsByColumn.get(UNASSIGNED_COL_ID)!.push(card);
-      placed.add(card.id);
+      placed.add(card.dnd_id);
       continue;
     }
     const values = card.field_values[columnField.id] ?? [];
     let assigned = false;
     for (const optionId of values) {
-      if (cardsByColumn.has(optionId) && !placed.has(card.id)) {
+      if (cardsByColumn.has(optionId) && !placed.has(card.dnd_id)) {
         cardsByColumn.get(optionId)!.push(card);
-        placed.add(card.id);
+        placed.add(card.dnd_id);
         assigned = true;
         break;
       }
     }
-    if (!assigned && !placed.has(card.id)) {
+    if (!assigned && !placed.has(card.dnd_id)) {
       cardsByColumn.get(UNASSIGNED_COL_ID)!.push(card);
-      placed.add(card.id);
-    }
-  }
-
-  // Assign mirror cards to columns (same logic, but these are non-draggable).
-  const mirrorCardsByColumn = new Map<string, BoardStack["mirror_cards"]>();
-  for (const col of columns) mirrorCardsByColumn.set(col.id, []);
-
-  for (const card of stack.mirror_cards ?? []) {
-    if (!columnField) {
-      mirrorCardsByColumn.get(UNASSIGNED_COL_ID)!.push(card);
-      continue;
-    }
-    const values = card.field_values[columnField.id] ?? [];
-    let assigned = false;
-    for (const optionId of values) {
-      if (mirrorCardsByColumn.has(optionId)) {
-        mirrorCardsByColumn.get(optionId)!.push(card);
-        assigned = true;
-        break;
-      }
-    }
-    if (!assigned) {
-      mirrorCardsByColumn.get(UNASSIGNED_COL_ID)!.push(card);
+      placed.add(card.dnd_id);
     }
   }
 
@@ -126,7 +107,6 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
         <div className="flex flex-1 min-w-0">
           {columns.map((col) => {
             const cards = cardsByColumn.get(col.id) ?? [];
-            const mirrorCards = mirrorCardsByColumn.get(col.id) ?? [];
             const isUnassigned = col.id === UNASSIGNED_COL_ID;
             return (
               <DroppableColumn
@@ -134,7 +114,6 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                 stackId={stack.id}
                 col={col}
                 cards={cards}
-                mirrorCards={mirrorCards}
                 isUnassigned={isUnassigned}
                 workspaceId={workspaceId}
                 fields={fields}
@@ -166,7 +145,6 @@ function DroppableColumn({
   stackId,
   col,
   cards,
-  mirrorCards,
   isUnassigned,
   workspaceId,
   fields,
@@ -179,7 +157,6 @@ function DroppableColumn({
   stackId: string;
   col: { id: string; name: string; color: string | null };
   cards: BoardStack["cards"];
-  mirrorCards: BoardStack["mirror_cards"];
   isUnassigned: boolean;
   workspaceId: string;
   fields: BoardField[];
@@ -230,7 +207,7 @@ function DroppableColumn({
               isUnassigned ? "text-text-tertiary" : "bg-bg-hover text-text-secondary",
             ].join(" ")}
           >
-            {cards.length + mirrorCards.length}
+            {cards.length}
           </span>
           <span
             className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary"
@@ -291,7 +268,7 @@ function DroppableColumn({
               isUnassigned ? "text-text-tertiary" : "bg-bg-hover text-text-secondary",
             ].join(" ")}
           >
-            {cards.length + mirrorCards.length}
+            {cards.length}
           </span>
         </div>
         <button
@@ -307,13 +284,13 @@ function DroppableColumn({
       </div>
 
       <SortableContext
-        items={cards.map((c) => c.id)}
+        items={cards.map((c) => c.dnd_id)}
         strategy={verticalListSortingStrategy}
       >
         <div className="flex flex-1 flex-col gap-2 px-3 pb-3">
           {cards.map((c) => (
             <CardTile
-              key={c.id}
+              key={c.dnd_id}
               card={c}
               workspaceId={workspaceId}
               stackId={stackId}
@@ -330,22 +307,6 @@ function DroppableColumn({
             buttonClassName="mt-1 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border py-1.5 text-xs text-text-tertiary hover:border-border-strong hover:text-text-secondary hover:bg-bg-hover transition-colors"
             inputClassName="mt-1 w-full rounded-md border border-border-strong bg-bg-card px-2 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
           />
-          {/* Mirror copies — non-draggable, shown below home cards */}
-          {mirrorCards.length > 0 && (
-            <div className="mt-1 flex flex-col gap-2">
-              {mirrorCards.map((c) => (
-                <MirrorCardTile
-                  key={`mirror-${c.id}`}
-                  card={c}
-                  workspaceId={workspaceId}
-                  stackId={stackId}
-                  fields={fields}
-                  columnFieldId={columnField?.id ?? null}
-                  actors={actors}
-                />
-              ))}
-            </div>
-          )}
         </div>
       </SortableContext>
     </div>
@@ -381,6 +342,9 @@ function StackHeader({
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mirrorOpen, setMirrorOpen] = useState(false);
+  const [mirrorTargets, setMirrorTargets] = useState<{ id: string; title: string }[]>([]);
+  const [mirrorLoading, setMirrorLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -388,6 +352,10 @@ function StackHeader({
   const [pending, startTransition] = useTransition();
   const columnFieldName = columnFieldId ? (fields.find((f) => f.id === columnFieldId)?.name ?? null) : null;
   const renameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) { setMirrorOpen(false); setMirrorTargets([]); }
+  }, [menuOpen]);
 
   useEffect(() => {
     if (renaming) renameRef.current?.select();
@@ -404,6 +372,24 @@ function StackHeader({
       await updateNodeTitle(stack.id, trimmed, workspaceId, workspaceId);
       router.refresh();
       setRenaming(false);
+    });
+  };
+
+  const openMirrorMenu = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (mirrorOpen) { setMirrorOpen(false); return; }
+    setMirrorOpen(true);
+    setMirrorLoading(true);
+    const targets = await getWorkspacesForStack(stack.id, workspaceId);
+    setMirrorTargets(targets);
+    setMirrorLoading(false);
+  };
+
+  const handleMirrorTo = (targetWorkspaceId: string) => {
+    setMenuOpen(false);
+    startTransition(async () => {
+      await mirrorNode(stack.id, targetWorkspaceId, workspaceId, targetWorkspaceId);
+      router.refresh();
     });
   };
 
@@ -530,6 +516,28 @@ function StackHeader({
                 >
                   Rename
                 </button>
+                {/* Mirror to workspace */}
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={openMirrorMenu}
+                  className={[
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
+                    mirrorOpen ? "text-text-primary" : "text-text-secondary hover:text-text-primary",
+                  ].join(" ")}
+                >
+                  <GitFork size={12} />
+                  Mirror to…
+                </button>
+                {mirrorOpen && (
+                  <MirrorToSubmenu
+                    targets={mirrorTargets}
+                    loading={mirrorLoading}
+                    placeholder="Search workspaces…"
+                    emptyMessage="No other workspaces"
+                    onSelect={(id) => handleMirrorTo(id)}
+                  />
+                )}
                 <button
                   type="button"
                   disabled={stackIndex === 0 || pending}

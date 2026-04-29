@@ -3,15 +3,24 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { GitFork, MoreHorizontal, Pencil } from "lucide-react";
+import { GitFork, MoreHorizontal, Pencil, Unlink } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardCard, BoardField } from "@/lib/board-types";
-import { updateNodeTitle, archiveNode, unarchiveNode, deleteNode, unmirrorNode } from "@/lib/actions/nodes";
+import {
+  updateNodeTitle,
+  archiveNode,
+  unarchiveNode,
+  deleteNode,
+  mirrorNode,
+  removeCardFromStack,
+  getStacksForCard,
+} from "@/lib/actions/nodes";
 import { FieldBadge } from "../field-badge";
 import { InlineFieldEditor } from "./inline-field-editor";
 import { BoardAvatar } from "./board-avatar";
 import { ConfirmModal } from "../confirm-modal";
+import { MirrorToSubmenu } from "./mirror-to-submenu";
 
 interface CardTileProps {
   card: BoardCard;
@@ -27,17 +36,27 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
   const isActive = search.get("d") === card.id;
   const router = useRouter();
   const isArchived = !!card.archived_at;
+  const isMultiHomed = card.is_mirrored || card.is_mirror_here;
 
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(card.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mirrorOpen, setMirrorOpen] = useState(false);
+  const [mirrorTargets, setMirrorTargets] = useState<{ id: string; title: string; workspaceId: string; subtitle?: string }[]>([]);
+  const [mirrorLoading, setMirrorLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [pending, startTransition] = useTransition();
   const editRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) editRef.current?.select();
   }, [editing]);
+
+  // Reset mirror submenu when main menu closes.
+  useEffect(() => {
+    if (!menuOpen) { setMirrorOpen(false); setMirrorTargets([]); }
+  }, [menuOpen]);
 
   const commitEdit = () => {
     const trimmed = editValue.trim();
@@ -77,8 +96,40 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
     });
   };
 
+  const handleRemove = () => {
+    setConfirmRemove(false);
+    startTransition(async () => {
+      await removeCardFromStack(card.id, stackId, workspaceId);
+      router.refresh();
+    });
+  };
+
+  const openMirrorMenu = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (mirrorOpen) { setMirrorOpen(false); return; }
+    setMirrorOpen(true);
+    setMirrorLoading(true);
+    const targets = await getStacksForCard(card.id, workspaceId);
+    setMirrorTargets(targets);
+    setMirrorLoading(false);
+  };
+
+  const handleMirrorTo = (targetStackId: string) => {
+    setMenuOpen(false);
+    // Look up the target stack's workspace so we revalidate the correct board.
+    const target = mirrorTargets.find((t) => t.id === targetStackId);
+    const targetWorkspaceId = target?.workspaceId ?? workspaceId;
+    startTransition(async () => {
+      await mirrorNode(card.id, targetStackId, workspaceId, targetWorkspaceId);
+      router.refresh();
+    });
+  };
+
+  // Use the compound dnd_id so two appearances of the same card in different
+  // stacks get distinct DnD identifiers.
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: card.id, data: { type: "card" } });
+    useSortable({ id: card.dnd_id, data: { type: "card" } });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -134,8 +185,9 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
                 </span>
               )}
               <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
-              {card.is_mirrored && (
-                <GitFork size={9} className="shrink-0 text-text-tertiary" aria-label="Mirrored" />
+              {/* GitFork: shown whenever the card exists in more than one stack */}
+              {isMultiHomed && (
+                <GitFork size={9} className="shrink-0 text-text-tertiary flex-none" aria-label="Appears in multiple stacks" />
               )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
@@ -174,7 +226,8 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
                       aria-hidden
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); }}
                     />
-                    <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+                    <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+                      {/* Archive / Unarchive */}
                       {isArchived ? (
                         <button
                           type="button"
@@ -194,14 +247,53 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
                           Archive
                         </button>
                       )}
+
+                      {/* Mirror to… */}
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={openMirrorMenu}
+                        className={[
+                          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
+                          mirrorOpen ? "text-text-primary" : "text-text-secondary hover:text-text-primary",
+                        ].join(" ")}
+                      >
+                        <GitFork size={12} />
+                        Mirror to…
+                      </button>
+                      {mirrorOpen && (
+                        <MirrorToSubmenu
+                          targets={mirrorTargets}
+                          loading={mirrorLoading}
+                          placeholder="Search stacks…"
+                          emptyMessage="No other stacks available"
+                          onSelect={(id) => handleMirrorTo(id)}
+                        />
+                      )}
+
+                      {/* Remove from this stack — only when card has other appearances */}
+                      {isMultiHomed && (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmRemove(true); }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+                        >
+                          <Unlink size={12} />
+                          Remove from this stack
+                        </button>
+                      )}
+
                       <div className="my-1 h-px bg-border" />
+
+                      {/* Delete */}
                       <button
                         type="button"
                         disabled={pending}
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmDelete(true); }}
                         className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:opacity-40"
                       >
-                        {card.is_mirrored ? "Delete from everywhere" : "Delete"}
+                        {isMultiHomed ? "Delete from everywhere" : "Delete"}
                       </button>
                     </div>
                   </>
@@ -238,13 +330,23 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
         <ConfirmModal
           title="Delete card?"
           body={
-            card.is_mirrored
+            isMultiHomed
               ? "This card appears in other stacks. Deleting it removes it everywhere. This cannot be undone."
               : "Are you sure? Deleted cards can't be recovered."
           }
-          confirmLabel={card.is_mirrored ? "Delete from everywhere" : "Delete"}
+          confirmLabel={isMultiHomed ? "Delete from everywhere" : "Delete"}
           onConfirm={handleDelete}
           onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+
+      {confirmRemove && (
+        <ConfirmModal
+          title="Remove from this stack?"
+          body="This removes the card from this stack. It stays in all other stacks where it appears."
+          confirmLabel="Remove"
+          onConfirm={handleRemove}
+          onCancel={() => setConfirmRemove(false)}
         />
       )}
     </>
@@ -276,129 +378,6 @@ export function CardTileOverlay({
         </div>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// MirrorCardTile — non-draggable read-only tile for mirror copies of cards.
-// Shown below the home cards in a stack. QUAM limited to "Remove from stack".
-// ---------------------------------------------------------------------------
-
-interface MirrorCardTileProps {
-  card: BoardCard;
-  workspaceId: string;
-  stackId: string;
-  fields: BoardField[];
-  columnFieldId: string | null;
-  actors: Record<string, BoardActor>;
-}
-
-export function MirrorCardTile({ card, workspaceId, stackId, fields, columnFieldId, actors }: MirrorCardTileProps) {
-  const search = useSearchParams();
-  const isActive = search.get("d") === card.id;
-  const router = useRouter();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [pending, startTransition] = useTransition();
-
-  const badges = getStaticBadges(card, fields, columnFieldId);
-
-  const handleRemove = () => {
-    setConfirmRemove(false);
-    startTransition(async () => {
-      await unmirrorNode(card.id, stackId, workspaceId);
-      router.refresh();
-    });
-  };
-
-  return (
-    <>
-      <div>
-        <Link
-          href={`/n/${workspaceId}?d=${card.id}`}
-          scroll={false}
-          aria-current={isActive ? "true" : undefined}
-          className={[
-            "group block rounded-md border p-2.5 transition-colors",
-            isActive
-              ? "border-accent bg-bg-selected"
-              : "border-border border-dashed bg-bg-card/60 hover:border-border-strong hover:bg-bg-hover",
-          ].join(" ")}
-        >
-          <div className="flex items-start justify-between gap-1">
-            <div className="flex items-center gap-1 min-w-0">
-              <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
-              {/* GitFork always visible on mirror copies */}
-              <GitFork size={9} className="shrink-0 text-accent/70 flex-none" aria-label="Mirrored here" />
-            </div>
-            {/* QUAM */}
-            <div className="relative flex-none">
-              <button
-                type="button"
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((v) => !v); }}
-                aria-label="Card actions"
-                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
-              >
-                <MoreHorizontal size={12} />
-              </button>
-              {menuOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    aria-hidden
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); }}
-                  />
-                  <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
-                    <Link
-                      href={`/n/${workspaceId}?d=${card.id}`}
-                      scroll={false}
-                      onClick={() => setMenuOpen(false)}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
-                    >
-                      Open
-                    </Link>
-                    <div className="my-1 h-px bg-border" />
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmRemove(true); }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
-                    >
-                      Remove from this stack
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-          {card.description && (
-            <div className="mt-1 text-xs text-text-secondary line-clamp-2">{card.description}</div>
-          )}
-          {(badges.length > 0 || (card.owner_id && actors[card.owner_id])) && (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
-              <div className="flex flex-wrap gap-1">
-                {badges.map((b) => (
-                  <FieldBadge key={b.id} name={b.name} color={b.color} />
-                ))}
-              </div>
-              {card.owner_id && actors[card.owner_id] && (
-                <BoardAvatar actor={actors[card.owner_id]} size={20} />
-              )}
-            </div>
-          )}
-        </Link>
-      </div>
-
-      {confirmRemove && (
-        <ConfirmModal
-          title="Remove from this stack?"
-          body="This removes the card from this stack. It stays in all other stacks where it appears."
-          confirmLabel="Remove"
-          onConfirm={handleRemove}
-          onCancel={() => setConfirmRemove(false)}
-        />
-      )}
-    </>
   );
 }
 

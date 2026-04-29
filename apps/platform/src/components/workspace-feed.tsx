@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Layers, CreditCard } from "lucide-react";
+import type { ActorForMention } from "@/lib/actor";
 import type { FeedPost } from "@/lib/posts";
 import { PostItem } from "./post-item";
 
@@ -11,6 +12,7 @@ interface WorkspaceFeedProps {
   workspaceFeed: FeedPost[];
   allFeed: FeedPost[];
   actorId: string;
+  actors: ActorForMention[];
   isPersonal: boolean;
 }
 
@@ -21,6 +23,7 @@ export function WorkspaceFeed({
   workspaceFeed,
   allFeed,
   actorId,
+  actors,
   isPersonal,
 }: WorkspaceFeedProps) {
   const [tab, setTab] = useState<FeedTab>("workspace");
@@ -67,6 +70,7 @@ export function WorkspaceFeed({
               post={post}
               workspaceId={workspaceId}
               actorId={actorId}
+              actors={actors}
             />
           ))}
         </div>
@@ -79,10 +83,12 @@ function FeedPostItem({
   post,
   workspaceId,
   actorId,
+  actors,
 }: {
   post: FeedPost;
   workspaceId: string;
   actorId: string;
+  actors: ActorForMention[];
 }) {
   const nodeType = post.node?.type;
   const nodeTitle = post.node?.title ?? "Unknown";
@@ -108,6 +114,7 @@ function FeedPostItem({
         nodeId={nodeId}
         workspaceId={workspaceId}
         currentActorId={actorId}
+        actors={actors}
       />
     </div>
   );

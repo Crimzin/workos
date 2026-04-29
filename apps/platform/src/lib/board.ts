@@ -47,6 +47,18 @@ export async function getWorkspaceBoard(
         board.stacks = board.stacks.map((s) => ({ ...s, field_values: {} }));
       }
 
+      // Merge mirror_cards into cards with compound dnd_id (`${cardId}:${stackId}`).
+      // All appearances become equal peers in the same sortable list — there is
+      // no functional distinction between home and mirror copies on the board.
+      board.stacks = board.stacks.map((s) => ({
+        ...s,
+        cards: [
+          ...s.cards.map((c) => ({ ...c, dnd_id: `${c.id}:${s.id}` })),
+          ...(s.mirror_cards ?? []).map((c) => ({ ...c, dnd_id: `${c.id}:${s.id}` })),
+        ],
+        mirror_cards: [],
+      }));
+
       // Fetch actors for avatar rendering.
       const instanceId = (board.workspace as { instance_id?: string }).instance_id;
       if (instanceId) {
