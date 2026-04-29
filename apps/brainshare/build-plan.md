@@ -61,10 +61,20 @@ Use the `id` returned by Test 3 as `EPISODE_ID`.
 curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
   -H "Authorization: Bearer bs_team_abc123" \
   -H "Content-Type: application/json" \
-  -d '{"provider": "dev-rule", "store_primitives": true}'
+  -d '{
+    "provider": "dev-rule",
+    "store_primitives": true,
+    "actor_context": {
+      "chris": {
+        "name": "Chris",
+        "authority": "founder approval",
+        "authority_weight": 0.9
+      }
+    }
+  }'
 ```
 
-**Expected**: The response includes the strict extraction prompt, extracted primitives, and stored BrainShare primitives. Stored primitives include `source_episode_ids`, `supporting_messages`, and `metadata.source_citations` so each item can be traced back to specific Discord message IDs.
+**Expected**: The response includes the strict extraction prompt, extracted primitives, and stored BrainShare primitives. Stored primitives include `source_episode_ids`, `supporting_messages`, and `metadata.source_citations` so each item can be traced back to specific Discord message IDs. Decision primitives also include `metadata.conviction_factors`; authority-weighted approval reactions can raise conviction and appear in `approved_by`.
 
 **Test 5 - Inspect the extraction prompt contract:**
 ```bash

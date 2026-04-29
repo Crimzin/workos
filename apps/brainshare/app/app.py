@@ -139,6 +139,11 @@ class ExtractionResult(BaseModel):
     no_extractable_context: bool = True
 
 
+class ConvictionResult(BaseModel):
+    conviction: float
+    factors: list[str] = Field(default_factory=list)
+
+
 class WorkOSMemoryPrimitiveIn(BaseModel):
     id: str
     instance_id: str
@@ -433,10 +438,91 @@ def source_citations_for_episode(
     return citations
 
 
+def actor_label(actor_id: str, actor_context: dict[str, Any]) -> str:
+    actor = actor_context.get(actor_id, {})
+    if isinstance(actor, dict):
+        return str(actor.get("name") or actor_id)
+    return actor_id
+
+
+def actor_authority_weight(actor_id: str, actor_context: dict[str, Any]) -> float:
+    actor = actor_context.get(actor_id, {})
+    if not isinstance(actor, dict):
+        return 0.5
+    if "authority_weight" in actor:
+        try:
+            return float(actor["authority_weight"])
+        except (TypeError, ValueError):
+            return 0.5
+    authority = str(actor.get("authority", "")).lower()
+    if any(marker in authority for marker in ["founder", "owner", "lead", "approval"]):
+        return 0.85
+    if authority:
+        return 0.65
+    return 0.5
+
+
+def approval_actors_from_reactions(
+    episode: dict[str, Any],
+    supporting_messages: list[int],
+    actor_context: dict[str, Any],
+) -> list[str]:
+    approval_emojis = {"thumbsup", "+1", "👍", "white_check_mark", "✅", "check"}
+    approvals = set()
+    for citation in source_citations_for_episode(episode, supporting_messages):
+        for reaction in citation.get("reactions", []):
+            emoji = str(reaction.get("emoji") or "").lower()
+            actor_id = str(reaction.get("actor_id") or reaction.get("user_id") or "")
+            if not actor_id or emoji not in approval_emojis:
+                continue
+            if actor_authority_weight(actor_id, actor_context) >= 0.65:
+                approvals.add(actor_label(actor_id, actor_context))
+    return sorted(approvals)
+
+
+def calculate_conviction(
+    extracted: ExtractedPrimitive,
+    episode: dict[str, Any],
+    actor_context: dict[str, Any],
+) -> ConvictionResult:
+    score = extracted.confidence
+    factors = [f"llm_or_extractor_confidence={extracted.confidence:.2f}"]
+
+    if extracted.type == "DECISION" and extracted.content.get("type") == "explicit":
+        score += 0.08
+        factors.append("explicit_decision")
+    if len(extracted.supporting_messages) >= 2:
+        score += 0.05
+        factors.append("multiple_supporting_messages")
+
+    rationale = str(extracted.content.get("rationale") or "")
+    if rationale and "dev extractor" not in rationale.lower() and len(rationale) >= 80:
+        score += 0.05
+        factors.append("specific_rationale")
+
+    authority_approvals = approval_actors_from_reactions(
+        episode,
+        extracted.supporting_messages,
+        actor_context,
+    )
+    if authority_approvals:
+        score += 0.1
+        factors.append(f"authority_reaction_approval={','.join(authority_approvals)}")
+
+    if extracted.type == "QUESTION":
+        score = min(score, 0.8)
+        factors.append("questions_capped_below_assert_threshold")
+
+    return ConvictionResult(conviction=max(0, min(round(score, 2), 1)), factors=factors)
+
+
 def extracted_to_primitive_create(
     episode: dict[str, Any],
     extracted: ExtractedPrimitive,
+    actor_context: Optional[dict[str, Any]] = None,
 ) -> PrimitiveCreate:
+    actor_context = actor_context or {}
+    conviction = calculate_conviction(extracted, episode, actor_context)
     citations = source_citations_for_episode(episode, extracted.supporting_messages)
     content = extracted.content
     approved_by = content.get("approved_by") or []
@@ -459,7 +545,7 @@ def extracted_to_primitive_create(
         statement=statement_from_extraction(extracted),
         body=json.dumps(content, sort_keys=True),
         status=status,
-        conviction=extracted.confidence,
+        conviction=conviction.conviction,
         source_episode_ids=[episode["id"]],
         supporting_messages=extracted.supporting_messages,
         actors=actors,
@@ -469,6 +555,8 @@ def extracted_to_primitive_create(
             "extraction_type": extracted.type,
             "source_tool": episode.get("source_tool"),
             "source_location": episode.get("source_location"),
+            "extractor_confidence": extracted.confidence,
+            "conviction_factors": conviction.factors,
             "source_citations": citations,
         },
     )
@@ -533,7 +621,11 @@ def question_was_answered(
     return False
 
 
-def extract_episode_with_dev_rules(episode: dict[str, Any]) -> ExtractionResult:
+def extract_episode_with_dev_rules(
+    episode: dict[str, Any],
+    actor_context: Optional[dict[str, Any]] = None,
+) -> ExtractionResult:
+    actor_context = actor_context or {}
     messages = parse_indexed_messages(episode.get("raw_content", ""))
     extractions: list[ExtractedPrimitive] = []
     decision_indices: list[int] = []
@@ -566,6 +658,17 @@ def extract_episode_with_dev_rules(episode: dict[str, Any]) -> ExtractionResult:
                 if citation.get("reactions") and citation.get("index") == message["index"]:
                     decision_indices.append(citation["index"])
 
+            supporting_messages = sorted(set(decision_indices))
+            approved_by = sorted(
+                {
+                    *approved_by,
+                    *approval_actors_from_reactions(
+                        episode,
+                        supporting_messages,
+                        actor_context,
+                    ),
+                }
+            )
             extractions.append(
                 ExtractedPrimitive(
                     type="DECISION",
@@ -573,10 +676,10 @@ def extract_episode_with_dev_rules(episode: dict[str, Any]) -> ExtractionResult:
                         "statement": decision_statement,
                         "rationale": "Rationale should be strengthened by the Claude extractor; dev extractor identified a decision trigger in the cited messages.",
                         "proposed_by": message["author"],
-                        "approved_by": sorted(set(approved_by)),
+                        "approved_by": approved_by,
                         "type": "explicit",
                     },
-                    supporting_messages=sorted(set(decision_indices)),
+                    supporting_messages=supporting_messages,
                     confidence=0.72,
                 )
             )
@@ -913,12 +1016,18 @@ async def extract_episode(
             detail="claude_extraction_not_configured_yet",
         )
 
-    result = extract_episode_with_dev_rules(episode)
+    result = extract_episode_with_dev_rules(episode, payload.actor_context)
     stored_primitives: list[Primitive] = []
     if payload.store_primitives:
         for extracted in result.primitives:
             stored_primitives.append(
-                await store.add_primitive(extracted_to_primitive_create(episode, extracted))
+                await store.add_primitive(
+                    extracted_to_primitive_create(
+                        episode,
+                        extracted,
+                        payload.actor_context,
+                    )
+                )
             )
 
     return {

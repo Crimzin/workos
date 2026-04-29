@@ -259,7 +259,7 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 - [x] Define strict extraction JSON contract with supporting message indices and confidence, matching the BrainShare extraction spec
 - [ ] Wire the strict extraction contract to Claude API for production-quality extraction
 - [x] Add dev extraction endpoint that can produce and store at least `Decision`, `Assumption`, `Action`, `Question`, and `ContextUpdate`
-- [ ] Interpret emoji reactions from authority-weighted actors as approval when supported by surrounding messages
+- [x] Interpret emoji reactions from authority-weighted actors as approval when supported by surrounding messages
 - [x] Store source citations on Discord Episodes: message IDs, per-message indices, authors, timestamps, replies, reactions, channel/thread labels
 - [x] Carry source citations from extraction through to BrainShare primitives so every primitive can be traced back to an episode/message
 - [ ] Carry source citations through Graphiti entity relationships and WorkOS Memory-tab writeback
@@ -267,7 +267,7 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 
 ### 2.2 Conviction + Graph Validation v0
 
-- [ ] Convert LLM confidence into BrainShare conviction with explicitness, authority weight, rationale specificity, and source strength
+- [x] Convert LLM confidence into BrainShare conviction with explicitness, authority weight, rationale specificity, and source strength
 - [ ] Implement initial thresholds: `>=0.8` assert, `0.5-0.8` flag, `<0.5` ask
 - [ ] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
 - [ ] Add simple duplicate detection before storage using vector similarity / Graphiti search
