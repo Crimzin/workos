@@ -1,0 +1,17 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: brainshare-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: "${NEO4J_AUTH:-neo4j/brainshare-dev}"
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - brainshare-neo4j-data:/data
+      - brainshare-neo4j-logs:/logs
+
+volumes:
+  brainshare-neo4j-data:
+  brainshare-neo4j-logs:

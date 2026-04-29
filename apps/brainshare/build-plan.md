@@ -9,16 +9,16 @@
    cd /Users/williamcorbett/BrainShare/app
    python3 app.py
    ```
-3. **Look for**: `Running on http://0.0.0.0:3000`
-4. **Test health**: Open browser to `http://localhost:3000/health`
-   - Should show: `{"status": "healthy", "version": "0.1.0"}`
+3. **Look for**: `Uvicorn running on http://0.0.0.0:3100`
+4. **Test health**: Open browser to `http://localhost:3100/health`
+   - Should show: `{"status": "healthy", "version": "0.2.0", ...}`
 
 ### Step 1.2: Test API Functions
 **Open a second Terminal window** and run these tests:
 
 **Test 1 - Add context:**
 ```bash
-curl -X POST http://localhost:3000/push \
+curl -X POST http://localhost:3100/push \
   -H "Authorization: Bearer bs_team_abc123" \
   -H "Content-Type: application/json" \
   -d '{"content": "We decided to use React for frontend", "category": "decision"}'
@@ -26,11 +26,11 @@ curl -X POST http://localhost:3000/push \
 
 **Test 2 - Query context:**
 ```bash
-curl "http://localhost:3000/pull?query=React" \
+curl "http://localhost:3100/pull?query=React" \
   -H "Authorization: Bearer bs_team_abc123"
 ```
 
-**Expected**: You should see success responses, and a `team-context.json` file created in the app directory.
+**Expected**: You should see success responses, and a `brainshare-dev-store.json` file created in the app directory unless `BRAINSHARE_STORE_FILE` points elsewhere.
 
 ## Phase 2: Add Claude Code Integration (20 minutes)
 
@@ -54,7 +54,7 @@ Start a **new Claude Code session** and try:
 - Keep the API running while working on projects
 - Add real decisions and insights to BrainShare
 - Query for past context when needed
-- Watch the `team-context.json` file grow
+- Watch the `brainshare-dev-store.json` file grow
 
 ### Step 3.2: Add a Teammate
 **If you have a teammate with ChatGPT Plus:**
@@ -74,6 +74,6 @@ Start a **new Claude Code session** and try:
 - Improve context analysis intelligence
 
 ## Troubleshooting
-- **API won't start**: Make sure port 3000 is free
+- **API won't start**: Make sure port 3100 is free or set `BRAINSHARE_PORT`
 - **MCP not working**: Check Claude Code logs for errors
 - **Context not saving**: Check file permissions in app directory

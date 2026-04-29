@@ -33,6 +33,7 @@ next-env.d.ts
 __pycache__/
 *.pyc
 .venv/
+brainshare-dev-store*.json
 
 # Turbo
 .turbo

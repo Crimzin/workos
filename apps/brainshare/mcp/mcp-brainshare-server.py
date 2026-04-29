@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 from typing import Any
 
@@ -18,8 +19,8 @@ from mcp.types import (
 )
 
 # Configuration
-BRAINSHARE_API = "http://localhost:3000"
-TEAM_TOKEN = "bs_team_abc123"  # TODO: Load from config file
+BRAINSHARE_API = os.getenv("BRAINSHARE_API", "http://localhost:3100")
+TEAM_TOKEN = os.getenv("BRAINSHARE_TOKEN", "bs_team_abc123")
 
 app = Server("brainshare")
 

@@ -4,6 +4,7 @@
       "command": "/Users/williamcorbett/BrainShare/mcp/venv/bin/python",
       "args": ["/Users/williamcorbett/BrainShare/mcp/mcp-brainshare-server.py"],
       "env": {
+        "BRAINSHARE_API": "http://localhost:3100",
         "BRAINSHARE_TOKEN": "bs_team_abc123"
       }
     }
