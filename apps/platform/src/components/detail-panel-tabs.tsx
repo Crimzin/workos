@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 
-type TabId = "posts" | "fields" | "cards";
+type TabId = "posts" | "fields" | "memory" | "cards";
 
 interface DetailPanelTabsProps {
   nodeType: string;
   fieldsContent: React.ReactNode;
+  memoryContent: React.ReactNode;
   cardsContent: React.ReactNode;
   postsContent: React.ReactNode;
 }
@@ -14,12 +15,14 @@ interface DetailPanelTabsProps {
 export function DetailPanelTabs({
   nodeType,
   fieldsContent,
+  memoryContent,
   cardsContent,
   postsContent,
 }: DetailPanelTabsProps) {
   const tabs: { id: TabId; label: string }[] = [
     { id: "posts", label: "Posts" },
     { id: "fields", label: "Fields" },
+    { id: "memory", label: "Memory" },
     ...(nodeType === "stack" ? ([{ id: "cards" as TabId, label: "Cards" }]) : []),
   ];
 
@@ -48,6 +51,7 @@ export function DetailPanelTabs({
       <div className="flex-1 overflow-auto">
         {active === "posts" && postsContent}
         {active === "fields" && fieldsContent}
+        {active === "memory" && memoryContent}
         {active === "cards" && cardsContent}
       </div>
     </div>

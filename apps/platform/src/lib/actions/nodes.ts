@@ -10,6 +10,7 @@ import {
   revalidateNodePosts,
   revalidateWorkspaceFeed,
 } from "../cache";
+import type { StackLifecycleStatus } from "../types";
 
 export async function archiveNode(
   nodeId: string,
@@ -154,12 +155,109 @@ async function nextPositionForSibling(
   return top + 1;
 }
 
+async function ensureDefaultPlanningFields(instanceId: string): Promise<{
+  statusFieldId: string | null;
+  backlogOptionId: string | null;
+  priorityFieldId: string | null;
+  p2OptionId: string | null;
+}> {
+  async function ensureField(
+    name: string,
+    color: string,
+    locked: boolean,
+    position: number,
+    options: string[]
+  ): Promise<{ fieldId: string | null; optionIdsByName: Record<string, string> }> {
+    const { data: existing, error: existingErr } = await supabase
+      .from("data_fields")
+      .select("id")
+      .eq("instance_id", instanceId)
+      .ilike("name", name)
+      .limit(1)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+
+    let fieldId = existing?.id ?? null;
+    if (!fieldId) {
+      const { data: field, error: fieldErr } = await supabase
+        .from("data_fields")
+        .insert({
+          instance_id: instanceId,
+          name,
+          field_type: "single_select",
+          color,
+          locked,
+          position,
+        })
+        .select("id")
+        .single();
+      if (fieldErr) throw fieldErr;
+      fieldId = field.id;
+    }
+
+    const { data: existingOptions, error: optionsErr } = await supabase
+      .from("data_field_options")
+      .select("id, name")
+      .eq("field_id", fieldId);
+    if (optionsErr) throw optionsErr;
+
+    const optionIdsByName: Record<string, string> = {};
+    const existingNames = new Set<string>();
+    for (const option of existingOptions ?? []) {
+      const key = option.name.toLowerCase();
+      existingNames.add(key);
+      optionIdsByName[key] ??= option.id;
+    }
+
+    const missing = options.filter((option) => !existingNames.has(option.toLowerCase()));
+    if (missing.length > 0) {
+      const rows = missing.map((option) => ({
+        field_id: fieldId,
+        name: option,
+        position: options.indexOf(option),
+      }));
+      const { data: created, error: createErr } = await supabase
+        .from("data_field_options")
+        .insert(rows)
+        .select("id, name");
+      if (createErr) throw createErr;
+      for (const option of created ?? []) {
+        optionIdsByName[option.name.toLowerCase()] = option.id;
+      }
+    }
+
+    return { fieldId, optionIdsByName };
+  }
+
+  const status = await ensureField("Status", "badge-2", false, 0, [
+    "Backlog",
+    "Next up",
+    "Planning",
+    "In Progress",
+    "Done",
+  ]);
+  const priority = await ensureField("Priority", "badge-5", true, 1, [
+    "P0",
+    "P1",
+    "P2",
+    "P3",
+  ]);
+
+  return {
+    statusFieldId: status.fieldId,
+    backlogOptionId: status.optionIdsByName.backlog ?? null,
+    priorityFieldId: priority.fieldId,
+    p2OptionId: priority.optionIdsByName.p2 ?? null,
+  };
+}
+
 export async function createWorkspace(
   title: string
 ): Promise<CreateWorkspaceResult> {
   const trimmed = title.trim();
   if (!trimmed) throw new Error("Workspace title is required");
   const actor = await getCurrentActor();
+  await ensureDefaultPlanningFields(actor.instance_id);
 
   const position = await nextPositionForSibling(null);
 
@@ -223,6 +321,23 @@ export async function createStack(
   revalidateNode(workspaceId, null);
   revalidatePath(`/n/${workspaceId}`);
   return { id: stack.id };
+}
+
+export async function updateStackLifecycle(
+  stackId: string,
+  workspaceId: string,
+  status: StackLifecycleStatus
+): Promise<void> {
+  const { error } = await supabase
+    .from("nodes")
+    .update({ stack_lifecycle_status: status })
+    .eq("id", stackId)
+    .eq("type", "stack");
+  if (error) throw error;
+
+  revalidateNode(stackId, workspaceId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +589,7 @@ export async function createCard(
   const trimmed = title.trim();
   if (!trimmed) throw new Error("Card title is required");
   const actor = await getCurrentActor();
+  const planningFields = await ensureDefaultPlanningFields(actor.instance_id);
 
   const position = await nextPositionForSibling(stackId);
 
@@ -493,13 +609,50 @@ export async function createCard(
 
   // Pre-populate the column field value so the card lands in the column the
   // user clicked "+ Add card" in. Skip for the unassigned column.
+  const fieldValueRows: Array<{
+    node_id: string;
+    field_id: string;
+    option_id: string;
+    position: number;
+  }> = [];
+
   if (columnFieldId && columnOptionId) {
-    const { error: vErr } = await supabase.from("node_field_values").insert({
+    fieldValueRows.push({
       node_id: card.id,
       field_id: columnFieldId,
       option_id: columnOptionId,
       position: 0,
     });
+  } else if (
+    planningFields.statusFieldId &&
+    planningFields.backlogOptionId &&
+    columnFieldId !== planningFields.statusFieldId
+  ) {
+    fieldValueRows.push({
+      node_id: card.id,
+      field_id: planningFields.statusFieldId,
+      option_id: planningFields.backlogOptionId,
+      position: 0,
+    });
+  }
+
+  if (
+    planningFields.priorityFieldId &&
+    planningFields.p2OptionId &&
+    columnFieldId !== planningFields.priorityFieldId
+  ) {
+    fieldValueRows.push({
+      node_id: card.id,
+      field_id: planningFields.priorityFieldId,
+      option_id: planningFields.p2OptionId,
+      position: 0,
+    });
+  }
+
+  if (fieldValueRows.length > 0) {
+    const { error: vErr } = await supabase
+      .from("node_field_values")
+      .insert(fieldValueRows);
     if (vErr) throw vErr;
   }
 

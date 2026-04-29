@@ -9,7 +9,8 @@ import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
-import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode, unmirrorNode, mirrorNode, getWorkspacesForStack } from "@/lib/actions/nodes";
+import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode, unmirrorNode, mirrorNode, getWorkspacesForStack, updateStackLifecycle } from "@/lib/actions/nodes";
+import type { StackLifecycleStatus } from "@/lib/types";
 import { ConfirmModal } from "../confirm-modal";
 import { updateFieldOption } from "@/lib/actions/fields";
 import { InlineCreate } from "../inline-create";
@@ -126,7 +127,7 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                     stack.id,
                     workspaceId,
                     title,
-                    isUnassigned ? null : columnField?.id ?? null,
+                    columnField?.id ?? null,
                     isUnassigned ? null : col.id
                   );
                   router.refresh();
@@ -347,19 +348,33 @@ function StackHeader({
   const [mirrorLoading, setMirrorLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [lifecycleOpen, setLifecycleOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(stack.title);
   const [pending, startTransition] = useTransition();
   const columnFieldName = columnFieldId ? (fields.find((f) => f.id === columnFieldId)?.name ?? null) : null;
   const renameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) { setMirrorOpen(false); setMirrorTargets([]); }
-  }, [menuOpen]);
+  const lifecycle = stack.stack_lifecycle_status ?? "prioritized";
 
   useEffect(() => {
     if (renaming) renameRef.current?.select();
   }, [renaming]);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    setMirrorOpen(false);
+    setMirrorTargets([]);
+  };
+
+  const toggleMenu = () => {
+    if (menuOpen) {
+      closeMenu();
+    } else {
+      setMirrorOpen(false);
+      setMirrorTargets([]);
+      setMenuOpen(true);
+    }
+  };
 
   const commitRename = () => {
     const trimmed = renameValue.trim();
@@ -389,6 +404,15 @@ function StackHeader({
     setMenuOpen(false);
     startTransition(async () => {
       await mirrorNode(stack.id, targetWorkspaceId, workspaceId, targetWorkspaceId);
+      router.refresh();
+    });
+  };
+
+  const updateLifecycle = (status: StackLifecycleStatus) => {
+    setLifecycleOpen(false);
+    closeMenu();
+    startTransition(async () => {
+      await updateStackLifecycle(stack.id, workspaceId, status);
       router.refresh();
     });
   };
@@ -439,6 +463,58 @@ function StackHeader({
           >
             <div className="section-label">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
             <div className="flex items-start gap-1">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setLifecycleOpen((v) => !v);
+                  }}
+                  aria-label="Change stack lifecycle"
+                  className="mt-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-bg-hover"
+                >
+                  <LifecycleDot status={lifecycle} />
+                </button>
+                {lifecycleOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-20"
+                      aria-hidden
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLifecycleOpen(false);
+                      }}
+                    />
+                    <div
+                      className="absolute left-0 top-full z-30 mt-1 w-40 rounded-md border border-border bg-bg-card py-1 shadow-sm"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                    >
+                      {STACK_LIFECYCLE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          disabled={pending}
+                          onClick={() => updateLifecycle(option.value)}
+                          className={[
+                            "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
+                            option.value === lifecycle
+                              ? "font-medium text-text-primary"
+                              : "text-text-secondary hover:text-text-primary",
+                          ].join(" ")}
+                        >
+                          <LifecycleDot status={option.value} />
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
               <h3
                 className={[
                   "mt-0.5 truncate text-base font-semibold transition-colors",
@@ -499,7 +575,7 @@ function StackHeader({
         <div className="relative">
           <button
             type="button"
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={toggleMenu}
             aria-label="Stack actions"
             className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
           >
@@ -507,7 +583,7 @@ function StackHeader({
           </button>
           {menuOpen && (
             <>
-              <div className="fixed inset-0 z-10" aria-hidden onClick={() => setMenuOpen(false)} />
+              <div className="fixed inset-0 z-10" aria-hidden onClick={closeMenu} />
               <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
                 <button
                   type="button"
@@ -595,6 +671,25 @@ function StackHeader({
                     ))}
                   </>
                 )}
+                <div className="my-1 h-px bg-border" />
+                <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Lifecycle</div>
+                {STACK_LIFECYCLE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={pending}
+                    onClick={() => {
+                      updateLifecycle(option.value);
+                    }}
+                    className={[
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
+                      option.value === lifecycle ? "font-medium text-text-primary" : "text-text-secondary hover:text-text-primary",
+                    ].join(" ")}
+                  >
+                    <LifecycleDot status={option.value} />
+                    {option.label}
+                  </button>
+                ))}
                 <div className="my-1 h-px bg-border" />
                 {isArchived ? (
                   <button
@@ -703,4 +798,34 @@ function StackHeader({
 function colorToBadgeIndex(color: string): number {
   const match = /badge-([1-6])/.exec(color);
   return match ? Number(match[1]) : 1;
+}
+
+const STACK_LIFECYCLE_OPTIONS: Array<{
+  value: StackLifecycleStatus;
+  label: string;
+}> = [
+  { value: "prioritized", label: "Prioritized" },
+  { value: "deprioritized", label: "Deprioritized" },
+  { value: "completed", label: "Completed" },
+  { value: "archived", label: "Archived" },
+];
+
+function LifecycleDot({ status }: { status: StackLifecycleStatus }) {
+  const className =
+    status === "prioritized"
+      ? "bg-accent"
+      : status === "deprioritized"
+        ? "bg-status-review"
+      : status === "completed"
+        ? "bg-status-done"
+        : status === "archived"
+          ? "bg-text-tertiary"
+          : "bg-status-none";
+
+  return (
+    <span
+      title={STACK_LIFECYCLE_OPTIONS.find((o) => o.value === status)?.label}
+      className={["mt-2 h-2 w-2 shrink-0 rounded-full", className].join(" ")}
+    />
+  );
 }

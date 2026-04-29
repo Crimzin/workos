@@ -43,6 +43,7 @@ export interface BoardStack {
   description: string | null;
   owner_id: string | null;
   position: number;
+  stack_lifecycle_status: import("./types").StackLifecycleStatus;
   archived_at: string | null;
   cards: BoardCard[];
   /** Cards mirrored into this stack (non-draggable; shown separately from home cards). */

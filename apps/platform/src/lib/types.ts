@@ -5,6 +5,19 @@ export type AgentType = "claude" | "claude_code" | "swarm" | "brainshare";
 
 export type FieldType = "single_select" | "multi_select" | "text" | "date";
 
+export type MemoryPrimitiveType = "rationale" | "assumption" | "decision";
+export type AssumptionStatus = "untested" | "validated" | "invalidated";
+export type DecisionStatus = "active" | "superseded" | "reversed";
+export type MemoryPrimitiveStatus =
+  | "active"
+  | AssumptionStatus
+  | DecisionStatus;
+export type StackLifecycleStatus =
+  | "prioritized"
+  | "deprioritized"
+  | "completed"
+  | "archived";
+
 export interface Instance {
   id: string;
   name: string;
@@ -32,6 +45,7 @@ export interface WorkNode {
   description: string | null;
   owner_id: string | null;
   position: number;
+  stack_lifecycle_status: StackLifecycleStatus;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -68,4 +82,23 @@ export interface NodeFieldValue {
   position: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface MemoryPrimitive {
+  id: string;
+  instance_id: string;
+  node_id: string;
+  type: MemoryPrimitiveType;
+  statement: string;
+  body: string | null;
+  status: MemoryPrimitiveStatus;
+  conviction: number;
+  metadata: Record<string, unknown>;
+  source_post_id: string | null;
+  source_label: string | null;
+  external_episode_id: string | null;
+  created_by_actor_id: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_actor?: Pick<Actor, "id" | "name" | "kind"> | null;
 }

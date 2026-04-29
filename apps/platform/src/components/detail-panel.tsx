@@ -5,6 +5,7 @@ import type { DetailField, DetailFieldValue, NodeAncestor } from "@/lib/node-det
 import type { WorkNode } from "@/lib/types";
 import type { NodeMirrorPlacement } from "@/lib/board-types";
 import { getNodePosts } from "@/lib/posts";
+import { getNodeMemoryPrimitives } from "@/lib/memory-primitives";
 import { getNodeLinks } from "@/lib/links";
 import type { NodeLinks } from "@/lib/links";
 import { getCurrentActor, getActors } from "@/lib/actor";
@@ -13,12 +14,12 @@ import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
 import { EditableTitle } from "./editable-title";
 import { DetailPanelTabs } from "./detail-panel-tabs";
-import { AddCardFromPanel } from "./add-card-from-panel";
 import { NodeActions } from "./node-actions";
 import { CardsTabContent } from "./cards-tab-content";
 import { MirrorsSection } from "./mirrors-section";
 import { NodeLinksSection } from "./node-links-section";
 import { PostsTabContent } from "./posts-tab-content";
+import { MemoryPrimitivesTabContent } from "./memory-primitives-tab-content";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -37,8 +38,8 @@ export async function DetailPanel({
     getActors(),
   ]);
 
-  // Fetch mirror targets + posts + links in parallel with detail panel render.
-  const [mirrorTargets, posts, links] = await Promise.all([
+  // Fetch mirror targets + posts + links + memory in parallel with detail panel render.
+  const [mirrorTargets, posts, links, memoryPrimitives] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
@@ -46,12 +47,15 @@ export async function DetailPanel({
     detail
       ? getNodeLinks(nodeId)
       : Promise.resolve({ related: [], blocks: [], blockedBy: [] } as NodeLinks),
+    detail
+      ? getNodeMemoryPrimitives(nodeId)
+      : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
   ]);
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} actor={actor} actors={actors} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -73,6 +77,7 @@ function DetailBody({
   mirrorTargets,
   posts,
   links,
+  memoryPrimitives,
   actor,
   actors,
 }: {
@@ -82,6 +87,7 @@ function DetailBody({
   mirrorTargets: { id: string; title: string; type: string }[];
   posts: import("@/lib/posts").PostRecord[];
   links: NodeLinks;
+  memoryPrimitives: import("@/lib/memory-primitives").NodeMemoryPrimitives;
   actor: import("@/lib/actor").CurrentActor;
   actors: import("@/lib/actor").ActorForMention[];
 }) {
@@ -135,6 +141,14 @@ function DetailBody({
       mirrorTargets={mirrorTargets}
       homeWorkspaceId={homeWorkspaceId}
       links={links}
+    />
+  );
+
+  const memoryContent = (
+    <MemoryPrimitivesTabContent
+      nodeId={node.id}
+      workspaceId={workspaceId}
+      initialPrimitives={memoryPrimitives}
     />
   );
 
@@ -210,6 +224,7 @@ function DetailBody({
       <DetailPanelTabs
         nodeType={node.type}
         fieldsContent={fieldsContent}
+        memoryContent={memoryContent}
         cardsContent={cardsContent}
         postsContent={postsContent}
       />
@@ -363,6 +378,9 @@ function FieldsTabContent({
       <dl className="mt-2 mx-5 divide-y divide-border rounded-md border border-border bg-bg-card">
         <SystemRow label="Owner" value={owner?.name ?? "—"} />
         <SystemRow label="Type" value={node.type} />
+        {node.type === "stack" && (
+          <SystemRow label="Lifecycle" value={formatLifecycle(node.stack_lifecycle_status)} />
+        )}
         <SystemRow label="Created" value={formatDate(node.created_at)} />
         <SystemRow label="Updated" value={formatDate(node.updated_at)} />
         {fields.length === 0 && (
@@ -420,4 +438,11 @@ function formatDate(iso: string): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatLifecycle(status: string): string {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }

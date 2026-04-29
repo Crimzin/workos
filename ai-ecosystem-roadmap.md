@@ -10,6 +10,7 @@
 
 Decisions made as we build. Most recent on top.
 
+- **2026-04-29 — BrainShare roadmap realigned to product spec v1.2 + extraction pipeline.** BrainShare is not "Claude chat in WorkOS plus integrations." It is the shared context engine underneath WorkOS/Swarm: BrainShare-first chat entry, cross-tool conversation continuity, Graphiti-backed temporal memory, typed primitive extraction, conviction scoring, WorkOS/external-tool writeback, and adaptive context assembly. Phase 2 now starts with the extraction pipeline and graph substrate, then layers WorkOS writeback and AI surfaces on top.
 - **2026-04-22 — Backend shape (Phase 1).** Next.js Server Components call Supabase (Postgres + auto-REST) directly from `src/lib/*.ts`. No separate Node server. Writes via **Server Actions**. Mitigations for lag: (1) collapse multi-query reads into **single Postgres RPC functions**, (2) layer **Next `unstable_cache`** with tag-based invalidation on mutations, (3) defer heavier client state until needed. RLS stays off during solo mode; enable before multi-user.
 - **2026-04-22 — Insert a "Node Creation Pass" (1.4.5) before 1.5.** Without create flows, every later feature is QA'd against SQL-seeded data. Shipping create-workspace/stack/card now unblocks organic testing of empty → 1 → many transitions across the entire remaining phase.
 - **2026-04-22 — Insert a "Backend Perf Pass" (1.4.25) before Node Creation.** Addresses navigation lag: board RPC + cache layer so subsequent work feels instant.
@@ -29,7 +30,7 @@ Decisions made as we build. Most recent on top.
 - **2026-04-28 — Default card status field set.** New workspaces ship with a built-in single-select status field: `backlog | next up | planning | in progress | done`. Overrides the spec's `Ideate → Plan → Perform → Reflect` based on practical use of the platform to date. Field stays user-editable per workspace. Implementation lands with 1.10.5.
 - **2026-04-28 — Migration deferred to Phase 4.** Spec section 6 frames migration as the first BrainShare magic moment — a *diagnostic*, not a data import. Pre-BrainShare migration is just rote data porting and misses the moat (the structure BrainShare imposes is what makes it compelling). 1.11 removed from Phase 1; full plan + dogfooding deferred until BrainShare's structured-memory layer exists. Design framing captured in `migration-design.md` so it doesn't decay.
 - **2026-04-28 — 1.10 Context Linking complete.** `node_links` table (migration 0015) with `link_type` enum (`related` | `blocks`); bidirectional read via `getNodeLinks` walks 3-level ancestry for cross-workspace workspace labels; `searchLinkableNodes` powers a debounced picker. "Linked Context" section in detail panel renders 3 groups (Related / Blocks / Blocked by) with hover-X removal. AI auto-inclusion deferred to Phase 2 BrainShare.
-- **2026-04-28 — 1.10.5 Memory-Object Foundations + Priority carved out.** Spec §2.1 mandates `rationale`, `assumptions`, `decisions` schema "from day one" because BrainShare reads these as primary memory objects. Bundled with the priority field rollout (cards P0–P3, stacks 4-state lifecycle) and default-status seeding since both are "schema must be present" work. Lands as a dedicated Phase 1 item between 1.10 and the Phase 2 boundary; concrete plan TBD after 1.10 ships.
+- **2026-04-29 — 1.10.5 reframed as BrainShare Primitive Foundations.** The milestone is no longer loose node fields for `rationale`, `assumptions`, and `decisions`; it is the first durable typed-primitive layer that BrainShare can later sync with Graphiti Episodes. Implement a source-aware primitive schema in WorkOS now (manual source/post references today, BrainShare episode references later), then expose rationale/assumption/decision editing in the detail panel. Card priority, stack lifecycle, and default status remain in the same batch as adjacent Swarm planning signals, but are conceptually separate from BrainShare memory primitives.
 - **2026-04-28 — 1.9 Posts + Newsfeed complete.** BlockNote rich text editor (chosen over TipTap — faster integration, zero config, built-in slash menu and image upload); `card_created` activity entries logged to the parent stack on card creation; `link_created` deferred to 1.10. Feed route at `/n/[id]/feed`; My Feed = Workspace Feed in solo mode (distinguished once auth lands). Sidebar Feed + Board links wired for personal + regular workspaces. Migration 0014.
 - **2026-04-28 — @mentions architecture.** Mentions stored as BlockNote inline content (`type: "mention"`, props: `id`, `name`, `kind`) inside the post body JSON. Mention data survives serialization; future notification routing and agent-triggering code can query post bodies for mention nodes and extract actor IDs without schema changes. Currently cosmetic — no notifications fire. 5 actors exist (Will + 4 agents: BrainShare, Claude, Claude Code, Swarm).
 - **2026-04-28 — Image upload via Supabase Storage.** Bucket `post-attachments` (public, 10 MB, image/* only). Upload route at `POST /api/upload`; BlockNote's native image block calls `uploadFile` callback which posts the file and returns the public CDN URL. Images stored at `posts/{date}/{slug}.{ext}`.
@@ -206,59 +207,130 @@ Builds the shared posts infrastructure, then surfaces it in two places: the deta
 - [ ] **Deferred** — linked-context auto-inclusion in AI invocations (Phase 2 BrainShare territory)
 - [ ] **Deferred** — link-type swap (related ↔ blocks) without delete + recreate
 
-### 1.10.5 Memory-Object Foundations + Priority
+### 1.10.5 BrainShare Primitive Foundations + Planning Signals
 
-Spec §2.1 mandates these as day-one schema for BrainShare to read. Plan TBD; lands after 1.10.
+Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of the detailed BrainShare architecture, this milestone should create WorkOS-native typed primitives rather than one-off loose node fields. The schema should be source-aware now (`source_post_id` / manual source metadata) and Graphiti-ready later (`episode_id` once BrainShare extraction exists).
 
-- [ ] `rationale` rich text (BlockNote, same editor as posts) on cards + stacks — "WHY this exists; the causal claim"
-- [ ] `assumptions` structured list per card/stack — `{ statement, status: untested|validated|invalidated, evidence?, linked_decision_ids[] }`
-- [ ] `decisions` structured list per card/stack — `{ statement, rationale, status: active|superseded|reversed, participants[], created_at }`
-- [ ] **Card priority** built-in select field: `P0 (red) | P1 (orange) | P2 (blue) | P3 (gray)` — ships as a non-deletable instance-global field
-- [ ] **Stack priority lifecycle** — header dot reflecting `Prioritized | Deprioritized | Completed | Archived` state; transitions exposed in stack QUAM
-- [ ] **Default status field** seeded on workspace creation: `backlog | next up | planning | in progress | done` (single-select, editable)
-- [ ] Migration ID 0016+ (TBD)
+**BrainShare primitive substrate**
+- [x] Add a typed memory primitive schema for cards + stacks — one durable model for `rationale`, `assumption`, and `decision` primitives, with `instance_id`, `node_id`, `type`, `statement`, `body`, `status`, `conviction`, `created_by_actor_id`, source reference fields, and timestamps
+- [x] Model `rationale` as the node's primary "why this exists" primitive (rich text via BlockNote-compatible JSON), not as an ad hoc text column
+- [x] Model `assumptions` as structured primitives — `{ statement, status: untested|validated|invalidated, evidence?, linked_decision_ids[] }`
+- [x] Model `decisions` as structured primitives — `{ statement, rationale/body, status: active|superseded|reversed, participants[], created_at }`
+- [x] Add source awareness from day one — manual entries can reference a source post now; future BrainShare extraction can reference an external `episode_id` without reshaping the UI
+- [x] Expose rationale / assumptions / decisions in the detail panel as the first BrainShare memory surface (Memory tab), with create/edit/delete flows for manual dogfooding
+- [x] Add cache invalidation + read helpers for primitives alongside existing node/post/link helpers
+
+**Swarm planning signals**
+- [x] **Card priority** built-in select field: `P0 (red) | P1 (orange) | P2 (blue) | P3 (gray)` — ships as a non-deletable instance-global field
+- [x] **Stack priority lifecycle** — header dot reflecting `Prioritized | Deprioritized | Completed | Archived` state; transitions exposed in stack QUAM and editable directly from the stack face
+- [x] **Default status field** seeded on workspace creation: `Backlog | Next up | Planning | In Progress | Done` (single-select, editable)
+- [x] **No Status carve-out** — cards explicitly created inside the "No Status" column remain unstated instead of receiving the Backlog default
+- [x] Migration IDs 0016 (`memory_primitives`) and 0017 (`planning_signals`)
 
 ---
 
 ## Phase 2: BrainShare v0
 
-**Goal:** Claude integrated into WorkOS with full context awareness, plus connections to external tools.
+**Goal:** Build BrainShare as the context engine underneath WorkOS and Swarm: a Graphiti-backed temporal memory system that extracts typed context primitives from real tools, writes them into WorkOS, and assembles the right context for humans and AI agents.
 
-### 2.0 Layout Infrastructure (Phase 2 prerequisite)
+**Updated source of truth:** [`apps/brainshare/context-docs/brainshare-product-spec-v1.2.md`](apps/brainshare/context-docs/brainshare-product-spec-v1.2.md) and [`apps/brainshare/context-docs/brainshare-extraction-pipeline.md`](apps/brainshare/context-docs/brainshare-extraction-pipeline.md). The older local-file/MCP build plan is superseded for roadmap purposes.
 
-Before the AI chat panel can ship as a first-class column, the shell needs to support 3 panels.
+**Boundary:** BrainShare owns context continuity, facts, decisions, specs, and tool sync. Swarm owns priorities, planning, alignment, and strategy. BrainShare can point at drift; Swarm decides what to do about drift.
 
-- [ ] AI chat panel shell — 3rd resizable column in the layout, toggled from any node
-- [ ] Panel rearrangement via drag — reorder Board / Detail / AI columns
-- [ ] Per-workspace panel layout persistence — remember column widths and open/closed state
+### 2.0 BrainShare Service + Graph Foundation
 
-### 2.1 Claude-in-Context
+- [ ] Stand up BrainShare as a separate Python/FastAPI service alongside WorkOS, because Graphiti is Python-native
+- [ ] Add Graphiti + Neo4j local/dev infrastructure for temporal graph storage
+- [ ] Define environment/config contract between WorkOS (Next/Supabase) and BrainShare (FastAPI/Graphiti)
+- [ ] Create Graphiti episode ingestion API — immutable raw source data with source tool, source location, timestamps, actors, raw content, and message counts
+- [ ] Create typed primitive API surface for `Decision`, `Assumption`, `Action`, `Question`, `ContextUpdate`, `Actor`, `Goal`, `WorkItem`, `Standard`, `Signal`, and `Episode`
+- [ ] Map WorkOS memory primitives (`rationale`, `assumption`, `decision`) to Graphiti entities/episodes without forcing WorkOS to become the graph database
 
-- [ ] AI chat panel accessible from any node (stack or card) via 2.0 shell
-- [ ] When invoked, automatically includes as context: the node's posts, pins, data fields, linked items' titles and summaries
-- [ ] User can ask questions, generate content, analyze, or brainstorm — all grounded in the node's accumulated context
-- [ ] Conversation history persists per node
+### 2.1 Reference Extraction Pipeline: Discord First
 
-### 2.2 Workspace-Level AI
+**Build the reference implementation from the extraction spec before broad integrations. Discord is the first source because it exercises the hardest class of context: informal chat, implicit decisions, reactions, and unresolved threads.**
 
-- [ ] AI chat accessible at the workspace level
-- [ ] Context includes: all stacks and cards in the workspace (summaries), recent newsfeed activity
-- [ ] For workspaces too large for context window: intelligent selection of most relevant items based on recency, status, and user focus
+- [ ] Discord bot receives messages in real time and creates immutable Episodes
+- [ ] Time-based chunking: same channel, nearby messages, thread boundaries, max chunk size; semantic topic-shift detection can come later
+- [ ] Claude extraction prompt returns strict JSON primitives with supporting message indices and confidence
+- [ ] Extract at least `Decision`, `Assumption`, `Action`, `Question`, and `ContextUpdate`
+- [ ] Interpret emoji reactions from authority-weighted actors as approval when supported by surrounding messages
+- [ ] Store source citations from extraction through to Graphiti and WorkOS so every primitive can be traced back
+- [ ] Post concise confirmation back to Discord: captured decision / assumption / action, with "anything wrong?" correction affordance
 
-### 2.3 External Integrations
+### 2.2 Conviction + Graph Validation v0
 
-- [ ] **Google Calendar:** Pull upcoming events, surface scheduling context, allow Swarm to reference calendar when planning
-- [ ] **Gmail:** Surface recent relevant emails in context, allow AI to draft responses grounded in WorkOS context
-- [ ] **Google Drive:** Link drive documents to nodes, pull document content into AI context when relevant
-- [ ] **Google Meet:** Pull meeting transcripts/summaries into relevant nodes (via Fathom/Granola)
-- [ ] **Discord:** Bidirectional — pull Discord channel activity into relevant WorkOS nodes, push updates from WorkOS to Discord
-- [ ] **Fathom/Granola:** Import meeting transcripts and summaries, attach to relevant cards/stacks automatically or manually
+- [ ] Convert LLM confidence into BrainShare conviction with explicitness, authority weight, rationale specificity, and source strength
+- [ ] Implement initial thresholds: `>=0.8` assert, `0.5-0.8` flag, `<0.5` ask
+- [ ] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
+- [ ] Add simple duplicate detection before storage using vector similarity / Graphiti search
+- [ ] Add first conflict/supersession flow for contradictory active decisions
+- [ ] Preserve corrections as new Episodes that supersede or retract prior primitives rather than deleting history
 
-### 2.4 Context Assembly Engine
+### 2.3 WorkOS Writeback + Context Map
 
-- [ ] System that intelligently assembles context for any AI invocation: node content + linked items + relevant external data
-- [ ] Respects token limits — prioritizes by relevance, recency, and explicit user signals (pins, links)
-- [ ] This is the core of BrainShare's value: the AI always has the right context without the user manually assembling it
+- [ ] If extracted context relates to an existing WorkOS card/stack, write it into that node's Memory tab as structured context; do not add routine context updates to the Posts tab
+- [ ] If no relevant card exists, create a WorkOS card populated with the extracted primitive as context
+- [ ] Link extracted assumptions to decisions in WorkOS where possible
+- [ ] Add extracted actions as child cards under the relevant WorkOS node, preserving the recursive stack/card model rather than introducing a separate sub-item/task type
+- [ ] Treat any card with child cards as stack-like in UI and data behavior, so users can operate at whatever altitude the work requires
+- [ ] Flag orphan primitives that could not be linked to a goal/card/stack for user review
+- [ ] Add a WorkOS review surface for captured primitives: confirm, correct, retract, link to node, or create node
+- [ ] Add a Memory tab indicator showing new/unreviewed context count since the user last checked that node's memory
+
+### 2.4 Memory Layers + Context Structures
+
+- [ ] Establish the four memory layers: Inborn, Seeded, Foundation, Working
+- [ ] Curate the Inborn library as BrainShare's built-in performance science substrate: Total Motivation / ToMo, self-determination theory, cognitive psychology, behavioral economics / prospect theory, collaboration science, learning science, systems thinking, human factors, and common failure modes like decision decay, priority drift, ownership ambiguity, scope creep, founder cognitive overload, and context fragmentation
+- [ ] Include common operating and process frameworks as pattern libraries, not dogma: ToMo, Scaling Up, EOS, OKRs, Agile, Scrum, Kanban, Waterfall / stage-gate, Lean, Six Sigma, Theory of Constraints, design thinking, and incident/postmortem practice
+- [ ] Include AI-native performance patterns from birth: context management for LLMs, human-AI handoff design, agent orchestration, review/eval loops, delegation boundaries, tool-use reliability, and failure modes unique to AI-assisted teams
+- [ ] Generate Seeded knowledge during onboarding from domain detection, stored as structured objects rather than prose blobs
+- [ ] Build Foundation memory from onboarding: people, authority, mission, operating model, workflows, tools
+- [ ] Store Working memory from ongoing extraction: active challenges, decisions/rationale, assumptions, product/user context, current state
+- [ ] Add first Why Chain model: goals → sub-goals → WorkOS nodes/cards, so any card at any nesting depth can answer "why does this exist?"
+- [ ] Add first Decision Graph model: decisions → assumptions → work/actions → triggers/supersessions
+- [ ] Track State Layer separately from Signal Patterns so BrainShare can distinguish "what is true now" from "what pattern is emerging"
+
+### 2.5 Context Assembly Engine
+
+- [ ] Build structured context payload assembly from all four memory layers
+- [ ] Add retrieval routing: simple factual → vector, relational → graph traversal, causal → Why Chain / Decision Graph, global summary → community summaries, temporal → Graphiti temporal traversal
+- [ ] Prioritize context by relevance, recency, conviction, explicit user signals, source quality, and graph distance from the current node/question
+- [ ] Include WorkOS node context: posts, pins, fields, memory primitives, linked items, owner/status/priority/lifecycle
+- [ ] Respect token limits through compression and layered summaries rather than dumping raw chunks
+- [ ] Expose a context preview/debug view so we can see why a payload included each item
+
+### 2.6 BrainShare Chat Surface
+
+**BrainShare's UI is WorkOS, but the BrainShare-first entry is chat-first. Do not conflate this with forcing the AI panel into a third column by default. The default WorkOS layout keeps the AI panel collapsed at the bottom per the UI spec.**
+
+- [ ] Make the existing collapsed AI bar feel like the spec: thin input-style bar, "Ask anything...", expand toggle, non-functional placeholder until chat wiring lands
+- [ ] Add expanded AI panel state (300-400px) with conversation history above input, resizable by dragging the top edge
+- [ ] Persist panel open/closed/height per workspace
+- [ ] Conversation history persists per node/workspace
+- [ ] AI panel automatically tracks current context: workspace, open detail node, and selected/referenced items
+- [ ] BrainShare-first route starts in chat, with Board available but secondary; WorkOS-first route remains board-first
+- [ ] Context indicator shows what BrainShare is currently grounded in and lets the user clear context
+
+### 2.7 Onboarding + First Magic Moment
+
+- [ ] Connect-tools checklist scaffold: Discord/Slack, PM tool, Figma, Google Drive/Docs, GitHub, Claude/ChatGPT
+- [ ] Streaming cascading analysis: first visible output within 2-3 seconds, then deeper tool-by-tool insights
+- [ ] Company Snapshot confirmation flow — user corrects the Foundation layer conversationally
+- [ ] Context cleanup task side panel: missing connections, stale context, alignment gaps, structural gaps, knowledge gaps
+- [ ] Support Burn archetype: heal and maintain existing structure across PM/design/chat/AI tools
+- [ ] Support Concourse archetype: generate first structured WorkOS map from chat/docs when no PM tool exists
+- [ ] Cross-tool conversation hop proof point: continue the same BrainShare conversation in Slack/Discord without re-explaining
+
+### 2.8 External Tool Expansion
+
+- [ ] Slack adapter after Discord, sharing the same Episode → Chunk → Extract → Conviction → Validate → Store → Act pipeline
+- [ ] Notion / Google Docs adapter: document version episodes, heading/section chunking, decisions/TODOs/resolved questions
+- [ ] Figma adapter: frame/comment/version episodes, design decision extraction, ready-for-dev signals, frame-to-card matching
+- [ ] GitHub adapter: PR/issue/comment episodes, technical decision extraction, merge as implicit approval
+- [ ] Meeting transcript adapter (Fathom/Granola): speaker/topic chunking, dense decision/action extraction
+- [ ] Claude/ChatGPT conversation adapter: distinguish AI suggestions from human-approved decisions
+- [ ] External writeback patterns: Slack/Discord confirmations, Notion decision records, PM tool task updates, Google Docs decision logs
 
 ---
 
@@ -300,18 +372,18 @@ Before the AI chat panel can ship as a first-class column, the shell needs to su
 
 ---
 
-## Phase 4: Migration + Setup
+## Phase 4: WorkOS Graduation + Setup
 
-### 4.0 Migration as Diagnostic
+### 4.0 BrainShare-to-WorkOS Graduation
 
-**Design source of truth:** [`migration-design.md`](migration-design.md). Build deferred until BrainShare's structured-memory layer exists — what makes migration magical is the diagnostic insight BrainShare can produce, not the data move itself. Pre-BrainShare migration is just data porting.
+**Design source of truth:** [`migration-design.md`](migration-design.md), updated by the BrainShare product spec's onboarding arc. This is no longer "migration" as rote import. BrainShare first creates and maintains a context map across existing tools; WorkOS graduation happens when the user sees that BrainShare has already structured the work and chooses to operate there.
 
-- [ ] **Factor migration** (Will's immediate dogfooding need — Burn workspace + personal Factor)
-- [ ] **Notion migration** (next priority per spec §6.2)
-- [ ] **Slack ingest** (decisions buried in threads — highest-value source per migration design doc)
-- [ ] **ClickUp / Linear / Asana** connectors
-- [ ] **Diagnostic preview** UI — the "magic moment" surface (3–5 punchy findings on connect)
-- [ ] **Dogfooding capture** — observations from Will's migration feed back into the Path B cold-start design
+- [ ] Burn / Factor graduation path — BrainShare analyzes Factor + Discord + Figma first, then generates/updates the Burn WorkOS workspace
+- [ ] Notion / docs graduation path — decisions and specs become WorkOS context, not just imported pages
+- [ ] ClickUp / Linear / Asana graduation path — PM-tool cards map into recursive WorkOS nodes/cards with decisions/assumptions attached
+- [ ] Board reveal moment — "Want to see what this would look like in one place?" with the Board already populated and structured
+- [ ] Friction metrics — show gaps BrainShare has patched across tools (missing links, stale decisions, duplicate work, untracked actions)
+- [ ] Dogfooding capture — observations from Will's Burn/Factor graduation feed back into both Burn archetype and Concourse archetype onboarding
 
 ### 4.1 Setup Optimization
 

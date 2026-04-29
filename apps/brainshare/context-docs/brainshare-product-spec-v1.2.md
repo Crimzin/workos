@@ -206,11 +206,12 @@ BrainShare's memory is organized in four layers. Each layer has a different sour
 
 The DNA of BrainShare. Universal operational knowledge that applies to all teams:
 
-- **Performance science and Total Motivation** — how teams actually perform under different conditions  
-- **Methodology patterns** — Agile, Lean, Scrum, EOS, OKRs — not as prescriptions, but as pattern libraries  
-- **Collaboration science** — social psychology of small teams, decision-making under ambiguity  
-- **Common failure modes** — decision decay, priority drift, ownership ambiguity, scope creep, founder cognitive overload, communication bottlenecks  
-- **AI-native patterns** — agentic workflows, human-AI handoff best practices, context management for LLMs  
+- **Performance science and motivation** — Total Motivation / ToMo, self-determination theory, intrinsic/extrinsic motivation, autonomy/competence/relatedness, and how teams actually perform under different conditions  
+- **Cognitive and behavioral science** — cognitive psychology, attention, working memory, cognitive load, prospect theory, behavioral economics, bias, incentives, and decision-making under uncertainty  
+- **Methodology patterns** — ToMo, Scaling Up, EOS, OKRs, Agile, Scrum, Kanban, Waterfall / stage-gate, Lean, Six Sigma, Theory of Constraints, design thinking, and incident/postmortem practice — not as prescriptions, but as pattern libraries  
+- **Collaboration science** — social psychology of small teams, trust, conflict, coordination costs, decision-making under ambiguity, and distributed-team dynamics  
+- **Common failure modes** — decision decay, priority drift, ownership ambiguity, scope creep, founder cognitive overload, communication bottlenecks, stale context, and handoff collapse  
+- **AI-native patterns** — agentic workflows, human-AI handoff best practices, context management for LLMs, agent orchestration, review/eval loops, delegation boundaries, tool-use reliability, and failure modes unique to AI-assisted teams  
 - **Technical knowledge** — common architectural tradeoffs (PWA vs native, monolith vs microservices, etc.)
 
 This layer is hand-curated and maintained as a library of structured knowledge documents. It's the same for every BrainShare instance. It's small, high-quality, high-conviction. This is proprietary IP.
