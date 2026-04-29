@@ -39,4 +39,8 @@ __pycache__/
 
 # Claude Code local settings
 .claude/
+.claire/
 venv/
+
+# AiDex local code index (binary, not for version control)
+.aidex/
