@@ -13,6 +13,7 @@ build/
 .env
 .env.*
 !.env*.example
+/API keys
 
 # Misc
 .DS_Store

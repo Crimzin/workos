@@ -85,11 +85,12 @@ curl http://localhost:3100/extraction/prompt \
 **Expected**: The response includes the BrainShare system prompt and strict JSON response schema. The `dev-rule` extractor is only a local stand-in; production extraction still needs the Claude API implementation.
 
 ### Step 1.3: Optional Graphiti Backend
-Graphiti requires Python 3.10+ plus Neo4j. Use `uv` so BrainShare runs on a project-local Python 3.10+ runtime instead of macOS system Python.
+Graphiti requires Python 3.10+, Neo4j, and a quota-enabled `OPENAI_API_KEY`. Use `uv` so BrainShare runs on a project-local Python 3.10+ runtime instead of macOS system Python.
 
 To try the graph-backed path:
 ```bash
 cd /Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/brainshare
+source "../../API keys"
 docker compose up -d neo4j
 BRAINSHARE_STORE_BACKEND=graphiti \
 NEO4J_URI=bolt://localhost:7687 \
