@@ -6,8 +6,8 @@
 1. **Open Terminal** (Cmd+Space, type "Terminal")
 2. **Run these commands** (copy/paste one by one):
    ```bash
-   cd /Users/williamcorbett/BrainShare/app
-   python3 app.py
+   cd /Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/brainshare
+   uv run python app/app.py
    ```
 3. **Look for**: `Uvicorn running on http://0.0.0.0:3100`
 4. **Test health**: Open browser to `http://localhost:3100/health`
@@ -32,19 +32,40 @@ curl "http://localhost:3100/pull?query=React" \
 
 **Expected**: You should see success responses, and a `brainshare-dev-store.json` file created in the app directory unless `BRAINSHARE_STORE_FILE` points elsewhere.
 
+**Test 3 - Ingest Discord messages as Episodes:**
+```bash
+curl -X POST http://localhost:3100/sources/discord/messages \
+  -H "Authorization: Bearer bs_team_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "guild_id": "burn-dev",
+    "guild_name": "Burn",
+    "messages": [
+      {
+        "id": "m1",
+        "channel_id": "c1",
+        "channel_name": "development",
+        "author_id": "will",
+        "author_name": "Will",
+        "content": "I think we should use Firebase Auth",
+        "timestamp": "2026-04-29T10:00:00Z"
+      }
+    ]
+  }'
+```
+
 ### Step 1.3: Optional Graphiti Backend
-Graphiti requires Python 3.10+ plus Neo4j. The default local API still uses JSON storage so the service runs on the current macOS Python 3.9 runtime.
+Graphiti requires Python 3.10+ plus Neo4j. Use `uv` so BrainShare runs on a project-local Python 3.10+ runtime instead of macOS system Python.
 
 To try the graph-backed path:
 ```bash
-cd /Users/williamcorbett/BrainShare
+cd /Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/brainshare
 docker compose up -d neo4j
-cd app
 BRAINSHARE_STORE_BACKEND=graphiti \
 NEO4J_URI=bolt://localhost:7687 \
 NEO4J_USER=neo4j \
 NEO4J_PASSWORD=brainshare-dev \
-python3.10 app.py
+uv run python app/app.py
 ```
 
 The API will still expose the same endpoints. In graph mode, writes also flow through Graphiti's `add_episode` API.
@@ -54,7 +75,7 @@ The API will still expose the same endpoints. In graph mode, writes also flow th
 ### Step 2.1: Configure Claude Code
 1. **Open Claude Code settings**: Cmd+, (comma)
 2. **Find "MCP Servers"** section
-3. **Copy the entire contents** of `/Users/williamcorbett/BrainShare/mcp/claude-config-example.json`
+3. **Copy the entire contents** of `/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/brainshare/mcp/claude-config-example.json`
 4. **Add to your MCP settings**
 5. **Save and restart Claude Code**
 

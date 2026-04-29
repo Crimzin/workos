@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 from uuid import uuid4
@@ -106,6 +106,27 @@ class WorkOSMemoryPrimitiveIn(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class DiscordMessageIn(BaseModel):
+    id: str
+    channel_id: str
+    channel_name: str
+    author_id: str
+    author_name: str
+    content: str
+    timestamp: str
+    thread_id: Optional[str] = None
+    thread_name: Optional[str] = None
+    reply_to_message_id: Optional[str] = None
+    reactions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DiscordMessagesIn(BaseModel):
+    guild_id: str
+    guild_name: Optional[str] = None
+    messages: list[DiscordMessageIn] = Field(..., min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 def parse_reference_time(value: Optional[str]) -> datetime:
     if not value:
         return datetime.now(timezone.utc)
@@ -207,6 +228,105 @@ def map_workos_memory_primitive(
     )
 
     return episode, primitive
+
+
+def discord_message_sort_key(message: DiscordMessageIn) -> datetime:
+    return parse_reference_time(message.timestamp)
+
+
+def discord_group_key(message: DiscordMessageIn) -> str:
+    if message.thread_id:
+        return f"thread:{message.thread_id}"
+    return f"channel:{message.channel_id}"
+
+
+def format_discord_messages(messages: list[DiscordMessageIn]) -> str:
+    lines = []
+    for index, message in enumerate(messages, start=1):
+        content = message.content.replace("\n", " ").strip()
+        lines.append(f"[{index}] {message.author_name}: {content}")
+    return "\n".join(lines)
+
+
+def chunk_discord_messages(
+    messages: list[DiscordMessageIn],
+    max_messages: int = 50,
+    gap_minutes: int = 15,
+) -> list[list[DiscordMessageIn]]:
+    grouped: dict[str, list[DiscordMessageIn]] = {}
+    for message in messages:
+        grouped.setdefault(discord_group_key(message), []).append(message)
+
+    chunks: list[list[DiscordMessageIn]] = []
+    for group_messages in grouped.values():
+        current: list[DiscordMessageIn] = []
+        previous_at: Optional[datetime] = None
+
+        for message in sorted(group_messages, key=discord_message_sort_key):
+            message_at = parse_reference_time(message.timestamp)
+            gap_exceeded = (
+                previous_at is not None
+                and message_at - previous_at > timedelta(minutes=gap_minutes)
+            )
+            size_exceeded = len(current) >= max_messages
+
+            if current and (gap_exceeded or size_exceeded):
+                chunks.append(current)
+                current = []
+
+            current.append(message)
+            previous_at = message_at
+
+        if current:
+            chunks.append(current)
+
+    return sorted(chunks, key=lambda chunk: discord_message_sort_key(chunk[0]))
+
+
+def discord_chunk_to_episode(
+    payload: DiscordMessagesIn,
+    chunk: list[DiscordMessageIn],
+    chunk_index: int,
+) -> EpisodeCreate:
+    first = chunk[0]
+    last = chunk[-1]
+    source_location = first.thread_id or first.channel_id
+    source_label = first.thread_name or first.channel_name
+    actors = sorted({message.author_id for message in chunk})
+
+    return EpisodeCreate(
+        source_tool="discord",
+        source_location=source_location,
+        raw_content=format_discord_messages(chunk),
+        timestamp_start=first.timestamp,
+        timestamp_end=last.timestamp,
+        actors=actors,
+        message_count=len(chunk),
+        metadata={
+            "episode_type": "message",
+            "guild_id": payload.guild_id,
+            "guild_name": payload.guild_name,
+            "channel_id": first.channel_id,
+            "channel_name": first.channel_name,
+            "thread_id": first.thread_id,
+            "thread_name": first.thread_name,
+            "source_label": source_label,
+            "chunk_index": chunk_index,
+            "message_ids": [message.id for message in chunk],
+            "supporting_messages": [
+                {
+                    "index": index,
+                    "message_id": message.id,
+                    "author_id": message.author_id,
+                    "timestamp": message.timestamp,
+                    "reply_to_message_id": message.reply_to_message_id,
+                    "reactions": message.reactions,
+                }
+                for index, message in enumerate(chunk, start=1)
+            ],
+            **payload.metadata,
+        },
+    )
 
 
 class DevStore:
@@ -393,6 +513,20 @@ async def create_episode(payload: EpisodeCreate) -> dict[str, Any]:
 def list_episodes(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     data = store.load()
     return {"success": True, "episodes": data["episodes"][-limit:]}
+
+
+@app.post("/sources/discord/messages", dependencies=[Depends(require_auth)])
+async def ingest_discord_messages(payload: DiscordMessagesIn) -> dict[str, Any]:
+    chunks = chunk_discord_messages(payload.messages)
+    episodes = [
+        await store.add_episode(discord_chunk_to_episode(payload, chunk, index))
+        for index, chunk in enumerate(chunks)
+    ]
+    return {
+        "success": True,
+        "episode_count": len(episodes),
+        "episodes": [episode.model_dump() for episode in episodes],
+    }
 
 
 @app.post("/primitives", dependencies=[Depends(require_auth)])
