@@ -256,11 +256,13 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 - [x] Discord message ingestion API creates immutable Episodes from raw message batches
 - [x] Time-based chunking: same channel, nearby messages, thread boundaries, max chunk size; semantic topic-shift detection can come later
 - [ ] Discord bot receives messages in real time and sends them to the ingestion API
-- [ ] Claude extraction prompt returns strict JSON primitives with supporting message indices and confidence
-- [ ] Extract at least `Decision`, `Assumption`, `Action`, `Question`, and `ContextUpdate`
+- [x] Define strict extraction JSON contract with supporting message indices and confidence, matching the BrainShare extraction spec
+- [ ] Wire the strict extraction contract to Claude API for production-quality extraction
+- [x] Add dev extraction endpoint that can produce and store at least `Decision`, `Assumption`, `Action`, `Question`, and `ContextUpdate`
 - [ ] Interpret emoji reactions from authority-weighted actors as approval when supported by surrounding messages
 - [x] Store source citations on Discord Episodes: message IDs, per-message indices, authors, timestamps, replies, reactions, channel/thread labels
-- [ ] Carry source citations from extraction through to Graphiti and WorkOS primitives so every primitive can be traced back
+- [x] Carry source citations from extraction through to BrainShare primitives so every primitive can be traced back to an episode/message
+- [ ] Carry source citations through Graphiti entity relationships and WorkOS Memory-tab writeback
 - [ ] Post concise confirmation back to Discord: captured decision / assumption / action, with "anything wrong?" correction affordance
 
 ### 2.2 Conviction + Graph Validation v0

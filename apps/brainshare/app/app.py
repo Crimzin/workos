@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional
 from uuid import uuid4
 import json
 import os
+import re
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -27,6 +28,37 @@ PrimitiveType = Literal[
     "standard",
     "signal",
 ]
+
+ExtractionPrimitiveType = Literal[
+    "DECISION",
+    "ASSUMPTION",
+    "ACTION",
+    "QUESTION",
+    "CONTEXT_UPDATE",
+]
+
+EXTRACTION_SYSTEM_PROMPT = """You are BrainShare's extraction engine. Read a team conversation and extract only structured context primitives that are actually supported by the messages.
+
+Extract these types:
+- DECISION: explicit or implicit agreement to do something, use something, or go in a particular direction.
+- ASSUMPTION: a belief the team is operating on that could be wrong.
+- ACTION: a commitment by a specific person to do a specific thing.
+- QUESTION: an unresolved question that was raised but not answered.
+- CONTEXT_UPDATE: a factual update about the state of work worth recording.
+
+Rules:
+1. Only extract what is actually in the conversation.
+2. For implicit decisions, cite messages that demonstrate convergence.
+3. Every extraction must reference supporting message indices.
+4. Return an empty extraction for social or off-topic conversations.
+5. Prefer fewer, higher-quality extractions.
+6. Decision rationale must capture the actual reasons discussed.
+7. Hidden assumptions often appear after since, because, assuming, as long as, or given that.
+8. Approval reactions from authority-weighted actors count as approval.
+
+Return only valid JSON with this shape:
+{"primitives":[{"type":"DECISION|ASSUMPTION|ACTION|QUESTION|CONTEXT_UPDATE","content":{},"supporting_messages":[1],"confidence":0.0}],"no_extractable_context":false}
+"""
 
 
 def now_iso() -> str:
@@ -86,6 +118,25 @@ class AnalyzeRequest(BaseModel):
     conversation_chunk: str = Field(..., min_length=1)
     trigger_type: str = "manual"
     source_llm: Optional[str] = None
+
+
+class EpisodeExtractionRequest(BaseModel):
+    provider: Literal["dev-rule", "claude"] = "dev-rule"
+    foundation_context: str = ""
+    actor_context: dict[str, Any] = Field(default_factory=dict)
+    store_primitives: bool = True
+
+
+class ExtractedPrimitive(BaseModel):
+    type: ExtractionPrimitiveType
+    content: dict[str, Any]
+    supporting_messages: list[int] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class ExtractionResult(BaseModel):
+    primitives: list[ExtractedPrimitive] = Field(default_factory=list)
+    no_extractable_context: bool = True
 
 
 class WorkOSMemoryPrimitiveIn(BaseModel):
@@ -329,6 +380,319 @@ def discord_chunk_to_episode(
     )
 
 
+def primitive_type_from_extraction(extraction_type: ExtractionPrimitiveType) -> PrimitiveType:
+    return extraction_type.lower()  # type: ignore[return-value]
+
+
+def parse_indexed_messages(raw_content: str) -> list[dict[str, Any]]:
+    messages = []
+    for line in raw_content.splitlines():
+        match = re.match(r"^\[(\d+)\]\s+([^:]+):\s*(.*)$", line.strip())
+        if not match:
+            continue
+        messages.append(
+            {
+                "index": int(match.group(1)),
+                "author": match.group(2).strip(),
+                "content": match.group(3).strip(),
+            }
+        )
+    return messages
+
+
+def statement_from_extraction(extracted: ExtractedPrimitive) -> str:
+    content = extracted.content
+    statement = str(content.get("statement") or "").strip()
+    if statement:
+        return statement
+    return f"{extracted.type.replace('_', ' ').title()} extracted from source conversation"
+
+
+def source_citations_for_episode(
+    episode: dict[str, Any],
+    supporting_messages: list[int],
+) -> list[dict[str, Any]]:
+    supporting_by_index = {
+        item.get("index"): item
+        for item in episode.get("metadata", {}).get("supporting_messages", [])
+    }
+    citations = []
+    for index in supporting_messages:
+        source = supporting_by_index.get(index, {})
+        citations.append(
+            {
+                "episode_id": episode["id"],
+                "message_index": index,
+                "message_id": source.get("message_id"),
+                "author_id": source.get("author_id"),
+                "timestamp": source.get("timestamp"),
+                "reply_to_message_id": source.get("reply_to_message_id"),
+                "reactions": source.get("reactions", []),
+            }
+        )
+    return citations
+
+
+def extracted_to_primitive_create(
+    episode: dict[str, Any],
+    extracted: ExtractedPrimitive,
+) -> PrimitiveCreate:
+    citations = source_citations_for_episode(episode, extracted.supporting_messages)
+    content = extracted.content
+    approved_by = content.get("approved_by") or []
+    actor_values = [
+        content.get("proposed_by"),
+        content.get("owner"),
+        content.get("raised_by"),
+        content.get("actor"),
+        *approved_by,
+    ]
+    actors = sorted({str(actor) for actor in actor_values if actor})
+    status = content.get("status")
+    if not status and extracted.type == "DECISION":
+        status = "active"
+    if not status and extracted.type == "ACTION":
+        status = "open"
+
+    return PrimitiveCreate(
+        type=primitive_type_from_extraction(extracted.type),
+        statement=statement_from_extraction(extracted),
+        body=json.dumps(content, sort_keys=True),
+        status=status,
+        conviction=extracted.confidence,
+        source_episode_ids=[episode["id"]],
+        supporting_messages=extracted.supporting_messages,
+        actors=actors,
+        metadata={
+            "source": "brainshare.extraction",
+            "extractor": "dev-rule",
+            "extraction_type": extracted.type,
+            "source_tool": episode.get("source_tool"),
+            "source_location": episode.get("source_location"),
+            "source_citations": citations,
+        },
+    )
+
+
+def build_extraction_user_prompt(
+    episode: dict[str, Any],
+    request: EpisodeExtractionRequest,
+) -> str:
+    actor_context = request.actor_context or {}
+    actor_lines = []
+    for actor_id in episode.get("actors", []):
+        detail = actor_context.get(actor_id, {})
+        if isinstance(detail, dict):
+            label = detail.get("name") or actor_id
+            role = detail.get("role")
+            authority = detail.get("authority")
+            suffix = ", ".join(str(x) for x in [role, authority] if x)
+            actor_lines.append(f"- {label}{f' ({suffix})' if suffix else ''}")
+        else:
+            actor_lines.append(f"- {actor_id}")
+
+    return "\n".join(
+        [
+            "TEAM CONTEXT:",
+            request.foundation_context or "No foundation context provided.",
+            "",
+            "ACTORS IN THIS CONVERSATION:",
+            "\n".join(actor_lines) or "Unknown actors.",
+            "",
+            "CONVERSATION:",
+            episode["raw_content"],
+            "",
+            "Extract all context primitives from this conversation. For each primitive, cite the specific message indices that support it. Return ONLY valid JSON.",
+        ]
+    )
+
+
+def looks_like_question(content: str) -> bool:
+    lower = content.lower()
+    return "?" in content or lower.startswith(("what ", "why ", "how ", "when ", "who ", "should "))
+
+
+def question_was_answered(
+    question: dict[str, Any],
+    following_messages: list[dict[str, Any]],
+) -> bool:
+    if not following_messages:
+        return False
+    question_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", question["content"].lower())
+        if len(token) > 3
+    }
+    for message in following_messages[:3]:
+        content = message["content"].lower()
+        if any(marker in content for marker in ["yes", "no", "handles", "because", "we can", "it does"]):
+            return True
+        message_terms = set(re.findall(r"[a-z0-9]+", content))
+        if question_terms and len(question_terms & message_terms) >= 2:
+            return True
+    return False
+
+
+def extract_episode_with_dev_rules(episode: dict[str, Any]) -> ExtractionResult:
+    messages = parse_indexed_messages(episode.get("raw_content", ""))
+    extractions: list[ExtractedPrimitive] = []
+    decision_indices: list[int] = []
+    decision_statement: Optional[str] = None
+
+    for message in messages:
+        content = message["content"]
+        lower = content.lower()
+        decision_match = re.search(
+            r"(?:let'?s|we should|should just|going with|go with|use|choose|decided to)\s+(.+)",
+            lower,
+        )
+        if decision_match:
+            decision_indices = [message["index"]]
+            decision_text = content[decision_match.start():].strip()
+            decision_statement = decision_text[0].upper() + decision_text[1:]
+            approved_by = []
+            next_messages = [
+                item
+                for item in messages
+                if message["index"] < item["index"] <= message["index"] + 3
+            ]
+            for next_message in next_messages:
+                next_lower = next_message["content"].lower()
+                if any(marker in next_lower for marker in ["agreed", "makes sense", "ok", "sounds good", "yes"]):
+                    approved_by.append(next_message["author"])
+                    decision_indices.append(next_message["index"])
+
+            for citation in episode.get("metadata", {}).get("supporting_messages", []):
+                if citation.get("reactions") and citation.get("index") == message["index"]:
+                    decision_indices.append(citation["index"])
+
+            extractions.append(
+                ExtractedPrimitive(
+                    type="DECISION",
+                    content={
+                        "statement": decision_statement,
+                        "rationale": "Rationale should be strengthened by the Claude extractor; dev extractor identified a decision trigger in the cited messages.",
+                        "proposed_by": message["author"],
+                        "approved_by": sorted(set(approved_by)),
+                        "type": "explicit",
+                    },
+                    supporting_messages=sorted(set(decision_indices)),
+                    confidence=0.72,
+                )
+            )
+            break
+
+    for message in messages:
+        content = message["content"]
+        lower = content.lower()
+        assumption_match = re.search(
+            r"\b(?:because|since|assuming|as long as|given that)\b\s+(.+)",
+            content,
+            flags=re.IGNORECASE,
+        )
+        if assumption_match:
+            extractions.append(
+                ExtractedPrimitive(
+                    type="ASSUMPTION",
+                    content={
+                        "statement": assumption_match.group(1).strip().rstrip("."),
+                        "basis": content,
+                        "status": "untested",
+                        "linked_decision": decision_statement,
+                    },
+                    supporting_messages=[message["index"]],
+                    confidence=0.68,
+                )
+            )
+        if "free up to" in lower or "more than we need" in lower:
+            extractions.append(
+                ExtractedPrimitive(
+                    type="ASSUMPTION",
+                    content={
+                        "statement": "The cited capacity or limit is sufficient for the team's near-term needs",
+                        "basis": content,
+                        "status": "untested",
+                        "linked_decision": decision_statement,
+                    },
+                    supporting_messages=[message["index"]],
+                    confidence=0.7,
+                )
+            )
+
+    for message in messages:
+        content = message["content"]
+        lower = content.lower()
+        owner_match = re.search(r"@?([A-Z][A-Za-z0-9_-]+).*?\b(can you|please|will do|i'?ll|i will)\b", content)
+        if owner_match or any(marker in lower for marker in ["will do", "i'll", "i will", "todo", "by tomorrow"]):
+            owner = owner_match.group(1) if owner_match else message["author"]
+            deadline = "tomorrow" if "tomorrow" in lower else None
+            extractions.append(
+                ExtractedPrimitive(
+                    type="ACTION",
+                    content={
+                        "statement": content.rstrip("."),
+                        "owner": owner,
+                        "deadline": deadline,
+                        "linked_decision": decision_statement,
+                    },
+                    supporting_messages=[message["index"]],
+                    confidence=0.78,
+                )
+            )
+
+    for position, message in enumerate(messages):
+        if looks_like_question(message["content"]):
+            following = messages[position + 1:]
+            if not question_was_answered(message, following):
+                extractions.append(
+                    ExtractedPrimitive(
+                        type="QUESTION",
+                        content={
+                            "statement": message["content"].rstrip("?") + "?",
+                            "raised_by": message["author"],
+                            "context": "Raised in the cited conversation and not clearly resolved in the chunk.",
+                            "status": "open",
+                        },
+                        supporting_messages=[message["index"]],
+                        confidence=0.74,
+                    )
+                )
+
+    for message in messages:
+        lower = message["content"].lower()
+        if any(marker in lower for marker in ["shipped", "merged", "finished", "blocked", "ready", "done"]):
+            extractions.append(
+                ExtractedPrimitive(
+                    type="CONTEXT_UPDATE",
+                    content={
+                        "statement": message["content"].rstrip("."),
+                        "actor": message["author"],
+                        "relates_to": episode.get("metadata", {}).get("source_label"),
+                    },
+                    supporting_messages=[message["index"]],
+                    confidence=0.66,
+                )
+            )
+
+    unique: list[ExtractedPrimitive] = []
+    seen = set()
+    for extraction in extractions:
+        key = (
+            extraction.type,
+            statement_from_extraction(extraction).lower(),
+            tuple(extraction.supporting_messages),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(extraction)
+
+    return ExtractionResult(
+        primitives=unique,
+        no_extractable_context=len(unique) == 0,
+    )
+
+
 class DevStore:
     """Small JSON-backed store until the Graphiti adapter is wired in."""
 
@@ -513,6 +877,61 @@ async def create_episode(payload: EpisodeCreate) -> dict[str, Any]:
 def list_episodes(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     data = store.load()
     return {"success": True, "episodes": data["episodes"][-limit:]}
+
+
+@app.get("/extraction/prompt", dependencies=[Depends(require_auth)])
+def get_extraction_prompt() -> dict[str, Any]:
+    return {
+        "success": True,
+        "system_prompt": EXTRACTION_SYSTEM_PROMPT,
+        "response_schema": {
+            "primitives": [
+                {
+                    "type": "DECISION|ASSUMPTION|ACTION|QUESTION|CONTEXT_UPDATE",
+                    "content": {},
+                    "supporting_messages": [1],
+                    "confidence": 0.0,
+                }
+            ],
+            "no_extractable_context": False,
+        },
+    }
+
+
+@app.post("/episodes/{episode_id}/extract", dependencies=[Depends(require_auth)])
+async def extract_episode(
+    episode_id: str,
+    payload: EpisodeExtractionRequest,
+) -> dict[str, Any]:
+    data = store.load()
+    episode = next((item for item in data["episodes"] if item["id"] == episode_id), None)
+    if not episode:
+        raise HTTPException(status_code=404, detail="episode_not_found")
+    if payload.provider == "claude":
+        raise HTTPException(
+            status_code=501,
+            detail="claude_extraction_not_configured_yet",
+        )
+
+    result = extract_episode_with_dev_rules(episode)
+    stored_primitives: list[Primitive] = []
+    if payload.store_primitives:
+        for extracted in result.primitives:
+            stored_primitives.append(
+                await store.add_primitive(extracted_to_primitive_create(episode, extracted))
+            )
+
+    return {
+        "success": True,
+        "episode_id": episode_id,
+        "provider": payload.provider,
+        "prompt": {
+            "system": EXTRACTION_SYSTEM_PROMPT,
+            "user": build_extraction_user_prompt(episode, payload),
+        },
+        "extraction": result.model_dump(),
+        "stored_primitives": [primitive.model_dump() for primitive in stored_primitives],
+    }
 
 
 @app.post("/sources/discord/messages", dependencies=[Depends(require_auth)])

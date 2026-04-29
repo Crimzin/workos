@@ -54,6 +54,26 @@ curl -X POST http://localhost:3100/sources/discord/messages \
   }'
 ```
 
+**Test 4 - Extract primitives from an Episode:**
+Use the `id` returned by Test 3 as `EPISODE_ID`.
+
+```bash
+curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
+  -H "Authorization: Bearer bs_team_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "dev-rule", "store_primitives": true}'
+```
+
+**Expected**: The response includes the strict extraction prompt, extracted primitives, and stored BrainShare primitives. Stored primitives include `source_episode_ids`, `supporting_messages`, and `metadata.source_citations` so each item can be traced back to specific Discord message IDs.
+
+**Test 5 - Inspect the extraction prompt contract:**
+```bash
+curl http://localhost:3100/extraction/prompt \
+  -H "Authorization: Bearer bs_team_abc123"
+```
+
+**Expected**: The response includes the BrainShare system prompt and strict JSON response schema. The `dev-rule` extractor is only a local stand-in; production extraction still needs the Claude API implementation.
+
 ### Step 1.3: Optional Graphiti Backend
 Graphiti requires Python 3.10+ plus Neo4j. Use `uv` so BrainShare runs on a project-local Python 3.10+ runtime instead of macOS system Python.
 
