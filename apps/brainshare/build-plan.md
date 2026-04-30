@@ -76,6 +76,17 @@ curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
 
 **Expected**: The response includes the strict extraction prompt, extracted primitives, and stored BrainShare primitives. Stored primitives include `source_episode_ids`, `supporting_messages`, and `metadata.source_citations` so each item can be traced back to specific Discord message IDs. Decision primitives also include `metadata.conviction_factors`; authority-weighted approval reactions can raise conviction and appear in `approved_by`.
 
+To use Claude for production-quality extraction, set `ANTHROPIC_API_KEY` and change the provider:
+
+```bash
+curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
+  -H "Authorization: Bearer bs_team_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "claude", "store_primitives": true}'
+```
+
+Claude extraction uses `BRAINSHARE_CLAUDE_MODEL` when set, otherwise the default model configured in the service. Stored primitives include a `metadata.conviction_threshold` action: `assert` for conviction `>=0.8`, `flag` for `0.5-0.8`, and `ask` for `<0.5`.
+
 **Test 5 - Inspect the extraction prompt contract:**
 ```bash
 curl http://localhost:3100/extraction/prompt \

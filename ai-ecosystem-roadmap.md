@@ -257,7 +257,7 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 - [x] Time-based chunking: same channel, nearby messages, thread boundaries, max chunk size; semantic topic-shift detection can come later
 - [ ] Discord bot receives messages in real time and sends them to the ingestion API
 - [x] Define strict extraction JSON contract with supporting message indices and confidence, matching the BrainShare extraction spec
-- [ ] Wire the strict extraction contract to Claude API for production-quality extraction
+- [x] Wire the strict extraction contract to Claude API for production-quality extraction (`ANTHROPIC_API_KEY` required for live calls)
 - [x] Add dev extraction endpoint that can produce and store at least `Decision`, `Assumption`, `Action`, `Question`, and `ContextUpdate`
 - [x] Interpret emoji reactions from authority-weighted actors as approval when supported by surrounding messages
 - [x] Store source citations on Discord Episodes: message IDs, per-message indices, authors, timestamps, replies, reactions, channel/thread labels
@@ -268,7 +268,7 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 ### 2.2 Conviction + Graph Validation v0
 
 - [x] Convert LLM confidence into BrainShare conviction with explicitness, authority weight, rationale specificity, and source strength
-- [ ] Implement initial thresholds: `>=0.8` assert, `0.5-0.8` flag, `<0.5` ask
+- [x] Implement initial thresholds: `>=0.8` assert, `0.5-0.8` flag, `<0.5` ask
 - [ ] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
 - [ ] Add simple duplicate detection before storage using vector similarity / Graphiti search
 - [ ] Add first conflict/supersession flow for contradictory active decisions

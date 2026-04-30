@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 APP_DIR = Path(__file__).resolve().parent
 STORE_FILE = Path(os.getenv("BRAINSHARE_STORE_FILE", APP_DIR / "brainshare-dev-store.json"))
 VALID_TOKEN = os.getenv("BRAINSHARE_DEV_TOKEN", "bs_team_abc123")
+DEFAULT_CLAUDE_MODEL = os.getenv("BRAINSHARE_CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
 PrimitiveType = Literal[
     "decision",
@@ -142,6 +143,11 @@ class ExtractionResult(BaseModel):
 class ConvictionResult(BaseModel):
     conviction: float
     factors: list[str] = Field(default_factory=list)
+
+
+class ConvictionThreshold(BaseModel):
+    action: Literal["assert", "flag", "ask"]
+    label: str
 
 
 class WorkOSMemoryPrimitiveIn(BaseModel):
@@ -516,13 +522,23 @@ def calculate_conviction(
     return ConvictionResult(conviction=max(0, min(round(score, 2), 1)), factors=factors)
 
 
+def conviction_threshold(conviction: float) -> ConvictionThreshold:
+    if conviction >= 0.8:
+        return ConvictionThreshold(action="assert", label="high_confidence")
+    if conviction >= 0.5:
+        return ConvictionThreshold(action="flag", label="needs_review")
+    return ConvictionThreshold(action="ask", label="needs_confirmation")
+
+
 def extracted_to_primitive_create(
     episode: dict[str, Any],
     extracted: ExtractedPrimitive,
     actor_context: Optional[dict[str, Any]] = None,
+    extractor: str = "dev-rule",
 ) -> PrimitiveCreate:
     actor_context = actor_context or {}
     conviction = calculate_conviction(extracted, episode, actor_context)
+    threshold = conviction_threshold(conviction.conviction)
     citations = source_citations_for_episode(episode, extracted.supporting_messages)
     content = extracted.content
     approved_by = content.get("approved_by") or []
@@ -551,12 +567,13 @@ def extracted_to_primitive_create(
         actors=actors,
         metadata={
             "source": "brainshare.extraction",
-            "extractor": "dev-rule",
+            "extractor": extractor,
             "extraction_type": extracted.type,
             "source_tool": episode.get("source_tool"),
             "source_location": episode.get("source_location"),
             "extractor_confidence": extracted.confidence,
             "conviction_factors": conviction.factors,
+            "conviction_threshold": threshold.model_dump(),
             "source_citations": citations,
         },
     )
@@ -593,6 +610,122 @@ def build_extraction_user_prompt(
             "Extract all context primitives from this conversation. For each primitive, cite the specific message indices that support it. Return ONLY valid JSON.",
         ]
     )
+
+
+def extraction_message_indices(episode: dict[str, Any]) -> set[int]:
+    indices = {
+        item["index"]
+        for item in parse_indexed_messages(episode.get("raw_content", ""))
+    }
+    indices.update(
+        item.get("index")
+        for item in episode.get("metadata", {}).get("supporting_messages", [])
+        if isinstance(item.get("index"), int)
+    )
+    return indices
+
+
+def normalize_extraction_result(
+    raw_result: Any,
+    episode: dict[str, Any],
+) -> ExtractionResult:
+    if not isinstance(raw_result, dict):
+        raise HTTPException(status_code=502, detail="invalid_extraction_response")
+
+    valid_indices = extraction_message_indices(episode)
+    primitives = []
+    for raw_primitive in raw_result.get("primitives") or []:
+        if not isinstance(raw_primitive, dict):
+            continue
+        raw_type = str(raw_primitive.get("type") or "").upper()
+        if raw_type not in {
+            "DECISION",
+            "ASSUMPTION",
+            "ACTION",
+            "QUESTION",
+            "CONTEXT_UPDATE",
+        }:
+            continue
+        content = raw_primitive.get("content")
+        if not isinstance(content, dict):
+            continue
+        supporting_messages = [
+            index
+            for index in raw_primitive.get("supporting_messages") or []
+            if isinstance(index, int) and (not valid_indices or index in valid_indices)
+        ]
+        try:
+            confidence = float(raw_primitive.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            confidence = 0.5
+        primitives.append(
+            ExtractedPrimitive(
+                type=raw_type,  # type: ignore[arg-type]
+                content=content,
+                supporting_messages=supporting_messages,
+                confidence=max(0, min(confidence, 1)),
+            )
+        )
+
+    return ExtractionResult(
+        primitives=primitives,
+        no_extractable_context=bool(
+            raw_result.get("no_extractable_context", len(primitives) == 0)
+        ),
+    )
+
+
+def parse_json_response(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="invalid_extraction_json") from exc
+
+
+async def extract_episode_with_claude(
+    episode: dict[str, Any],
+    request: EpisodeExtractionRequest,
+) -> ExtractionResult:
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="anthropic_api_key_required")
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="anthropic_package_required") from exc
+
+    client = AsyncAnthropic(api_key=api_key)
+    response = await client.messages.create(
+        model=DEFAULT_CLAUDE_MODEL,
+        max_tokens=4000,
+        temperature=0,
+        system=EXTRACTION_SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": build_extraction_user_prompt(episode, request),
+            }
+        ],
+    )
+    text = "\n".join(
+        block.text
+        for block in response.content
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None)
+    )
+    return normalize_extraction_result(parse_json_response(text), episode)
+
+
+async def run_episode_extraction(
+    episode: dict[str, Any],
+    request: EpisodeExtractionRequest,
+) -> ExtractionResult:
+    if request.provider == "claude":
+        return await extract_episode_with_claude(episode, request)
+    return extract_episode_with_dev_rules(episode, request.actor_context)
 
 
 def looks_like_question(content: str) -> bool:
@@ -1013,13 +1146,8 @@ async def extract_episode(
     episode = next((item for item in data["episodes"] if item["id"] == episode_id), None)
     if not episode:
         raise HTTPException(status_code=404, detail="episode_not_found")
-    if payload.provider == "claude":
-        raise HTTPException(
-            status_code=501,
-            detail="claude_extraction_not_configured_yet",
-        )
 
-    result = extract_episode_with_dev_rules(episode, payload.actor_context)
+    result = await run_episode_extraction(episode, payload)
     stored_primitives: list[Primitive] = []
     if payload.store_primitives:
         for extracted in result.primitives:
@@ -1029,6 +1157,7 @@ async def extract_episode(
                         episode,
                         extracted,
                         payload.actor_context,
+                        payload.provider,
                     )
                 )
             )

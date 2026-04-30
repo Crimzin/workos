@@ -4,6 +4,7 @@ version = "0.2.0"
 description = "BrainShare context engine service"
 requires-python = ">=3.10"
 dependencies = [
+  "anthropic",
   "fastapi==0.111.0",
   "uvicorn[standard]==0.30.1",
   "graphiti-core",
