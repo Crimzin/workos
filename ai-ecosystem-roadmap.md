@@ -247,7 +247,7 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 - [x] Pin BrainShare to a project-local `uv` Python 3.10+ runtime so Graphiti can install cleanly independent of macOS system Python
 - [x] Add optional Graphiti write-through adapter backed by Neo4j (`BRAINSHARE_STORE_BACKEND=graphiti`), with JSON metadata retained for dev listing/debug
 - [x] Map WorkOS memory primitives (`rationale`, `assumption`, `decision`) to Graphiti entities/episodes without forcing WorkOS to become the graph database
-- [ ] Make Graphiti the default backend once live Neo4j/Graphiti ingestion is verified end-to-end with a quota-enabled `OPENAI_API_KEY`
+- [x] Make Graphiti the default backend once live Neo4j/Graphiti ingestion is verified end-to-end with a quota-enabled `OPENAI_API_KEY`
 
 ### 2.1 Reference Extraction Pipeline: Discord First
 

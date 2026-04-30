@@ -887,16 +887,25 @@ class GraphitiStore(DevStore):
             os.getenv("NEO4J_USER", "neo4j"),
             os.getenv("NEO4J_PASSWORD", "brainshare-dev"),
         )
+        self._indices_ready = False
 
     async def add_episode(self, payload: EpisodeCreate) -> Episode:
         episode = await super().add_episode(payload)
+        await self._ensure_indices()
         await self._add_episode_to_graphiti(payload, episode.id)
         return episode
 
     async def add_primitive(self, payload: PrimitiveCreate) -> Primitive:
         primitive = await super().add_primitive(payload)
+        await self._ensure_indices()
         await self._add_primitive_to_graphiti(primitive)
         return primitive
+
+    async def _ensure_indices(self) -> None:
+        if self._indices_ready:
+            return
+        await self.graphiti.build_indices_and_constraints()
+        self._indices_ready = True
 
     async def _add_episode_to_graphiti(
         self,
@@ -904,16 +913,10 @@ class GraphitiStore(DevStore):
         episode_id: str,
     ) -> None:
         source = self._episode_type(payload)
-        body: Any = payload.raw_content
-        if source == self.EpisodeType.json:
-            try:
-                body = json.loads(payload.raw_content)
-            except json.JSONDecodeError:
-                body = {"raw_content": payload.raw_content}
 
         await self.graphiti.add_episode(
             name=episode_id,
-            episode_body=body,
+            episode_body=payload.raw_content,
             source=source,
             source_description=f"{payload.source_tool}:{payload.source_location}",
             reference_time=parse_reference_time(payload.timestamp_start),
@@ -923,7 +926,7 @@ class GraphitiStore(DevStore):
     async def _add_primitive_to_graphiti(self, primitive: Primitive) -> None:
         await self.graphiti.add_episode(
             name=f"primitive:{primitive.id}",
-            episode_body=primitive.model_dump(),
+            episode_body=json.dumps(primitive.model_dump(), sort_keys=True),
             source=self.EpisodeType.json,
             source_description=f"BrainShare typed primitive: {primitive.type}",
             reference_time=parse_reference_time(primitive.created_at),
@@ -946,7 +949,7 @@ class GraphitiStore(DevStore):
 
 
 def build_store() -> DevStore:
-    backend = os.getenv("BRAINSHARE_STORE_BACKEND", "json").lower()
+    backend = os.getenv("BRAINSHARE_STORE_BACKEND", "graphiti").lower()
     if backend == "graphiti":
         return GraphitiStore(STORE_FILE)
     return DevStore(STORE_FILE)
