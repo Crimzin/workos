@@ -87,6 +87,8 @@ curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
 
 Claude extraction uses `BRAINSHARE_CLAUDE_MODEL` when set, otherwise the default model configured in the service. Stored primitives include a `metadata.conviction_threshold` action: `assert` for conviction `>=0.8`, `flag` for `0.5-0.8`, and `ask` for `<0.5`.
 
+For the product UX, this should become a BrainShare onboarding/settings step: the user connects Claude/OpenAI providers, BrainShare validates the key server-side, stores it encrypted, and only backend services read it. Browser/client code should never receive provider API keys.
+
 **Test 5 - Inspect the extraction prompt contract:**
 ```bash
 curl http://localhost:3100/extraction/prompt \
@@ -94,6 +96,22 @@ curl http://localhost:3100/extraction/prompt \
 ```
 
 **Expected**: The response includes the BrainShare system prompt and strict JSON response schema. The `dev-rule` extractor is only a local stand-in; production extraction still needs the Claude API implementation.
+
+**Test 6 - Seed actor authority:**
+```bash
+curl -X POST http://localhost:3100/actors/authority \
+  -H "Authorization: Bearer bs_team_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actor_id": "chris",
+    "name": "Chris",
+    "role": "Co-founder",
+    "authority": "founder approval",
+    "authority_weight": 0.9
+  }'
+```
+
+**Expected**: Future extraction requests automatically use seeded authority weights. For example, a thumbs-up reaction from `chris` can count as approval and raise conviction without passing `actor_context` on every request.
 
 ### Step 1.3: Graphiti Backend
 Graphiti is the default backend. It requires Python 3.10+, Neo4j, and a quota-enabled `OPENAI_API_KEY`. Use `uv` so BrainShare runs on a project-local Python 3.10+ runtime instead of macOS system Python.

@@ -150,6 +150,15 @@ class ConvictionThreshold(BaseModel):
     label: str
 
 
+class ActorAuthorityIn(BaseModel):
+    actor_id: str = Field(..., min_length=1)
+    name: Optional[str] = None
+    role: Optional[str] = None
+    authority: Optional[str] = None
+    authority_weight: float = Field(default=0.5, ge=0, le=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkOSMemoryPrimitiveIn(BaseModel):
     id: str
     instance_id: str
@@ -216,6 +225,15 @@ def graphiti_primitive_type(workos_type: str) -> PrimitiveType:
     if workos_type == "assumption":
         return "assumption"
     return "decision"
+
+
+def ensure_store_shape(data: dict[str, Any]) -> dict[str, Any]:
+    data.setdefault("team_name", "Demo Team")
+    data.setdefault("episodes", [])
+    data.setdefault("primitives", [])
+    data.setdefault("legacy_context", [])
+    data.setdefault("actor_authority", {})
+    return data
 
 
 def map_workos_memory_primitive(
@@ -940,14 +958,9 @@ class DevStore:
 
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {
-                "team_name": "Demo Team",
-                "episodes": [],
-                "primitives": [],
-                "legacy_context": [],
-            }
+            return ensure_store_shape({})
         with self.path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            return ensure_store_shape(json.load(f))
 
     def save(self, data: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -995,6 +1008,23 @@ class DevStore:
         data["legacy_context"].append(item)
         self.save(data)
         return item
+
+    async def upsert_actor_authority(self, payload: ActorAuthorityIn) -> dict[str, Any]:
+        data = self.load()
+        now = now_iso()
+        existing = data["actor_authority"].get(payload.actor_id, {})
+        item = {
+            **existing,
+            **payload.model_dump(),
+            "updated_at": now,
+            "created_at": existing.get("created_at", now),
+        }
+        data["actor_authority"][payload.actor_id] = item
+        self.save(data)
+        return item
+
+    def actor_context(self) -> dict[str, Any]:
+        return self.load()["actor_authority"]
 
 
 class GraphitiStore(DevStore):
@@ -1147,7 +1177,12 @@ async def extract_episode(
     if not episode:
         raise HTTPException(status_code=404, detail="episode_not_found")
 
-    result = await run_episode_extraction(episode, payload)
+    actor_context = {
+        **store.actor_context(),
+        **payload.actor_context,
+    }
+    extraction_payload = payload.model_copy(update={"actor_context": actor_context})
+    result = await run_episode_extraction(episode, extraction_payload)
     stored_primitives: list[Primitive] = []
     if payload.store_primitives:
         for extracted in result.primitives:
@@ -1156,7 +1191,7 @@ async def extract_episode(
                     extracted_to_primitive_create(
                         episode,
                         extracted,
-                        payload.actor_context,
+                        actor_context,
                         payload.provider,
                     )
                 )
@@ -1166,9 +1201,10 @@ async def extract_episode(
         "success": True,
         "episode_id": episode_id,
         "provider": payload.provider,
+        "actor_context_count": len(actor_context),
         "prompt": {
             "system": EXTRACTION_SYSTEM_PROMPT,
-            "user": build_extraction_user_prompt(episode, payload),
+            "user": build_extraction_user_prompt(episode, extraction_payload),
         },
         "extraction": result.model_dump(),
         "stored_primitives": [primitive.model_dump() for primitive in stored_primitives],
@@ -1363,6 +1399,20 @@ def context() -> dict[str, Any]:
         "tokens_used": len(summary) // 4,
         "compression_level": "heavy",
         "original_size": f"{len(data['primitives'])} primitives compressed",
+    }
+
+
+@app.post("/actors/authority", dependencies=[Depends(require_auth)])
+async def upsert_actor_authority(payload: ActorAuthorityIn) -> dict[str, Any]:
+    actor = await store.upsert_actor_authority(payload)
+    return {"success": True, "actor": actor}
+
+
+@app.get("/actors/authority", dependencies=[Depends(require_auth)])
+def list_actor_authority() -> dict[str, Any]:
+    return {
+        "success": True,
+        "actors": list(store.actor_context().values()),
     }
 
 

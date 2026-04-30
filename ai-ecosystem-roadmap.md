@@ -242,6 +242,7 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 - [x] Stand up BrainShare as a separate Python/FastAPI service alongside WorkOS, because Graphiti is Python-native
 - [x] Add Graphiti + Neo4j local/dev infrastructure for temporal graph storage
 - [x] Define environment/config contract between WorkOS (Next/Supabase) and BrainShare (FastAPI/Graphiti)
+- [ ] Add BrainShare provider-key setup UX: collect Claude/OpenAI keys during onboarding or settings, store encrypted server-side, validate with a test call, and never expose secrets to browser/client code
 - [x] Create Graphiti episode ingestion API — immutable raw source data with source tool, source location, timestamps, actors, raw content, and message counts
 - [x] Create typed primitive API surface for `Decision`, `Assumption`, `Action`, `Question`, `ContextUpdate`, `Actor`, `Goal`, `WorkItem`, `Standard`, `Signal`, and `Episode`
 - [x] Pin BrainShare to a project-local `uv` Python 3.10+ runtime so Graphiti can install cleanly independent of macOS system Python
@@ -269,7 +270,7 @@ Spec §2.1 mandates these as day-one schema for BrainShare to read. In light of 
 
 - [x] Convert LLM confidence into BrainShare conviction with explicitness, authority weight, rationale specificity, and source strength
 - [x] Implement initial thresholds: `>=0.8` assert, `0.5-0.8` flag, `<0.5` ask
-- [ ] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
+- [x] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
 - [ ] Add simple duplicate detection before storage using vector similarity / Graphiti search
 - [ ] Add first conflict/supersession flow for contradictory active decisions
 - [ ] Preserve corrections as new Episodes that supersede or retract prior primitives rather than deleting history
