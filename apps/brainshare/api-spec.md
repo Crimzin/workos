@@ -85,6 +85,10 @@ Ingest a Claude/ChatGPT/Claude Code conversation as immutable BrainShare Episode
 
 Each Episode stores `metadata.source_kind = "ai_conversation"` and `metadata.supporting_messages` with chunk-local message indices, original source message indices, speaker role (`human` / `ai` / `system` / `tool`), author, content, timestamp, attachments, and message IDs. Extraction conviction uses these records to distinguish AI-generated content from human adoption signals.
 
+For AI conversations, rejected AI proposals are not stored as durable primitives. When an AI-produced plan/spec/document is refined and then approved by a human, BrainShare stores the final accepted AI artifact as context with citations to the final AI message and the human approval message.
+
+Extraction responses include a `confirmation` payload that source tools can post back to the originating surface: captured items, conviction labels, source message references, and a correction affordance.
+
 ### POST /push
 Add context to team's shared document
 
@@ -154,6 +158,38 @@ GET /context?llm=gpt4&max_tokens=2000&relevant_to=user_message_hash
   "tokens_used": 156,
   "compression_level": "heavy",
   "original_size": "2.1KB compressed to 156 tokens"
+}
+```
+
+### POST /context/assemble
+Assemble a structured context payload for a future AI session. This is the first "your AI never forgets" path: Codex, Claude, ChatGPT, or another agent can ask BrainShare for relevant durable memory before starting work.
+
+**Request:**
+```json
+{
+  "query": "provider key architecture",
+  "max_items": 10,
+  "include_low_conviction": false,
+  "source_tool": "codex"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "context_summary": "## BrainShare Context\n- [high_confidence] BrainShare stores provider keys server-side...",
+  "context_items": [
+    {
+      "id": "prim_123",
+      "type": "decision",
+      "statement": "BrainShare stores provider keys server-side.",
+      "conviction": 0.9,
+      "threshold": {"action": "assert", "label": "high_confidence"},
+      "source_episode_ids": ["ep_123"],
+      "source_citations": []
+    }
+  ]
 }
 ```
 

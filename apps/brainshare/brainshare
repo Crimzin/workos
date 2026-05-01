@@ -83,6 +83,25 @@ def cmd_push(args: argparse.Namespace) -> None:
     print_json(result)
 
 
+def cmd_context(args: argparse.Namespace) -> None:
+    result = request_json(
+        "POST",
+        "/context/assemble",
+        args.token,
+        body={
+            "query": args.query,
+            "max_items": args.max_items,
+            "include_low_conviction": args.include_low_conviction,
+            "source_tool": "brainshare-cli",
+        },
+        api=args.api,
+    )
+    if args.json:
+        print_json(result)
+        return
+    print(result.get("context_summary", ""))
+
+
 def cmd_ingest(args: argparse.Namespace) -> None:
     path = Path(args.file)
     raw_content = path.read_text(encoding="utf-8")
@@ -237,6 +256,13 @@ def build_parser() -> argparse.ArgumentParser:
     push.add_argument("content")
     push.add_argument("--category", default="knowledge")
     push.set_defaults(func=cmd_push)
+
+    context = subparsers.add_parser("context", help="Assemble context for an AI session")
+    context.add_argument("query", nargs="?", default="")
+    context.add_argument("--max-items", type=int, default=10)
+    context.add_argument("--include-low-conviction", action="store_true")
+    context.add_argument("--json", action="store_true")
+    context.set_defaults(func=cmd_context)
 
     ingest = subparsers.add_parser("ingest", help="Ingest a text/export file as an Episode")
     ingest.add_argument("file")

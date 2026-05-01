@@ -132,6 +132,14 @@ class AnalyzeRequest(BaseModel):
     source_llm: Optional[str] = None
 
 
+class ContextAssemblyRequest(BaseModel):
+    query: str = ""
+    max_items: int = Field(default=10, ge=1, le=50)
+    include_low_conviction: bool = False
+    source_tool: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class EpisodeExtractionRequest(BaseModel):
     provider: Literal["dev-rule", "claude"] = "dev-rule"
     foundation_context: str = ""
@@ -906,6 +914,137 @@ def ai_conversation_signal_adjustment(
     return 0, 0.75, ["ai_conversation_implicit_human_acceptance"]
 
 
+def human_signal_label(content: str) -> Optional[str]:
+    lower = content.lower()
+    if re.search(r"\b(no|wrong|nah)\b|not that|don't store", lower):
+        return "rejection"
+    if any(marker in lower for marker in ["not sure", "let me think", "maybe", "tentative"]):
+        return "uncertainty"
+    if any(marker in lower for marker in ["come back", "later", "not yet", "defer"]):
+        return "deferred"
+    if any(marker in lower for marker in ["yes but", "close, but", "mostly", "with one change"]):
+        return "refinement"
+    if any(
+        marker in lower
+        for marker in [
+            "yes",
+            "exactly",
+            "perfect",
+            "this is great",
+            "looks good",
+            "i agree",
+            "update the spec",
+            "ship it",
+            "approved",
+        ]
+    ):
+        return "approval"
+    return None
+
+
+def ai_message_looks_like_artifact(content: str) -> bool:
+    lower = content.lower()
+    artifact_markers = [
+        "spec",
+        "roadmap",
+        "plan",
+        "architecture",
+        "proposal",
+        "document",
+        "implementation",
+        "strategy",
+        "checklist",
+    ]
+    return len(content.split()) >= 25 or any(marker in lower for marker in artifact_markers)
+
+
+def accepted_ai_artifact_extractions(episode: dict[str, Any]) -> list[ExtractedPrimitive]:
+    if episode.get("metadata", {}).get("source_kind") != "ai_conversation":
+        return []
+
+    messages = episode.get("metadata", {}).get("supporting_messages", [])
+    accepted: list[ExtractedPrimitive] = []
+    pending_ai: Optional[dict[str, Any]] = None
+    saw_refinement = False
+
+    for item in messages:
+        role = item.get("speaker_role")
+        content = str(item.get("content") or "").strip()
+        if role == "ai" and ai_message_looks_like_artifact(content):
+            pending_ai = item
+            continue
+        if role != "human" or not pending_ai:
+            continue
+
+        signal = human_signal_label(content)
+        if signal in {"rejection", "uncertainty", "deferred"}:
+            pending_ai = None
+            saw_refinement = signal == "refinement"
+            continue
+        if signal == "refinement":
+            pending_ai = None
+            saw_refinement = True
+            continue
+        if signal == "approval":
+            ai_index = pending_ai.get("index")
+            human_index = item.get("index")
+            if not isinstance(ai_index, int) or not isinstance(human_index, int):
+                pending_ai = None
+                continue
+            statement = str(content).strip()
+            if len(statement) > 140:
+                statement = statement[:137].rstrip() + "..."
+            accepted.append(
+                ExtractedPrimitive(
+                    type="CONTEXT_UPDATE",
+                    content={
+                        "statement": f"Human-approved AI artifact: {statement}",
+                        "actor": item.get("author_name") or "Human",
+                        "relates_to": episode.get("metadata", {}).get("title")
+                        or episode.get("source_location"),
+                        "artifact_body": pending_ai.get("content"),
+                        "human_signal": signal,
+                        "refinement_pattern": saw_refinement,
+                    },
+                    supporting_messages=[ai_index, human_index],
+                    confidence=0.86 if saw_refinement else 0.82,
+                )
+            )
+            pending_ai = None
+            saw_refinement = False
+
+    return accepted
+
+
+def refined_ai_conversation_result(
+    episode: dict[str, Any],
+    result: ExtractionResult,
+) -> ExtractionResult:
+    if episode.get("metadata", {}).get("source_kind") != "ai_conversation":
+        return result
+
+    combined = [
+        *result.primitives,
+        *accepted_ai_artifact_extractions(episode),
+    ]
+    unique: list[ExtractedPrimitive] = []
+    seen = set()
+    for extraction in combined:
+        key = (
+            extraction.type,
+            statement_from_extraction(extraction).lower(),
+            tuple(extraction.supporting_messages),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(extraction)
+    return ExtractionResult(
+        primitives=unique,
+        no_extractable_context=len(unique) == 0,
+    )
+
+
 def calculate_conviction(
     extracted: ExtractedPrimitive,
     episode: dict[str, Any],
@@ -957,6 +1096,131 @@ def conviction_threshold(conviction: float) -> ConvictionThreshold:
     if conviction >= 0.5:
         return ConvictionThreshold(action="flag", label="needs_review")
     return ConvictionThreshold(action="ask", label="needs_confirmation")
+
+
+def primitive_matches_query(primitive: dict[str, Any], query: str) -> bool:
+    if not query:
+        return True
+    q = query.lower()
+    haystack = f"{primitive.get('statement', '')} {primitive.get('body') or ''}".lower()
+    return q in haystack or any(word in haystack for word in q.split())
+
+
+def primitive_relevance_score(primitive: dict[str, Any], query: str) -> float:
+    score = float(primitive.get("conviction") or 0)
+    if query:
+        q = query.lower()
+        statement = str(primitive.get("statement") or "").lower()
+        body = str(primitive.get("body") or "").lower()
+        if q and q in statement:
+            score += 0.35
+        elif q and q in body:
+            score += 0.2
+        score += 0.03 * len(set(q.split()) & set(statement.split()))
+    return round(score, 3)
+
+
+def assemble_context_payload(payload: ContextAssemblyRequest) -> dict[str, Any]:
+    primitives = store.load()["primitives"]
+    filtered = [
+        primitive
+        for primitive in primitives
+        if primitive_matches_query(primitive, payload.query)
+        and (
+            payload.include_low_conviction
+            or float(primitive.get("conviction") or 0) >= 0.5
+        )
+    ]
+    ranked = sorted(
+        filtered,
+        key=lambda primitive: (
+            primitive_relevance_score(primitive, payload.query),
+            primitive.get("created_at", ""),
+        ),
+        reverse=True,
+    )[: payload.max_items]
+
+    context_items = []
+    for primitive in ranked:
+        threshold = conviction_threshold(float(primitive.get("conviction") or 0))
+        metadata = primitive.get("metadata") or {}
+        context_items.append(
+            {
+                "id": primitive["id"],
+                "type": primitive["type"],
+                "statement": primitive["statement"],
+                "status": primitive.get("status"),
+                "conviction": primitive.get("conviction"),
+                "threshold": threshold.model_dump(),
+                "source_episode_ids": primitive.get("source_episode_ids", []),
+                "source_citations": metadata.get("source_citations", []),
+                "relevance": primitive_relevance_score(primitive, payload.query),
+                "created_at": primitive.get("created_at"),
+            }
+        )
+
+    summary_lines = [
+        "## BrainShare Context",
+        f"Query: {payload.query or 'general context'}",
+    ]
+    for item in context_items:
+        summary_lines.append(
+            f"- [{item['threshold']['label']}] {item['statement']} "
+            f"({item['type']}, conviction {item['conviction']})"
+        )
+
+    return {
+        "success": True,
+        "query": payload.query,
+        "source_tool": payload.source_tool,
+        "context_items": context_items,
+        "context_summary": "\n".join(summary_lines),
+        "tokens_estimate": max(1, len("\n".join(summary_lines)) // 4),
+        "assembly": {
+            "strategy": "primitive_relevance_v0",
+            "included_low_conviction": payload.include_low_conviction,
+            "max_items": payload.max_items,
+            "metadata": payload.metadata,
+        },
+    }
+
+
+def confirmation_payload_for_primitives(primitives: list[Primitive]) -> dict[str, Any]:
+    lines = ["BrainShare captured:"]
+    items = []
+    for primitive in primitives:
+        icon = {
+            "decision": "Decision",
+            "assumption": "Assumption",
+            "action": "Action",
+            "question": "Question",
+            "context_update": "Context",
+        }.get(primitive.type, primitive.type.replace("_", " ").title())
+        threshold = conviction_threshold(primitive.conviction)
+        lines.append(
+            f"- {icon}: {primitive.statement} "
+            f"({threshold.label}, conviction {primitive.conviction})"
+        )
+        items.append(
+            {
+                "id": primitive.id,
+                "type": primitive.type,
+                "statement": primitive.statement,
+                "conviction": primitive.conviction,
+                "threshold": threshold.model_dump(),
+                "source_episode_ids": primitive.source_episode_ids,
+                "supporting_messages": primitive.supporting_messages,
+            }
+        )
+    if items:
+        lines.append("Anything wrong? Reply with a correction and I will update the memory graph.")
+    else:
+        lines.append("No durable context was stored from this source.")
+    return {
+        "text": "\n".join(lines),
+        "items": items,
+        "correction_affordance": "Reply with a correction; corrections should be stored as superseding Episodes.",
+    }
 
 
 def extracted_to_primitive_create(
@@ -1153,8 +1417,10 @@ async def run_episode_extraction(
     request: EpisodeExtractionRequest,
 ) -> ExtractionResult:
     if request.provider == "claude":
-        return await extract_episode_with_claude(episode, request)
-    return extract_episode_with_dev_rules(episode, request.actor_context)
+        result = await extract_episode_with_claude(episode, request)
+    else:
+        result = extract_episode_with_dev_rules(episode, request.actor_context)
+    return refined_ai_conversation_result(episode, result)
 
 
 def looks_like_question(content: str) -> bool:
@@ -1632,14 +1898,21 @@ async def extract_episode(
     stored_primitives: list[Primitive] = []
     if payload.store_primitives:
         for extracted in result.primitives:
+            primitive_payload = extracted_to_primitive_create(
+                episode,
+                extracted,
+                actor_context,
+                payload.provider,
+            )
+            factors = primitive_payload.metadata.get("conviction_factors", [])
+            if (
+                episode.get("metadata", {}).get("source_kind") == "ai_conversation"
+                and "ai_conversation_human_rejection" in factors
+            ):
+                continue
             stored_primitives.append(
                 await store.add_primitive(
-                    extracted_to_primitive_create(
-                        episode,
-                        extracted,
-                        actor_context,
-                        payload.provider,
-                    )
+                    primitive_payload
                 )
             )
 
@@ -1654,6 +1927,7 @@ async def extract_episode(
         },
         "extraction": result.model_dump(),
         "stored_primitives": [primitive.model_dump() for primitive in stored_primitives],
+        "confirmation": confirmation_payload_for_primitives(stored_primitives),
     }
 
 
@@ -1864,6 +2138,11 @@ def context() -> dict[str, Any]:
         "compression_level": "heavy",
         "original_size": f"{len(data['primitives'])} primitives compressed",
     }
+
+
+@app.post("/context/assemble", dependencies=[Depends(require_auth)])
+def assemble_context(payload: ContextAssemblyRequest) -> dict[str, Any]:
+    return assemble_context_payload(payload)
 
 
 @app.get("/providers/keys", dependencies=[Depends(require_auth)])

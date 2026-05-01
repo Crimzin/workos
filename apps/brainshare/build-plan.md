@@ -173,6 +173,7 @@ The `brainshare` CLI wraps the REST API for local power-user use:
 
 ```bash
 ./brainshare query "Firebase Auth"
+./brainshare context "Firebase Auth"
 ./brainshare push "We decided to use Firebase Auth" --category decision
 ./brainshare ingest ./conversation-export.md --source-tool claude --source-location "Claude export"
 ./brainshare ingest-conversation ./conversation-export.json --source-tool claude --title "Claude export"

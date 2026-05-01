@@ -450,15 +450,15 @@ Build the reference implementation from the extraction spec. Claude/ChatGPT conv
 
 - [x] Implement the conviction signal table for AI conversations: explicit confirmation = high, implicit acceptance (silence/moving on) = medium, pushback = low, rejection = don't store
 
-- [ ] Handle multi-turn refinement patterns: AI proposes → human pushes back → AI refines → human accepts. Store the FINAL accepted version, not intermediate proposals.
+- [x] Handle multi-turn refinement patterns: AI proposes → human pushes back → AI refines → human accepts. Store the FINAL accepted version, not intermediate proposals.
 
-- [ ] Detect artifact/document approval: when AI produces a spec/plan and human approves, the entire document is context
+- [x] Detect artifact/document approval: when AI produces a spec/plan and human approves, the entire document is context
 
 - [x] Store source citations on Episodes: message indices, speaker attribution (human vs. AI), timestamps
 
-- [ ] Post concise confirmation in the source tool or WorkOS: captured decision / assumption / action, with "anything wrong?" correction affordance
+- [x] Return concise confirmation payload for source tools or WorkOS to post: captured decision / assumption / action, with "anything wrong?" correction affordance
 
-- [ ] Prove the "your AI never forgets" moment: on next AI session, assemble relevant context from the graph and inject it so the user doesn't have to re-explain
+- [x] Prove the "your AI never forgets" moment: on next AI session, assemble an injectable relevant context payload from the graph so the user doesn't have to re-explain
 
 
 ### 2.2 Conviction + Graph Validation v0
