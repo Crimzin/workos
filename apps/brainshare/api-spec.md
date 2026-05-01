@@ -7,6 +7,41 @@
 
 ## Core Endpoints
 
+### GET /providers/keys
+Return redacted provider-key setup status. Raw keys are never returned.
+
+**Response:**
+```json
+{
+  "success": true,
+  "providers": [
+    {
+      "provider": "claude",
+      "configured": true,
+      "key_hint": "sk-ant...1234",
+      "validation_status": "valid",
+      "source": "store"
+    }
+  ]
+}
+```
+
+### POST /providers/keys
+Store a Claude/OpenAI provider key server-side. BrainShare validates by default, encrypts before persistence, and exposes only redacted metadata to clients.
+
+**Request:**
+```json
+{
+  "provider": "claude",
+  "api_key": "sk-ant-...",
+  "label": "Will Claude key",
+  "validate": true
+}
+```
+
+### DELETE /providers/keys/{provider}
+Remove a stored provider key. Environment variables may still be used as development fallback.
+
 ### POST /push
 Add context to team's shared document
 

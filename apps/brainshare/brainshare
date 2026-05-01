@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any, Optional
+
+
+DEFAULT_API = os.getenv("BRAINSHARE_API", "http://localhost:3100")
+DEFAULT_TOKEN = os.getenv("BRAINSHARE_TOKEN", "bs_team_abc123")
+
+
+def request_json(
+    method: str,
+    path: str,
+    token: str,
+    body: Optional[dict[str, Any]] = None,
+    query: Optional[dict[str, Any]] = None,
+    api: str = DEFAULT_API,
+) -> dict[str, Any]:
+    url = api.rstrip("/") + path
+    if query:
+        url += "?" + urllib.parse.urlencode(query)
+    data = None
+    headers = {"Authorization": f"Bearer {token}"}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read().decode("utf-8")
+            return json.loads(payload) if payload else {"success": True}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8")
+        raise SystemExit(f"BrainShare API error {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Could not reach BrainShare API at {api}: {exc.reason}") from exc
+
+
+def print_json(data: dict[str, Any]) -> None:
+    print(json.dumps(data, indent=2, sort_keys=True))
+
+
+def cmd_query(args: argparse.Namespace) -> None:
+    result = request_json(
+        "GET",
+        "/pull",
+        args.token,
+        query={"query": args.query, "max_tokens": args.max_tokens},
+        api=args.api,
+    )
+    if args.json:
+        print_json(result)
+        return
+    context = result.get("context", [])
+    if not context:
+        print(f"No BrainShare context found for: {args.query}")
+        return
+    print(f"BrainShare context for: {args.query}")
+    for item in context:
+        print(f"- {item['content']} ({item['category']}, {item['timestamp'][:10]})")
+
+
+def cmd_push(args: argparse.Namespace) -> None:
+    result = request_json(
+        "POST",
+        "/push",
+        args.token,
+        body={
+            "content": args.content,
+            "category": args.category,
+            "source_llm": "brainshare-cli",
+        },
+        api=args.api,
+    )
+    print_json(result)
+
+
+def cmd_ingest(args: argparse.Namespace) -> None:
+    path = Path(args.file)
+    raw_content = path.read_text(encoding="utf-8")
+    result = request_json(
+        "POST",
+        "/episodes",
+        args.token,
+        body={
+            "source_tool": args.source_tool,
+            "source_location": args.source_location or str(path),
+            "raw_content": raw_content,
+            "metadata": {"ingested_by": "brainshare-cli", "file": str(path)},
+        },
+        api=args.api,
+    )
+    print_json(result)
+
+
+def cmd_provider_list(args: argparse.Namespace) -> None:
+    result = request_json("GET", "/providers/keys", args.token, api=args.api)
+    print_json(result)
+
+
+def cmd_provider_set(args: argparse.Namespace) -> None:
+    api_key = args.api_key or os.getenv(args.env_var or "")
+    if not api_key:
+        raise SystemExit("Provide --api-key or --env-var pointing to the provider key.")
+    result = request_json(
+        "POST",
+        "/providers/keys",
+        args.token,
+        body={
+            "provider": args.provider,
+            "api_key": api_key,
+            "label": args.label,
+            "validate": not args.no_validate,
+        },
+        api=args.api,
+    )
+    print_json(result)
+
+
+def cmd_provider_delete(args: argparse.Namespace) -> None:
+    result = request_json(
+        "DELETE",
+        f"/providers/keys/{args.provider}",
+        args.token,
+        api=args.api,
+    )
+    print_json(result)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="brainshare")
+    parser.add_argument("--api", default=DEFAULT_API, help="BrainShare API base URL")
+    parser.add_argument("--token", default=DEFAULT_TOKEN, help="BrainShare team token")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    query = subparsers.add_parser("query", help="Query BrainShare context")
+    query.add_argument("query")
+    query.add_argument("--max-tokens", type=int, default=4000)
+    query.add_argument("--json", action="store_true")
+    query.set_defaults(func=cmd_query)
+
+    push = subparsers.add_parser("push", help="Add manual context")
+    push.add_argument("content")
+    push.add_argument("--category", default="knowledge")
+    push.set_defaults(func=cmd_push)
+
+    ingest = subparsers.add_parser("ingest", help="Ingest a text/export file as an Episode")
+    ingest.add_argument("file")
+    ingest.add_argument("--source-tool", default="cli")
+    ingest.add_argument("--source-location")
+    ingest.set_defaults(func=cmd_ingest)
+
+    provider = subparsers.add_parser("providers", help="Manage provider API keys")
+    provider_subparsers = provider.add_subparsers(dest="provider_command", required=True)
+
+    provider_list = provider_subparsers.add_parser("list", help="List redacted provider-key status")
+    provider_list.set_defaults(func=cmd_provider_list)
+
+    provider_set = provider_subparsers.add_parser("set", help="Store a provider key server-side")
+    provider_set.add_argument("provider", choices=["claude", "openai"])
+    provider_set.add_argument("--api-key")
+    provider_set.add_argument("--env-var")
+    provider_set.add_argument("--label")
+    provider_set.add_argument("--no-validate", action="store_true")
+    provider_set.set_defaults(func=cmd_provider_set)
+
+    provider_delete = provider_subparsers.add_parser("delete", help="Delete a stored provider key")
+    provider_delete.add_argument("provider", choices=["claude", "openai"])
+    provider_delete.set_defaults(func=cmd_provider_delete)
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

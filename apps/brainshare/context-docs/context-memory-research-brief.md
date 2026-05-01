@@ -134,7 +134,41 @@ Four major players have emerged for AI agent memory in 2026:
 - **OMEGA:** Local-first, zero-cloud memory. Highest LongMemEval benchmark (95.4%). Uses SQLite + ONNX. Good for privacy-sensitive use cases.
 - **Hindsight:** Alternative to Mem0 with stronger retrieval at lower cost.
 
-## 3.6 What None of Them Are Building
+## 3.6 Rust-Based Memory Systems (Emerging)
+
+A wave of Rust-based memory systems emerged in late 2025 / early 2026, targeting performance, local-first deployment, and WASM portability. None are team products, but they contain useful engineering patterns.
+
+**MemX** (academic paper, March 2026)
+
+Local-first long-term memory in Rust on libSQL. Hybrid retrieval pipeline: vector recall + keyword recall, fused via Reciprocal Rank Fusion (RRF), re-ranked by four factors (semantic similarity, recency, importance, frequency). Key innovation: a **low-confidence rejection rule** that suppresses spurious recalls when no answer exists — the system says "I don't know" rather than hallucinating.
+
+Performance: Hit@1=91.3% on default scenarios, 100% under high confusion. But struggles with temporal reasoning and multi-session reasoning (under 44% accuracy) — exactly the capabilities BrainShare needs most.
+
+**BrainShare takeaway:** Borrow the rejection rule pattern (suppress false recalls). The four-factor re-ranking (similarity, recency, importance, frequency) maps loosely to BrainShare's conviction meter dimensions.
+
+**mempalace-rs** (GitHub, 2026)
+
+Local, offline-first AI memory in Rust. 4-layer memory stack (L0-L3), temporal knowledge graph with valid_from/valid_to tracking, 20 MCP tools, SQLite + vector storage. Includes AAAK compression (~30x token reduction with adaptive density and importance scoring).
+
+**BrainShare takeaway:** The 4-layer memory hierarchy and temporal knowledge graph are architecturally similar to what BrainShare is building. The 30x compression ratio is a useful benchmark. MCP-native from day one is the right approach.
+
+**Cortex Memory** (cortex-mem.io, 2026)
+
+AI-native memory framework in Rust. Progressive context disclosure through a three-tier hierarchy: L0 (abstract) → L1 (overview) → L2 (detailed transcript). Load only what's needed, optimizing token usage. Memory evolves through continuous agent-context interaction with auto-extraction. Stores decisions.json alongside user and agent profiles.
+
+**BrainShare takeaway:** Progressive context disclosure (L0/L1/L2) is a smart pattern for BrainShare's context assembly protocol — when token budget is tight, serve the L0 abstract; when there's room, include L1 or L2 detail. The auto-extraction on every session commit is similar to BrainShare's extraction pipeline.
+
+**MehulG/memX** (GitHub, 2026 — different from academic MemX)
+
+Real-time shared memory layer for multi-agent LLM systems. Synchronizes structured state across agents with schema validation, access control, and pub/sub notifications via Redis + FastAPI. The only project in this list that handles SHARED memory across multiple agents.
+
+**BrainShare takeaway:** The schema validation + pub/sub pattern is relevant for BrainShare's multi-tool sync. Access control (API keys mapped to glob-style patterns) is a pattern to consider for team role-based context access.
+
+### Summary of Rust-Based Systems
+
+All are solving single-user or single-agent memory. None handle team-level shared memory, typed team primitives, multi-tool write-back, or product-level experiences. They confirm that the infrastructure building blocks exist in Rust and that local-first, high-performance memory is achievable — but BrainShare's differentiation is at the product and semantic layer above these systems.
+
+## 3.7 What None of Them Are Building
 
 None of the existing agent memory systems:
 - Are end-user products for teams (they're all developer APIs)
@@ -189,6 +223,24 @@ Shows that LLMs perform dramatically better on causal reasoning when given expli
 Evaluates how structured context files (like CLAUDE.md) affect LLM agent performance. Finds that architectural decisions about context format should be tailored to model capability rather than assuming universal best practices.
 
 **BrainShare implication:** The format in which BrainShare delivers context to LLMs matters as much as the content. Different models may perform better with different context formats.
+
+## Compiled Memory / Atlas (March 2026)
+
+Proposes "compiled memory" — rather than retrieving and injecting past experiences as context (which all current memory systems do), Atlas compiles verified experience into the agent's instruction structure, permanently modifying its base prompt at zero additional inference cost. Key insight: "Where prior systems improve memory capacity, Atlas addresses memory utility — what to promote, how to verify it, and how to transform it into behavioral change."
+
+**BrainShare implication:** The distinction between memory-as-context (retrieve and inject) and memory-as-instructions (compile into the prompt permanently) is worth considering. BrainShare's inborn knowledge layer might benefit from the "compiled" approach — instead of retrieving operational patterns at runtime, compile them into the system prompt. Working memory still needs dynamic retrieval.
+
+## MemMachine (April 2026)
+
+Ground-truth-preserving memory system. Key innovation: "contextualized retrieval" that expands nucleus matches with neighboring episode context. Achieves 0.9169 on LoCoMo benchmark — above Mem0, Zep, Memobase, LangMem, and OpenAI baselines. Finding: retrieval-stage optimizations (depth tuning, context formatting, search prompt design) contribute more to accuracy than ingestion-stage optimizations.
+
+**BrainShare implication:** Retrieval quality matters more than ingestion quality. Invest heavily in how BrainShare assembles context payloads (the context assembly protocol) rather than over-optimizing extraction.
+
+## MemFactory (April 2026)
+
+Unified inference and training framework for agent memory. Provides standardized infrastructure for memory-driven agents. Key contribution: modular architecture that separates memory extraction, storage, retrieval, and application into independent, composable components.
+
+**BrainShare implication:** Modular pipeline architecture (extract → store → retrieve → apply) is the right approach. Each stage should be independently testable and improvable.
 
 ---
 
@@ -250,4 +302,4 @@ Every player in this space is building developer infrastructure. Nobody is build
 
 ---
 
-*Research conducted April 2026. Sources include academic papers (arXiv), product documentation, GitHub repositories, industry analyses, and Gartner predictions. Landscape is moving fast — revisit quarterly.*
+*Research conducted April 2026. Updated with Rust-based memory systems (MemX, mempalace-rs, Cortex Memory, MehulG/memX) and additional academic papers (Atlas/Compiled Memory, MemMachine, MemFactory). Sources include academic papers (arXiv), product documentation, GitHub repositories, industry analyses, and Gartner predictions. Landscape is moving fast — revisit quarterly.*

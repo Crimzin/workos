@@ -4,9 +4,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 from uuid import uuid4
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
+import urllib.error
+import urllib.request
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -16,6 +21,10 @@ APP_DIR = Path(__file__).resolve().parent
 STORE_FILE = Path(os.getenv("BRAINSHARE_STORE_FILE", APP_DIR / "brainshare-dev-store.json"))
 VALID_TOKEN = os.getenv("BRAINSHARE_DEV_TOKEN", "bs_team_abc123")
 DEFAULT_CLAUDE_MODEL = os.getenv("BRAINSHARE_CLAUDE_MODEL", "claude-sonnet-4-20250514")
+PROVIDER_KEY_SECRET = os.getenv(
+    "BRAINSHARE_PROVIDER_KEY_SECRET",
+    VALID_TOKEN,
+)
 
 PrimitiveType = Literal[
     "decision",
@@ -37,6 +46,8 @@ ExtractionPrimitiveType = Literal[
     "QUESTION",
     "CONTEXT_UPDATE",
 ]
+
+ProviderName = Literal["claude", "openai"]
 
 EXTRACTION_SYSTEM_PROMPT = """You are BrainShare's extraction engine. Read a team conversation and extract only structured context primitives that are actually supported by the messages.
 
@@ -159,6 +170,27 @@ class ActorAuthorityIn(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProviderKeySetupIn(BaseModel):
+    provider: ProviderName
+    api_key: str = Field(..., min_length=12)
+    label: Optional[str] = None
+    validate_key: bool = Field(default=True, alias="validate")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProviderKeyStatus(BaseModel):
+    provider: ProviderName
+    configured: bool
+    key_hint: Optional[str] = None
+    label: Optional[str] = None
+    validation_status: Literal["untested", "valid", "invalid"] = "untested"
+    validation_error: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    validated_at: Optional[str] = None
+    source: Literal["store", "env"] = "store"
+
+
 class WorkOSMemoryPrimitiveIn(BaseModel):
     id: str
     instance_id: str
@@ -233,7 +265,139 @@ def ensure_store_shape(data: dict[str, Any]) -> dict[str, Any]:
     data.setdefault("primitives", [])
     data.setdefault("legacy_context", [])
     data.setdefault("actor_authority", {})
+    data.setdefault("provider_keys", {})
     return data
+
+
+def derive_provider_key_stream(nonce: bytes, length: int) -> bytes:
+    """Derive a deterministic byte stream for local encrypted provider storage."""
+
+    secret = PROVIDER_KEY_SECRET.encode("utf-8")
+    output = b""
+    counter = 0
+    while len(output) < length:
+        counter_bytes = counter.to_bytes(4, "big")
+        output += hmac.new(secret, nonce + counter_bytes, hashlib.sha256).digest()
+        counter += 1
+    return output[:length]
+
+
+def encrypt_provider_secret(value: str) -> str:
+    plaintext = value.encode("utf-8")
+    nonce = os.urandom(16)
+    key_stream = derive_provider_key_stream(nonce, len(plaintext))
+    ciphertext = bytes(a ^ b for a, b in zip(plaintext, key_stream))
+    mac = hmac.new(
+        PROVIDER_KEY_SECRET.encode("utf-8"),
+        nonce + ciphertext,
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(nonce + mac + ciphertext).decode("ascii")
+
+
+def decrypt_provider_secret(value: str) -> str:
+    try:
+        raw = base64.urlsafe_b64decode(value.encode("ascii"))
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="provider_key_decode_failed") from exc
+    nonce = raw[:16]
+    mac = raw[16:48]
+    ciphertext = raw[48:]
+    expected_mac = hmac.new(
+        PROVIDER_KEY_SECRET.encode("utf-8"),
+        nonce + ciphertext,
+        hashlib.sha256,
+    ).digest()
+    if not hmac.compare_digest(mac, expected_mac):
+        raise HTTPException(status_code=500, detail="provider_key_integrity_failed")
+    key_stream = derive_provider_key_stream(nonce, len(ciphertext))
+    plaintext = bytes(a ^ b for a, b in zip(ciphertext, key_stream))
+    return plaintext.decode("utf-8")
+
+
+def provider_key_hint(api_key: str) -> str:
+    stripped = api_key.strip()
+    if len(stripped) <= 10:
+        return "*" * len(stripped)
+    return f"{stripped[:6]}...{stripped[-4:]}"
+
+
+def provider_key_status(
+    provider: ProviderName,
+    record: Optional[dict[str, Any]] = None,
+) -> ProviderKeyStatus:
+    env_key = os.getenv("ANTHROPIC_API_KEY") if provider == "claude" else os.getenv("OPENAI_API_KEY")
+    if record:
+        return ProviderKeyStatus(
+            provider=provider,
+            configured=True,
+            key_hint=record.get("key_hint"),
+            label=record.get("label"),
+            validation_status=record.get("validation_status", "untested"),
+            validation_error=record.get("validation_error"),
+            created_at=record.get("created_at"),
+            updated_at=record.get("updated_at"),
+            validated_at=record.get("validated_at"),
+            source="store",
+        )
+    if env_key:
+        return ProviderKeyStatus(
+            provider=provider,
+            configured=True,
+            key_hint=provider_key_hint(env_key),
+            validation_status="untested",
+            source="env",
+        )
+    return ProviderKeyStatus(provider=provider, configured=False)
+
+
+def provider_api_key(provider: ProviderName) -> Optional[str]:
+    data = store.load()
+    record = data.get("provider_keys", {}).get(provider)
+    if record and record.get("encrypted_api_key"):
+        return decrypt_provider_secret(record["encrypted_api_key"])
+    if provider == "claude":
+        return os.getenv("ANTHROPIC_API_KEY")
+    return os.getenv("OPENAI_API_KEY")
+
+
+def validate_openai_key(api_key: str) -> None:
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            if response.status >= 400:
+                raise HTTPException(status_code=400, detail="openai_key_validation_failed")
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"openai_key_validation_failed:{exc.code}",
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(status_code=400, detail="openai_key_validation_unreachable") from exc
+
+
+async def validate_provider_key(provider: ProviderName, api_key: str) -> None:
+    if provider == "claude":
+        try:
+            from anthropic import AsyncAnthropic
+        except ImportError as exc:
+            raise HTTPException(status_code=503, detail="anthropic_package_required") from exc
+        client = AsyncAnthropic(api_key=api_key)
+        try:
+            await client.messages.create(
+                model=DEFAULT_CLAUDE_MODEL,
+                max_tokens=1,
+                temperature=0,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="claude_key_validation_failed") from exc
+        return
+    validate_openai_key(api_key)
 
 
 def map_workos_memory_primitive(
@@ -708,7 +872,7 @@ async def extract_episode_with_claude(
     episode: dict[str, Any],
     request: EpisodeExtractionRequest,
 ) -> ExtractionResult:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = provider_api_key("claude")
     if not api_key:
         raise HTTPException(status_code=503, detail="anthropic_api_key_required")
     try:
@@ -1025,6 +1189,41 @@ class DevStore:
 
     def actor_context(self) -> dict[str, Any]:
         return self.load()["actor_authority"]
+
+    async def upsert_provider_key(
+        self,
+        payload: ProviderKeySetupIn,
+        validation_status: Literal["untested", "valid", "invalid"],
+        validation_error: Optional[str] = None,
+    ) -> dict[str, Any]:
+        data = self.load()
+        now = now_iso()
+        existing = data["provider_keys"].get(payload.provider, {})
+        record = {
+            "provider": payload.provider,
+            "encrypted_api_key": encrypt_provider_secret(payload.api_key.strip()),
+            "key_hint": provider_key_hint(payload.api_key),
+            "label": payload.label,
+            "validation_status": validation_status,
+            "validation_error": validation_error,
+            "validated_at": now if validation_status == "valid" else existing.get("validated_at"),
+            "created_at": existing.get("created_at", now),
+            "updated_at": now,
+            "metadata": payload.metadata,
+        }
+        data["provider_keys"][payload.provider] = record
+        self.save(data)
+        return record
+
+    async def delete_provider_key(self, provider: ProviderName) -> bool:
+        data = self.load()
+        existed = provider in data["provider_keys"]
+        data["provider_keys"].pop(provider, None)
+        self.save(data)
+        return existed
+
+    def provider_key_record(self, provider: ProviderName) -> Optional[dict[str, Any]]:
+        return self.load()["provider_keys"].get(provider)
 
 
 class GraphitiStore(DevStore):
@@ -1399,6 +1598,53 @@ def context() -> dict[str, Any]:
         "tokens_used": len(summary) // 4,
         "compression_level": "heavy",
         "original_size": f"{len(data['primitives'])} primitives compressed",
+    }
+
+
+@app.get("/providers/keys", dependencies=[Depends(require_auth)])
+def list_provider_keys() -> dict[str, Any]:
+    data = store.load()
+    records = data.get("provider_keys", {})
+    return {
+        "success": True,
+        "providers": [
+            provider_key_status("claude", records.get("claude")).model_dump(),
+            provider_key_status("openai", records.get("openai")).model_dump(),
+        ],
+    }
+
+
+@app.post("/providers/keys", dependencies=[Depends(require_auth)])
+async def upsert_provider_key(payload: ProviderKeySetupIn) -> dict[str, Any]:
+    validation_status: Literal["untested", "valid", "invalid"] = "untested"
+    validation_error: Optional[str] = None
+    if payload.validate_key:
+        try:
+            await validate_provider_key(payload.provider, payload.api_key)
+            validation_status = "valid"
+        except HTTPException as exc:
+            validation_status = "invalid"
+            validation_error = str(exc.detail)
+            raise
+
+    record = await store.upsert_provider_key(
+        payload,
+        validation_status=validation_status,
+        validation_error=validation_error,
+    )
+    return {
+        "success": True,
+        "provider": provider_key_status(payload.provider, record).model_dump(),
+    }
+
+
+@app.delete("/providers/keys/{provider}", dependencies=[Depends(require_auth)])
+async def delete_provider_key(provider: ProviderName) -> dict[str, Any]:
+    deleted = await store.delete_provider_key(provider)
+    return {
+        "success": True,
+        "provider": provider,
+        "deleted": deleted,
     }
 
 

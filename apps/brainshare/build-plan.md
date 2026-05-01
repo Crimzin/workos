@@ -76,7 +76,16 @@ curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
 
 **Expected**: The response includes the strict extraction prompt, extracted primitives, and stored BrainShare primitives. Stored primitives include `source_episode_ids`, `supporting_messages`, and `metadata.source_citations` so each item can be traced back to specific Discord message IDs. Decision primitives also include `metadata.conviction_factors`; authority-weighted approval reactions can raise conviction and appear in `approved_by`.
 
-To use Claude for production-quality extraction, set `ANTHROPIC_API_KEY` and change the provider:
+To use Claude for production-quality extraction, connect a provider key through BrainShare setup:
+
+```bash
+./brainshare providers set claude --env-var ANTHROPIC_API_KEY
+./brainshare providers list
+```
+
+The setup endpoint stores only encrypted key material server-side and returns redacted status (`sk-ant...1234`) to clients. Use `--no-validate` for local dry runs; otherwise BrainShare validates the key with a small provider test call before accepting it. Environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) still work as development fallback, but the product path is provider setup.
+
+Then change extraction to the Claude provider:
 
 ```bash
 curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
@@ -87,7 +96,17 @@ curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
 
 Claude extraction uses `BRAINSHARE_CLAUDE_MODEL` when set, otherwise the default model configured in the service. Stored primitives include a `metadata.conviction_threshold` action: `assert` for conviction `>=0.8`, `flag` for `0.5-0.8`, and `ask` for `<0.5`.
 
-For the product UX, this should become a BrainShare onboarding/settings step: the user connects Claude/OpenAI providers, BrainShare validates the key server-side, stores it encrypted, and only backend services read it. Browser/client code should never receive provider API keys.
+Provider keys can also be managed directly through REST:
+
+```bash
+curl -X POST http://localhost:3100/providers/keys \
+  -H "Authorization: Bearer bs_team_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "claude", "api_key": "sk-ant-...", "validate": true}'
+
+curl http://localhost:3100/providers/keys \
+  -H "Authorization: Bearer bs_team_abc123"
+```
 
 **Test 5 - Inspect the extraction prompt contract:**
 ```bash
@@ -148,6 +167,16 @@ Start a **new Claude Code session** and try:
 **Expected**: Should see responses about context being added/found
 
 ## Phase 3: Real Usage Test (1 week)
+
+### CLI helper
+The `brainshare` CLI wraps the REST API for local power-user use:
+
+```bash
+./brainshare query "Firebase Auth"
+./brainshare push "We decided to use Firebase Auth" --category decision
+./brainshare ingest ./conversation-export.md --source-tool claude --source-location "Claude export"
+./brainshare providers set claude --env-var ANTHROPIC_API_KEY
+```
 
 ### Step 3.1: Use for Actual Work
 - Keep the API running while working on projects
