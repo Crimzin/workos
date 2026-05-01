@@ -973,17 +973,20 @@ def accepted_ai_artifact_extractions(episode: dict[str, Any]) -> list[ExtractedP
         if role == "ai" and ai_message_looks_like_artifact(content):
             pending_ai = item
             continue
-        if role != "human" or not pending_ai:
+        if role != "human":
             continue
 
         signal = human_signal_label(content)
+        if signal == "refinement":
+            saw_refinement = True
+            pending_ai = None
+            continue
+        if not pending_ai:
+            continue
         if signal in {"rejection", "uncertainty", "deferred"}:
             pending_ai = None
-            saw_refinement = signal == "refinement"
-            continue
-        if signal == "refinement":
-            pending_ai = None
-            saw_refinement = True
+            if signal == "rejection":
+                saw_refinement = False
             continue
         if signal == "approval":
             ai_index = pending_ai.get("index")
