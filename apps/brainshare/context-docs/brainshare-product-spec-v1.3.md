@@ -698,16 +698,55 @@ BrainShare is NOT asking the LLM to discover causal relationships from raw text.
 | Inborn knowledge library | Curate manually | Proprietary IP |
 | Product UX | Build custom (WorkOS) | The product IS the differentiation |
 
-## 15.7 Integration Architecture: MCP as Primary Path
+## 15.7 Integration Architecture: Provider-Neutral Memory
 
-BrainShare should expose an **MCP server** as the primary integration surface for Claude ecosystem tools (Claude, Claude Code, Claude Desktop). This lets AI tools connect to BrainShare's context graph via MCP tool calls — no custom integration code needed on the Claude side.
+BrainShare should be model-agnostic. OpenAI, Anthropic, Google, and future model companies may supply access, extraction, reasoning, or action execution, but BrainShare owns the canonical memory model, provenance, permissions, and retrieval contract.
 
-- **MCP for Claude ecosystem:** Claude Code and Claude Desktop connect to BrainShare's MCP server and automatically have access to team context through tool calls (query context, get decisions, check assumptions, etc.)
-- **API for ChatGPT and other LLMs:** REST/GraphQL API for tools that don't support MCP. Also used for BrainShare's own web UI and for third-party integrations.
-- **CLI for power users:** `brainshare query "what did we decide about auth?"` — secondary interface for scripting and terminal-native workflows.
-- **Data export for bulk analysis:** JSON/CSV export of the graph for external analysis tools.
+The major model providers are moving toward broad connector ecosystems: app integrations, MCP servers, plugins, browser/computer use, automations, memory, and workspace-managed connected apps. BrainShare should use those ecosystems as accelerants without becoming dependent on any one of them.
 
-MCP is prioritized because the Claude ecosystem is BrainShare's natural home — Will builds with Claude Code, uses Claude for product thinking, and the WorkOS AI panel will run on Claude. Getting MCP right means BrainShare's context flows into every Claude session automatically.
+**Model-company connectors are the agent's eyes and hands.** They can read Slack, inspect Google Drive, comment on docs, work in GitHub, operate browser or desktop surfaces, and schedule follow-up work.
+
+**BrainShare is the durable organizational memory layer underneath those agents.** Its job is to decide what is worth remembering, structure it as typed primitives, preserve provenance, assign conviction, model supersession over time, and make that memory retrievable by any agent or human with the right access.
+
+This prevents BrainShare from becoming "another Slack/Google connector product." The shallow version of BrainShare gets eaten by increasingly capable agent integrations. The deep version becomes more valuable precisely because agents can now see and act across more tools: once agents can touch everything, teams need a trusted system that remembers what mattered, who had authority, why decisions changed, and who is allowed to see each memory.
+
+BrainShare integration surfaces:
+
+- **MCP server:** primary provider-neutral interface for agent tools that support MCP, including Claude Code, Claude Desktop, ChatGPT/Codex-style tool environments when available, IDE agents, and internal agents.
+- **REST API:** stable fallback for ChatGPT, custom GPTs, web apps, direct integrations, and model ecosystems that do not expose MCP.
+- **CLI:** power-user and export/manual-ingestion fallback (`brainshare query`, `brainshare ingest`, `brainshare ingest-conversation`).
+- **Native connectors:** use when BrainShare needs canonical sync, writeback, permissions, or product-grade reliability that model-platform mediated access cannot guarantee.
+- **Model-platform mediated access:** Codex/ChatGPT/Claude/Gemini or future agents can read external tools through their own connectors and push distilled Episodes or primitives into BrainShare.
+- **Export/manual fallback:** JSON, Markdown, HTML, shared links, and CLI ingestion prevent lock-in and keep BrainShare useful even when a user does not use a given model provider.
+
+Practical architecture:
+
+```
+Slack / Gmail / Drive / Docs / GitHub / Notion / local apps
+        ↓
+OpenAI apps/plugins, Claude connectors/MCP, Gemini tools, native APIs, browser/computer use, exports
+        ↓
+BrainShare ingestion contract
+Episode + source provenance + actor identity + permissions metadata
+        ↓
+BrainShare memory layer
+Decisions, assumptions, actions, questions, context updates, graph edges, conviction
+        ↓
+BrainShare MCP server + REST API + CLI + WorkOS UI
+        ↓
+Codex, ChatGPT, Claude, Gemini, internal agents, IDE tools, Swarm, WorkOS
+        ↓
+WorkOS-backed auth, RBAC, audit, tenancy, policy
+```
+
+Product wedges this implies:
+
+- **Decision ledger from work chatter:** what was decided, why, by whom, with what evidence, and what superseded it later.
+- **Agent handoff memory:** Codex, Claude, ChatGPT, or another agent discovers context while working, pushes durable summaries into BrainShare, and future agents retrieve project state without re-reading half the company.
+- **Permission-aware memory graph:** every primitive keeps source provenance and access metadata so retrieval can respect what the current user or agent is allowed to know.
+- **Enterprise memory API:** Codex, ChatGPT, Claude, WorkOS, Swarm, and internal tools use BrainShare as the organization's canonical memory backend.
+
+WorkOS matters here as the enterprise control plane around BrainShare memory: tenancy, SSO, SCIM, RBAC, audit logs, admin policy, domain controls, and permission-aware access to memory. BrainShare memory should never be "just a vector index"; it is governed company context.
 
 ---
 

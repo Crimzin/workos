@@ -770,11 +770,14 @@ AI conversations are the richest source of decision-making context for AI-native
 **Episode format:** A full conversation thread (or a project/chat within Claude Projects, a ChatGPT conversation). Each episode includes all messages with speaker attribution (human vs. AI), timestamps, and any attached files or artifacts.
 
 **Data access:**
-- Claude: MCP connection to Claude's conversation history (preferred — real-time, no manual export); fallback to API conversation history or Claude Projects file access
-- ChatGPT: Data export (Settings → Export data), shared conversation links, or API conversation history. MCP not yet available for ChatGPT.
-- Claude Code: Session transcripts via MCP, CLAUDE.md context, git commit history produced during sessions
+- Claude: MCP connection to Claude's conversation history when available; fallback to API conversation history, Claude Projects file access, or export/manual ingestion
+- ChatGPT / Codex: model-platform connectors, data export (Settings → Export data), shared conversation links, API conversation history, or MCP/app-tool surfaces when available
+- Gemini / future model providers: native connector surfaces, MCP-style bridges, API access, or export/manual ingestion
+- Claude Code / Codex / IDE agents: session transcripts via MCP/tooling, local project context files, git commit history produced during sessions
 - CLI fallback: `brainshare ingest ./conversation-export.json` for manual ingestion of exported conversation files
 - All sources: BrainShare should detect and handle multiple export formats (JSON, Markdown, HTML) gracefully
+
+Architectural rule: model-provider connector ecosystems are access paths, not BrainShare's foundation. BrainShare's canonical contract is provider-neutral Episodes with source provenance, actor identity, permissions metadata, and typed primitive extraction. A user should be able to use BrainShare with Claude, ChatGPT/Codex, Gemini, local/internal agents, or no model-company connector at all.
 
 **Chunking strategy:**
 - Per-conversation is the default episode unit

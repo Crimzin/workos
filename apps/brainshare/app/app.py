@@ -230,6 +230,26 @@ class DiscordMessagesIn(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AIConversationMessageIn(BaseModel):
+    id: Optional[str] = None
+    role: Literal["human", "user", "assistant", "ai", "system", "tool"]
+    content: str = Field(..., min_length=1)
+    author_name: Optional[str] = None
+    timestamp: Optional[str] = None
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AIConversationIn(BaseModel):
+    source_tool: Literal["claude", "chatgpt", "claude_code", "other_ai"]
+    messages: list[AIConversationMessageIn] = Field(..., min_length=1)
+    conversation_id: Optional[str] = None
+    title: Optional[str] = None
+    project_name: Optional[str] = None
+    source_url: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 def parse_reference_time(value: Optional[str]) -> datetime:
     if not value:
         return datetime.now(timezone.utc)
@@ -573,6 +593,165 @@ def discord_chunk_to_episode(
     )
 
 
+def normalize_ai_role(role: str) -> Literal["human", "ai", "system", "tool"]:
+    if role in {"human", "user"}:
+        return "human"
+    if role in {"assistant", "ai"}:
+        return "ai"
+    if role == "tool":
+        return "tool"
+    return "system"
+
+
+def ai_message_author(message: AIConversationMessageIn) -> str:
+    if message.author_name:
+        return message.author_name
+    role = normalize_ai_role(message.role)
+    if role == "human":
+        return "Human"
+    if role == "ai":
+        return "AI"
+    return role.title()
+
+
+def format_ai_conversation_messages(messages: list[AIConversationMessageIn]) -> str:
+    lines = []
+    for index, message in enumerate(messages, start=1):
+        content = re.sub(r"\s+", " ", message.content).strip()
+        lines.append(f"[{index}] {ai_message_author(message)}: {content}")
+    return "\n".join(lines)
+
+
+def estimated_tokens(text: str) -> int:
+    return max(1, int(len(text.split()) * 1.3))
+
+
+def is_ai_topic_shift(message: AIConversationMessageIn) -> bool:
+    content = message.content.strip().lower()
+    markers = [
+        "ok now",
+        "okay now",
+        "next topic",
+        "new topic",
+        "switching gears",
+        "separate topic",
+        "let's talk about",
+        "lets talk about",
+        "now let's",
+        "now lets",
+        "different question",
+        "question:",
+    ]
+    return normalize_ai_role(message.role) == "human" and any(
+        content.startswith(marker) for marker in markers
+    )
+
+
+def chunk_ai_conversation(
+    messages: list[AIConversationMessageIn],
+    max_turns: int = 50,
+    max_tokens: int = 15000,
+    long_pause_hours: int = 4,
+) -> list[list[tuple[int, AIConversationMessageIn]]]:
+    chunks: list[list[tuple[int, AIConversationMessageIn]]] = []
+    current: list[tuple[int, AIConversationMessageIn]] = []
+    current_tokens = 0
+    previous_at: Optional[datetime] = None
+
+    for original_index, message in enumerate(messages, start=1):
+        message_tokens = estimated_tokens(message.content)
+        message_at = parse_reference_time(message.timestamp) if message.timestamp else None
+        long_pause = (
+            previous_at is not None
+            and message_at is not None
+            and message_at - previous_at > timedelta(hours=long_pause_hours)
+        )
+        should_split = bool(current) and (
+            len(current) >= max_turns
+            or current_tokens + message_tokens > max_tokens
+            or is_ai_topic_shift(message)
+            or long_pause
+        )
+
+        if should_split:
+            chunks.append(current)
+            current = []
+            current_tokens = 0
+
+        current.append((original_index, message))
+        current_tokens += message_tokens
+        if message_at is not None:
+            previous_at = message_at
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def ai_conversation_chunk_to_episode(
+    payload: AIConversationIn,
+    chunk: list[tuple[int, AIConversationMessageIn]],
+    chunk_index: int,
+    chunk_count: int,
+) -> EpisodeCreate:
+    chunk_messages = [message for _, message in chunk]
+    title = payload.title or payload.conversation_id or "Untitled AI conversation"
+    source_location = payload.conversation_id or title
+    if chunk_count > 1:
+        source_location = f"{source_location}#chunk-{chunk_index + 1}"
+    timestamps = [
+        message.timestamp
+        for _, message in chunk
+        if message.timestamp
+    ]
+    actors = sorted(
+        {
+            ai_message_author(message)
+            for _, message in chunk
+            if normalize_ai_role(message.role) == "human"
+        }
+    )
+
+    return EpisodeCreate(
+        source_tool=payload.source_tool,
+        source_location=source_location,
+        raw_content=format_ai_conversation_messages(chunk_messages),
+        timestamp_start=timestamps[0] if timestamps else None,
+        timestamp_end=timestamps[-1] if timestamps else None,
+        actors=actors,
+        message_count=len(chunk_messages),
+        metadata={
+            "episode_type": "message",
+            "source_kind": "ai_conversation",
+            "conversation_id": payload.conversation_id,
+            "title": payload.title,
+            "project_name": payload.project_name,
+            "source_url": payload.source_url,
+            "chunk_index": chunk_index,
+            "chunk_count": chunk_count,
+            "message_ids": [
+                message.id or f"turn_{original_index}"
+                for original_index, message in chunk
+            ],
+            "supporting_messages": [
+                {
+                    "index": chunk_indexed,
+                    "source_message_index": original_index,
+                    "message_id": message.id or f"turn_{original_index}",
+                    "speaker_role": normalize_ai_role(message.role),
+                    "author_name": ai_message_author(message),
+                    "content": message.content,
+                    "timestamp": message.timestamp,
+                    "attachments": message.attachments,
+                    "metadata": message.metadata,
+                }
+                for chunk_indexed, (original_index, message) in enumerate(chunk, start=1)
+            ],
+            **payload.metadata,
+        },
+    )
+
+
 def primitive_type_from_extraction(extraction_type: ExtractionPrimitiveType) -> PrimitiveType:
     return extraction_type.lower()  # type: ignore[return-value]
 
@@ -668,6 +847,65 @@ def approval_actors_from_reactions(
     return sorted(approvals)
 
 
+def ai_conversation_signal_adjustment(
+    episode: dict[str, Any],
+    supporting_messages: list[int],
+) -> tuple[float, Optional[float], list[str]]:
+    if episode.get("metadata", {}).get("source_kind") != "ai_conversation":
+        return 0, None, []
+
+    messages = episode.get("metadata", {}).get("supporting_messages", [])
+    by_index = {
+        item.get("index"): item
+        for item in messages
+        if isinstance(item.get("index"), int)
+    }
+    cited = [by_index[index] for index in supporting_messages if index in by_index]
+    if any(item.get("speaker_role") == "human" for item in cited):
+        return 0.12, None, ["ai_conversation_human_explicit_source"]
+
+    max_supported = max(supporting_messages or [0])
+    next_human = next(
+        (
+            item
+            for item in messages
+            if item.get("speaker_role") == "human"
+            and isinstance(item.get("index"), int)
+            and item["index"] > max_supported
+        ),
+        None,
+    )
+    if not next_human:
+        return 0, 0.7, ["ai_conversation_ai_only_no_human_adoption"]
+
+    content = str(next_human.get("content") or "").lower()
+    high_markers = [
+        "yes",
+        "exactly",
+        "perfect",
+        "this is great",
+        "looks good",
+        "i agree",
+        "update the spec",
+        "ship it",
+    ]
+    modification_markers = ["yes but", "close, but", "mostly", "with one change"]
+    uncertainty_markers = ["not sure", "let me think", "maybe", "tentative"]
+    deferred_markers = ["come back", "later", "not yet", "defer"]
+
+    if re.search(r"\b(no|wrong|nah)\b|not that|don't store", content):
+        return 0, 0.2, ["ai_conversation_human_rejection"]
+    if any(marker in content for marker in uncertainty_markers):
+        return 0, 0.45, ["ai_conversation_human_uncertainty"]
+    if any(marker in content for marker in deferred_markers):
+        return 0, 0.55, ["ai_conversation_human_deferred"]
+    if any(marker in content for marker in modification_markers):
+        return 0.06, 0.85, ["ai_conversation_human_yes_but"]
+    if any(marker in content for marker in high_markers):
+        return 0.12, None, ["ai_conversation_human_validation"]
+    return 0, 0.75, ["ai_conversation_implicit_human_acceptance"]
+
+
 def calculate_conviction(
     extracted: ExtractedPrimitive,
     episode: dict[str, Any],
@@ -696,6 +934,15 @@ def calculate_conviction(
     if authority_approvals:
         score += 0.1
         factors.append(f"authority_reaction_approval={','.join(authority_approvals)}")
+
+    ai_delta, ai_cap, ai_factors = ai_conversation_signal_adjustment(
+        episode,
+        extracted.supporting_messages,
+    )
+    score += ai_delta
+    if ai_cap is not None:
+        score = min(score, ai_cap)
+    factors.extend(ai_factors)
 
     if extracted.type == "QUESTION":
         score = min(score, 0.8)
@@ -1419,6 +1666,24 @@ async def ingest_discord_messages(payload: DiscordMessagesIn) -> dict[str, Any]:
     ]
     return {
         "success": True,
+        "episode_count": len(episodes),
+        "episodes": [episode.model_dump() for episode in episodes],
+    }
+
+
+@app.post("/sources/ai/conversations", dependencies=[Depends(require_auth)])
+async def ingest_ai_conversation(payload: AIConversationIn) -> dict[str, Any]:
+    chunks = chunk_ai_conversation(payload.messages)
+    episodes = [
+        await store.add_episode(
+            ai_conversation_chunk_to_episode(payload, chunk, index, len(chunks))
+        )
+        for index, chunk in enumerate(chunks)
+    ]
+    return {
+        "success": True,
+        "source_tool": payload.source_tool,
+        "conversation_id": payload.conversation_id,
         "episode_count": len(episodes),
         "episodes": [episode.model_dump() for episode in episodes],
     }

@@ -22,6 +22,9 @@
 - **2026-05-01 — MCP as primary integration path for Claude ecosystem.**
 - BrainShare exposes an MCP server for Claude/Claude Code/Claude Desktop. API/export for ChatGPT. CLI as secondary power-user interface.
 
+- **2026-05-01 — BrainShare must stay model-provider-neutral.**
+- OpenAI/Codex, Anthropic/Claude, Google/Gemini, and future model-company connector ecosystems are access and action layers, not BrainShare's foundation. BrainShare uses them opportunistically, but owns the canonical memory model, provenance, conviction, permissions, and retrieval contract. Users should not be forced into a relationship with any one model company.
+
 - **2026-05-01 — Writeback targets cards OR stacks.**
 - Sometimes a stack is the right scope for linking extracted context (e.g., a strategic decision spanning multiple cards). Not just cards.
 
@@ -417,9 +420,11 @@ Core extraction principle: Both humans and AI produce content. But conviction al
 
 - [x] Make Graphiti the default backend once live Neo4j/Graphiti ingestion is verified end-to-end with a quota-enabled OPENAI_API_KEY
 
-- [x] Expose BrainShare as an MCP server for Claude ecosystem tools (Claude, Claude Code, Claude Desktop) — primary integration path for context delivery to AI sessions
+- [x] Expose BrainShare as a provider-neutral MCP server for Claude ecosystem tools, Codex/ChatGPT-style tool environments when available, IDE agents, and internal agents
 
 - [x] Add REST API for ChatGPT and non-MCP tools
+
+- [x] Define model-platform connectors as optional access/action adapters, not the canonical BrainShare substrate
 
 - [x] Decide GraphQL is not needed for 2.0 because the REST API is sufficient for ChatGPT, CLI, MCP shims, and internal WorkOS calls
 
@@ -429,25 +434,27 @@ Core extraction principle: Both humans and AI produce content. But conviction al
 
 Build the reference implementation from the extraction spec. Claude/ChatGPT conversations are the first source because they are the richest source of decision-making context for AI-native teams, and "your AI never forgets" is BrainShare's most visceral first value prop.
 
-- [ ] Claude/ChatGPT conversation ingestion creates immutable Episodes from exported or MCP-accessed conversation data
+- [x] Claude/ChatGPT conversation ingestion creates immutable Episodes from exported or MCP-accessed conversation data
 
-- [ ] Topic-based chunking for long conversations (not time-based — a single conversation may span many topics over hours); maximum chunk ~50 turns or ~15k tokens
+- [x] Topic-based chunking for long conversations (not time-based — a single conversation may span many topics over hours); maximum chunk ~50 turns or ~15k tokens
 
-- [ ] Data access: MCP for Claude ecosystem (preferred), data export for ChatGPT, CLI fallback for manual ingestion
+- [x] Add REST endpoint and CLI fallback for manual Claude/ChatGPT JSON conversation ingestion
 
-- [ ] Define strict extraction JSON contract with supporting message indices and confidence, matching the BrainShare extraction spec
+- [ ] Data access: direct MCP connection to Claude conversation history and robust ChatGPT export/shared-link parsing
 
-- [ ] Wire the strict extraction contract to Claude API for production-quality extraction
+- [x] Define strict extraction JSON contract with supporting message indices and confidence, matching the BrainShare extraction spec
 
-- [ ] Add dev extraction endpoint that can produce and store Decision, Assumption, Action, Question, and ContextUpdate primitives
+- [x] Wire the strict extraction contract to Claude API for production-quality extraction
 
-- [ ] Implement the conviction signal table for AI conversations: explicit confirmation = high, implicit acceptance (silence/moving on) = medium, pushback = low, rejection = don't store
+- [x] Add dev extraction endpoint that can produce and store Decision, Assumption, Action, Question, and ContextUpdate primitives
+
+- [x] Implement the conviction signal table for AI conversations: explicit confirmation = high, implicit acceptance (silence/moving on) = medium, pushback = low, rejection = don't store
 
 - [ ] Handle multi-turn refinement patterns: AI proposes → human pushes back → AI refines → human accepts. Store the FINAL accepted version, not intermediate proposals.
 
 - [ ] Detect artifact/document approval: when AI produces a spec/plan and human approves, the entire document is context
 
-- [ ] Store source citations on Episodes: message indices, speaker attribution (human vs. AI), timestamps
+- [x] Store source citations on Episodes: message indices, speaker attribution (human vs. AI), timestamps
 
 - [ ] Post concise confirmation in the source tool or WorkOS: captured decision / assumption / action, with "anything wrong?" correction affordance
 
@@ -456,11 +463,11 @@ Build the reference implementation from the extraction spec. Claude/ChatGPT conv
 
 ### 2.2 Conviction + Graph Validation v0
 
-- [ ] Convert LLM confidence into BrainShare conviction with explicitness, authority weight, rationale specificity, and source strength
+- [x] Convert LLM confidence into BrainShare conviction with explicitness, authority weight, rationale specificity, and source strength
 
-- [ ] Implement initial thresholds: >=0.8 assert, 0.5-0.8 flag, <0.5 ask
+- [x] Implement initial thresholds: >=0.8 assert, 0.5-0.8 flag, <0.5 ask
 
-- [ ] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
+- [x] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
 
 - [ ] Add simple duplicate detection before storage using vector similarity / Graphiti search
 

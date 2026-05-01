@@ -1,5 +1,7 @@
 # BrainShare API Specification
 
+BrainShare is model-provider-neutral. OpenAI/Codex, Anthropic/Claude, Google/Gemini, and future model-company connector ecosystems can act as access/action layers, but they are not the canonical memory substrate. The stable contract is Episodes in, typed primitives and context out, with provenance and permission metadata preserved.
+
 ## Authentication
 - **Team API Key**: Each team gets unique key from BrainShare setup
 - **Header**: `Authorization: Bearer bs_team_abc123`
@@ -41,6 +43,47 @@ Store a Claude/OpenAI provider key server-side. BrainShare validates by default,
 
 ### DELETE /providers/keys/{provider}
 Remove a stored provider key. Environment variables may still be used as development fallback.
+
+### POST /sources/ai/conversations
+Ingest a Claude/ChatGPT/Claude Code conversation as immutable BrainShare Episodes. Long conversations are chunked by explicit topic shifts, long pauses, and maximum size limits (~50 turns or ~15k tokens per chunk).
+
+**Request:**
+```json
+{
+  "source_tool": "claude",
+  "conversation_id": "conv_123",
+  "title": "BrainShare roadmap",
+  "project_name": "WorkOS",
+  "messages": [
+    {
+      "id": "m1",
+      "role": "human",
+      "author_name": "Will",
+      "content": "Let's use Graphiti as the graph backend.",
+      "timestamp": "2026-05-01T10:00:00Z"
+    },
+    {
+      "id": "m2",
+      "role": "ai",
+      "content": "That fits because Graphiti gives temporal graph retrieval.",
+      "timestamp": "2026-05-01T10:01:00Z"
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "source_tool": "claude",
+  "conversation_id": "conv_123",
+  "episode_count": 1,
+  "episodes": []
+}
+```
+
+Each Episode stores `metadata.source_kind = "ai_conversation"` and `metadata.supporting_messages` with chunk-local message indices, original source message indices, speaker role (`human` / `ai` / `system` / `tool`), author, content, timestamp, attachments, and message IDs. Extraction conviction uses these records to distinguish AI-generated content from human adoption signals.
 
 ### POST /push
 Add context to team's shared document
