@@ -119,6 +119,14 @@ class Primitive(PrimitiveCreate):
     updated_at: str
 
 
+class PrimitiveCorrectionIn(BaseModel):
+    correction: str = Field(..., min_length=1)
+    correction_type: Literal["supersede", "retract"] = "supersede"
+    actor_id: Optional[str] = None
+    rationale: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PushRequest(BaseModel):
     content: str = Field(..., min_length=1)
     category: str = "knowledge"
@@ -1627,6 +1635,101 @@ def extract_episode_with_dev_rules(
     )
 
 
+STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "because", "by", "for",
+    "from", "in", "is", "it", "of", "on", "or", "our", "that", "the",
+    "this", "to", "use", "using", "we", "with",
+}
+
+CONFLICT_MARKERS = {
+    "instead", "replace", "replaced", "replacing", "switch", "switched",
+    "supersede", "supersedes", "superseded", "stop", "stopped", "no",
+    "not", "don't", "do not", "no longer", "rather than",
+}
+
+
+def primitive_text(item: PrimitiveCreate | dict[str, Any]) -> str:
+    if isinstance(item, PrimitiveCreate):
+        return f"{item.statement} {item.body or ''}"
+    return f"{item.get('statement') or ''} {item.get('body') or ''}"
+
+
+def primitive_tokens(item: PrimitiveCreate | dict[str, Any]) -> set[str]:
+    words = re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", primitive_text(item).lower())
+    return {word for word in words if len(word) > 2 and word not in STOPWORDS}
+
+
+def token_similarity(left: PrimitiveCreate | dict[str, Any], right: PrimitiveCreate | dict[str, Any]) -> float:
+    left_tokens = primitive_tokens(left)
+    right_tokens = primitive_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
+
+
+def has_conflict_marker(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in CONFLICT_MARKERS)
+
+
+def duplicate_match(payload: PrimitiveCreate, primitives: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    candidates = [
+        primitive for primitive in primitives
+        if primitive.get("type") == payload.type and primitive.get("status") not in {"superseded", "retracted"}
+    ]
+    best: Optional[dict[str, Any]] = None
+    best_score = 0.0
+    for candidate in candidates:
+        score = token_similarity(payload, candidate)
+        if score > best_score:
+            best = candidate
+            best_score = score
+
+    if best and (
+        best_score >= 0.86
+        or payload.statement.strip().lower() == str(best.get("statement", "")).strip().lower()
+    ):
+        return {
+            "primitive": best,
+            "similarity": round(best_score, 3),
+            "reason": "same_type_high_similarity",
+        }
+    return None
+
+
+def conflict_match(payload: PrimitiveCreate, primitives: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if payload.type != "decision":
+        return None
+
+    candidates = [
+        primitive for primitive in primitives
+        if primitive.get("type") == "decision" and (primitive.get("status") or "active") == "active"
+    ]
+    payload_text = primitive_text(payload)
+    if not has_conflict_marker(payload_text):
+        return None
+
+    best: Optional[dict[str, Any]] = None
+    best_score = 0.0
+    for candidate in candidates:
+        score = token_similarity(payload, candidate)
+        if score > best_score:
+            best = candidate
+            best_score = score
+
+    if best and best_score >= 0.25:
+        return {
+            "primitive": best,
+            "similarity": round(best_score, 3),
+            "reason": "conflicting_active_decision",
+        }
+    return None
+
+
+def graph_validation_response(action: str, **details: Any) -> dict[str, Any]:
+    return {"action": action, **details}
+
+
 class DevStore:
     """Small JSON-backed store until the Graphiti adapter is wired in."""
 
@@ -1673,6 +1776,32 @@ class DevStore:
         data["primitives"].append(primitive.model_dump())
         self.save(data)
         return primitive
+
+    def get_primitive(self, primitive_id: str) -> Optional[dict[str, Any]]:
+        return next(
+            (primitive for primitive in self.load()["primitives"] if primitive["id"] == primitive_id),
+            None,
+        )
+
+    async def mark_primitive_status(
+        self,
+        primitive_id: str,
+        status: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        data = self.load()
+        now = now_iso()
+        for primitive in data["primitives"]:
+            if primitive["id"] == primitive_id:
+                primitive["status"] = status
+                primitive["updated_at"] = now
+                primitive["metadata"] = {
+                    **primitive.get("metadata", {}),
+                    **metadata,
+                }
+                self.save(data)
+                return primitive
+        raise HTTPException(status_code=404, detail="primitive_not_found")
 
     async def add_legacy_context(self, payload: PushRequest) -> dict[str, Any]:
         data = self.load()
@@ -1841,6 +1970,54 @@ app = FastAPI(
 )
 
 
+async def store_primitive_with_graph_validation(
+    payload: PrimitiveCreate,
+    source_episode_id: Optional[str] = None,
+) -> tuple[Optional[Primitive], dict[str, Any]]:
+    data = store.load()
+    duplicate = duplicate_match(payload, data["primitives"])
+    if duplicate:
+        primitive = duplicate["primitive"]
+        return None, graph_validation_response(
+            "duplicate_skipped",
+            duplicate_of_primitive_id=primitive["id"],
+            similarity=duplicate["similarity"],
+            reason=duplicate["reason"],
+        )
+
+    conflict = conflict_match(payload, data["primitives"])
+    metadata = {**payload.metadata}
+    if conflict:
+        old = conflict["primitive"]
+        metadata["supersedes_primitive_id"] = old["id"]
+        metadata["graph_validation"] = {
+            "action": "supersedes_conflicting_decision",
+            "similarity": conflict["similarity"],
+            "reason": conflict["reason"],
+        }
+        payload = payload.model_copy(update={"metadata": metadata, "status": payload.status or "active"})
+        primitive = await store.add_primitive(payload)
+        await store.mark_primitive_status(
+            old["id"],
+            "superseded",
+            {
+                "superseded_by_primitive_id": primitive.id,
+                "superseded_by_episode_id": source_episode_id,
+                "superseded_reason": conflict["reason"],
+            },
+        )
+        return primitive, graph_validation_response(
+            "superseded_conflict",
+            superseded_primitive_id=old["id"],
+            stored_primitive_id=primitive.id,
+            similarity=conflict["similarity"],
+            reason=conflict["reason"],
+        )
+
+    primitive = await store.add_primitive(payload)
+    return primitive, graph_validation_response("stored", stored_primitive_id=primitive.id)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {
@@ -1899,6 +2076,7 @@ async def extract_episode(
     extraction_payload = payload.model_copy(update={"actor_context": actor_context})
     result = await run_episode_extraction(episode, extraction_payload)
     stored_primitives: list[Primitive] = []
+    graph_validation: list[dict[str, Any]] = []
     if payload.store_primitives:
         for extracted in result.primitives:
             primitive_payload = extracted_to_primitive_create(
@@ -1912,12 +2090,20 @@ async def extract_episode(
                 episode.get("metadata", {}).get("source_kind") == "ai_conversation"
                 and "ai_conversation_human_rejection" in factors
             ):
-                continue
-            stored_primitives.append(
-                await store.add_primitive(
-                    primitive_payload
+                graph_validation.append(
+                    graph_validation_response(
+                        "ai_rejection_skipped",
+                        statement=primitive_payload.statement,
+                    )
                 )
+                continue
+            primitive, validation = await store_primitive_with_graph_validation(
+                primitive_payload,
+                source_episode_id=episode_id,
             )
+            graph_validation.append(validation)
+            if primitive:
+                stored_primitives.append(primitive)
 
     return {
         "success": True,
@@ -1930,6 +2116,7 @@ async def extract_episode(
         },
         "extraction": result.model_dump(),
         "stored_primitives": [primitive.model_dump() for primitive in stored_primitives],
+        "graph_validation": graph_validation,
         "confirmation": confirmation_payload_for_primitives(stored_primitives),
     }
 
@@ -1968,8 +2155,100 @@ async def ingest_ai_conversation(payload: AIConversationIn) -> dict[str, Any]:
 
 @app.post("/primitives", dependencies=[Depends(require_auth)])
 async def create_primitive(payload: PrimitiveCreate) -> dict[str, Any]:
-    primitive = await store.add_primitive(payload)
-    return {"success": True, "primitive": primitive.model_dump()}
+    primitive, validation = await store_primitive_with_graph_validation(payload)
+    return {
+        "success": True,
+        "primitive": primitive.model_dump() if primitive else None,
+        "graph_validation": validation,
+    }
+
+
+@app.post("/primitives/{primitive_id}/corrections", dependencies=[Depends(require_auth)])
+async def correct_primitive(
+    primitive_id: str,
+    payload: PrimitiveCorrectionIn,
+) -> dict[str, Any]:
+    existing = store.get_primitive(primitive_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="primitive_not_found")
+
+    correction_episode = await store.add_episode(
+        EpisodeCreate(
+            source_tool="brainshare",
+            source_location=f"correction:{primitive_id}",
+            raw_content=payload.correction,
+            actors=[payload.actor_id] if payload.actor_id else [],
+            metadata={
+                **payload.metadata,
+                "source_kind": "primitive_correction",
+                "correction_type": payload.correction_type,
+                "target_primitive_id": primitive_id,
+                "rationale": payload.rationale,
+            },
+        )
+    )
+
+    if payload.correction_type == "retract":
+        correction_primitive_payload = PrimitiveCreate(
+            type="context_update",
+            statement=f"Retracted: {existing['statement']}",
+            body=payload.correction,
+            status="active",
+            conviction=1.0,
+            source_episode_ids=[correction_episode.id],
+            actors=[payload.actor_id] if payload.actor_id else existing.get("actors", []),
+            related_node_id=existing.get("related_node_id"),
+            metadata={
+                **payload.metadata,
+                "correction_type": "retract",
+                "retracts_primitive_id": primitive_id,
+                "rationale": payload.rationale,
+            },
+        )
+        correction_primitive = await store.add_primitive(correction_primitive_payload)
+        updated_existing = await store.mark_primitive_status(
+            primitive_id,
+            "retracted",
+            {
+                "retracted_by_primitive_id": correction_primitive.id,
+                "retracted_by_episode_id": correction_episode.id,
+                "retraction_rationale": payload.rationale,
+            },
+        )
+    else:
+        correction_primitive_payload = PrimitiveCreate(
+            type=existing["type"],
+            statement=payload.correction,
+            body=payload.rationale,
+            status="active",
+            conviction=1.0,
+            source_episode_ids=[correction_episode.id],
+            actors=[payload.actor_id] if payload.actor_id else existing.get("actors", []),
+            related_node_id=existing.get("related_node_id"),
+            metadata={
+                **payload.metadata,
+                "correction_type": "supersede",
+                "supersedes_primitive_id": primitive_id,
+                "rationale": payload.rationale,
+            },
+        )
+        correction_primitive = await store.add_primitive(correction_primitive_payload)
+        updated_existing = await store.mark_primitive_status(
+            primitive_id,
+            "superseded",
+            {
+                "superseded_by_primitive_id": correction_primitive.id,
+                "superseded_by_episode_id": correction_episode.id,
+                "superseded_reason": "human_correction",
+            },
+        )
+
+    return {
+        "success": True,
+        "episode": correction_episode.model_dump(),
+        "primitive": correction_primitive.model_dump(),
+        "updated_primitive": updated_existing,
+    }
 
 
 @app.get("/primitives", dependencies=[Depends(require_auth)])

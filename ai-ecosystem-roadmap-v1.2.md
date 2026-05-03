@@ -469,11 +469,11 @@ Build the reference implementation from the extraction spec. Claude/ChatGPT conv
 
 - [x] Add actor authority weights during onboarding or seed setup (founder, domain owner, contractor, AI agent)
 
-- [ ] Add simple duplicate detection before storage using vector similarity / Graphiti search
+- [x] Add simple duplicate detection before storage using vector similarity / Graphiti search
 
-- [ ] Add first conflict/supersession flow for contradictory active decisions
+- [x] Add first conflict/supersession flow for contradictory active decisions
 
-- [ ] Preserve corrections as new Episodes that supersede or retract prior primitives rather than deleting history
+- [x] Preserve corrections as new Episodes that supersede or retract prior primitives rather than deleting history
 
 ### 2.3 WorkOS Writeback + Context Map
 

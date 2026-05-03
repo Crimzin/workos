@@ -87,7 +87,37 @@ Each Episode stores `metadata.source_kind = "ai_conversation"` and `metadata.sup
 
 For AI conversations, rejected AI proposals are not stored as durable primitives. When an AI-produced plan/spec/document is refined and then approved by a human, BrainShare stores the final accepted AI artifact as context with citations to the final AI message and the human approval message.
 
-Extraction responses include a `confirmation` payload that source tools can post back to the originating surface: captured items, conviction labels, source message references, and a correction affordance.
+Extraction responses include a `confirmation` payload that source tools can post back to the originating surface: captured items, conviction labels, source message references, and a correction affordance. They also include `graph_validation` entries for each candidate primitive. In v0 this layer skips obvious duplicates, supersedes contradictory active decisions when the new decision carries replacement language, and reports AI-rejected proposals that were intentionally not stored.
+
+### POST /primitives
+Store a typed primitive directly. The response includes a `graph_validation` object:
+
+```json
+{
+  "success": true,
+  "primitive": null,
+  "graph_validation": {
+    "action": "duplicate_skipped",
+    "duplicate_of_primitive_id": "prim_123",
+    "similarity": 1.0,
+    "reason": "same_type_high_similarity"
+  }
+}
+```
+
+Possible actions are `stored`, `duplicate_skipped`, and `superseded_conflict`.
+
+### POST /primitives/{primitive_id}/corrections
+Preserve a correction as a new Episode, then supersede or retract the existing primitive without deleting history.
+
+```json
+{
+  "correction": "Use WorkOS AuthKit instead of Clerk for customer authentication",
+  "correction_type": "supersede",
+  "actor_id": "user_123",
+  "rationale": "Human correction during review"
+}
+```
 
 ### POST /push
 Add context to team's shared document

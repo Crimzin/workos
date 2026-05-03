@@ -187,7 +187,7 @@ Before BrainShare extracts any primitives, it performs a **scoping pass** — a 
 
 ### How It Works
 
-BrainShare scans all connected tools and proposes a MECE categorization of the user's world, streamed in "thinking out loud" style:
+BrainShare scans all connected tools and proposes a MECE categorization of the user's world, streamed in "thinking out loud" style. For example:
 
 "I can see you're 32 years old, living in New York, and just left Vega Factor after 9.5 years to pursue independent work in AI.
 
