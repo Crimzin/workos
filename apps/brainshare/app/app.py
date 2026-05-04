@@ -225,6 +225,42 @@ class WorkOSMemoryPrimitiveIn(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkOSTargetCandidate(BaseModel):
+    node_id: str
+    type: Literal["workspace", "stack", "card"]
+    title: str = Field(..., min_length=1)
+    body: Optional[str] = None
+    fields: dict[str, Any] = Field(default_factory=dict)
+    memory: list[str] = Field(default_factory=list)
+    linked_node_titles: list[str] = Field(default_factory=list)
+    updated_at: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TargetResolutionRequest(BaseModel):
+    primitive: PrimitiveCreate
+    candidates: list[WorkOSTargetCandidate] = Field(..., min_length=1)
+    min_confidence: float = Field(default=0.35, ge=0, le=1)
+    max_alternates: int = Field(default=3, ge=0, le=10)
+
+
+class TargetCandidateScore(BaseModel):
+    node_id: str
+    type: Literal["workspace", "stack", "card"]
+    title: str
+    confidence: float
+    score_breakdown: dict[str, float]
+    reasons: list[str]
+
+
+class TargetResolutionResponse(BaseModel):
+    success: bool
+    target: Optional[TargetCandidateScore]
+    alternates: list[TargetCandidateScore] = Field(default_factory=list)
+    orphaned: bool
+    review_reason: Optional[str] = None
+
+
 class DiscordMessageIn(BaseModel):
     id: str
     channel_id: str
@@ -285,6 +321,223 @@ def body_to_text(body: Optional[Any]) -> str:
     if isinstance(body, str):
         return body
     return json.dumps(body, sort_keys=True)
+
+
+TARGET_RESOLUTION_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "before",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "this",
+    "to",
+    "use",
+    "we",
+    "with",
+}
+
+TARGET_TYPE_SORT_ORDER = {
+    "workspace": 0,
+    "stack": 1,
+    "card": 2,
+}
+SEMANTIC_MATCH_MIN_SCORE = 0.18
+SEMANTIC_MATCH_MIN_SHARED_TOKENS = 2
+
+
+def text_tokens(value: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", value.lower())
+    return {
+        word
+        for word in words
+        if len(word) > 2 and word not in TARGET_RESOLUTION_STOPWORDS
+    }
+
+
+def overlap_score(left: str, right: str) -> float:
+    left_tokens = text_tokens(left)
+    right_tokens = text_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap = len(left_tokens & right_tokens)
+    return round(overlap / max(1, min(len(left_tokens), len(right_tokens))), 3)
+
+
+def shared_meaningful_token_count(left: str, right: str) -> int:
+    return len(text_tokens(left) & text_tokens(right))
+
+
+def primitive_resolution_text(primitive: PrimitiveCreate) -> str:
+    metadata_text = " ".join(str(value) for value in primitive.metadata.values() if isinstance(value, str))
+    return " ".join(part for part in [primitive.statement, primitive.body or "", metadata_text] if part)
+
+
+def candidate_resolution_text(candidate: WorkOSTargetCandidate) -> str:
+    field_text = " ".join(
+        f"{key} {value}" for key, value in candidate.fields.items() if value is not None
+    )
+    memory_text = " ".join(candidate.memory)
+    link_text = " ".join(candidate.linked_node_titles)
+    metadata_text = " ".join(str(value) for value in candidate.metadata.values() if isinstance(value, str))
+    return " ".join(
+        part
+        for part in [candidate.title, candidate.body or "", field_text, memory_text, link_text, metadata_text]
+        if part
+    )
+
+
+def parse_candidate_updated_at(updated_at: Optional[str]) -> Optional[datetime]:
+    if not updated_at:
+        return None
+    normalized = updated_at.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def recency_score(updated_at: Optional[str], reference_time: Optional[datetime]) -> float:
+    updated = parse_candidate_updated_at(updated_at)
+    if updated is None or reference_time is None or updated > reference_time:
+        return 0.0
+    age_days = (reference_time - updated).total_seconds() / 86400
+    if age_days <= 7:
+        return 1.0
+    if age_days <= 30:
+        return 0.6
+    if age_days <= 90:
+        return 0.3
+    return 0.1
+
+
+def primitive_wants_stack(primitive: PrimitiveCreate) -> bool:
+    scale = str(primitive.metadata.get("scale") or "").lower()
+    if scale in {"stack", "workspace", "strategic", "initiative"}:
+        return True
+    text = primitive_resolution_text(primitive).lower()
+    markers = ["roadmap", "sequence", "several cards", "multiple cards", "strategy", "strategic", "initiative"]
+    return any(marker in text for marker in markers)
+
+
+def scale_match_score(primitive: PrimitiveCreate, candidate: WorkOSTargetCandidate) -> float:
+    wants_stack = primitive_wants_stack(primitive)
+    if wants_stack and candidate.type in {"stack", "workspace"}:
+        return 1.0
+    if not wants_stack and candidate.type == "card":
+        return 1.0
+    return 0.35
+
+
+def scope_score(primitive: PrimitiveCreate, candidate: WorkOSTargetCandidate) -> float:
+    scope = str(primitive.metadata.get("scope") or "").strip()
+    if not scope:
+        return 0.0
+    return overlap_score(scope, candidate_resolution_text(candidate))
+
+
+def score_workos_target_candidate(
+    primitive: PrimitiveCreate,
+    candidate: WorkOSTargetCandidate,
+    reference_time: Optional[datetime],
+) -> TargetCandidateScore:
+    primitive_text = primitive_resolution_text(primitive)
+    candidate_text = candidate_resolution_text(candidate)
+    semantic = overlap_score(primitive_text, candidate_text)
+    shared_semantic_tokens = shared_meaningful_token_count(primitive_text, candidate_text)
+    scale = scale_match_score(primitive, candidate)
+    scope = scope_score(primitive, candidate)
+    recency = recency_score(candidate.updated_at, reference_time)
+    conviction = primitive.conviction
+    confidence = round(
+        min(
+            1.0,
+            semantic * 0.52
+            + scale * 0.18
+            + scope * 0.12
+            + recency * 0.08
+            + conviction * 0.10,
+        ),
+        3,
+    )
+    reasons = []
+    if semantic >= SEMANTIC_MATCH_MIN_SCORE and shared_semantic_tokens >= SEMANTIC_MATCH_MIN_SHARED_TOKENS:
+        reasons.append("semantic_match")
+    if scale >= 0.9:
+        reasons.append("scale_match")
+    if scope >= 0.25:
+        reasons.append("scope_match")
+    if recency >= 0.6:
+        reasons.append("recent_activity")
+    if conviction >= 0.8:
+        reasons.append("high_conviction")
+    if not reasons:
+        reasons.append("weak_match")
+    return TargetCandidateScore(
+        node_id=candidate.node_id,
+        type=candidate.type,
+        title=candidate.title,
+        confidence=confidence,
+        score_breakdown={
+            "semantic": semantic,
+            "scale": scale,
+            "scope": scope,
+            "recency": recency,
+            "conviction": round(conviction, 3),
+        },
+        reasons=reasons,
+    )
+
+
+def resolve_workos_target(payload: TargetResolutionRequest) -> TargetResolutionResponse:
+    valid_candidate_times = [
+        parsed
+        for candidate in payload.candidates
+        if (parsed := parse_candidate_updated_at(candidate.updated_at)) is not None
+    ]
+    reference_time = max(valid_candidate_times) if valid_candidate_times else None
+    ranked = sorted(
+        (
+            score_workos_target_candidate(payload.primitive, candidate, reference_time)
+            for candidate in payload.candidates
+        ),
+        key=lambda item: (
+            -item.confidence,
+            TARGET_TYPE_SORT_ORDER[item.type],
+            item.title.lower(),
+            item.node_id,
+        ),
+    )
+    best = ranked[0]
+    if best.confidence < payload.min_confidence:
+        return TargetResolutionResponse(
+            success=True,
+            target=None,
+            alternates=ranked[: payload.max_alternates],
+            orphaned=True,
+            review_reason="no_candidate_above_min_confidence",
+        )
+    return TargetResolutionResponse(
+        success=True,
+        target=best,
+        alternates=ranked[1 : 1 + payload.max_alternates],
+        orphaned=False,
+    )
 
 
 def graphiti_primitive_type(workos_type: str) -> PrimitiveType:
@@ -2346,6 +2599,13 @@ async def push(payload: PushRequest) -> dict[str, Any]:
         "primitive_id": primitive.id,
         "timestamp": item["timestamp"],
     }
+
+
+@app.post("/workos/target-resolution", dependencies=[Depends(require_auth)])
+async def resolve_workos_target_endpoint(
+    payload: TargetResolutionRequest,
+) -> TargetResolutionResponse:
+    return resolve_workos_target(payload)
 
 
 @app.post("/workos/memory-primitives", dependencies=[Depends(require_auth)])

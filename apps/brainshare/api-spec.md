@@ -223,6 +223,62 @@ Assemble a structured context payload for a future AI session. This is the first
 }
 ```
 
+### POST /workos/target-resolution
+Score a BrainShare primitive against candidate WorkOS nodes and return the best reviewable target. This endpoint does not write to WorkOS; it is the deterministic bridge before writeback.
+
+**Request:**
+```json
+{
+  "primitive": {
+    "type": "decision",
+    "statement": "Use WorkOS AuthKit for customer authentication",
+    "body": "AuthKit keeps auth in the WorkOS stack.",
+    "conviction": 0.92,
+    "metadata": {"scope": "authentication"}
+  },
+  "candidates": [
+    {
+      "node_id": "card_auth",
+      "type": "card",
+      "title": "Customer authentication",
+      "body": "Pick provider for login, sessions, and signup.",
+      "fields": {"Status": "Planning"},
+      "memory": ["Existing decision: keep identity simple."],
+      "linked_node_titles": ["Settings"],
+      "updated_at": "2026-05-03T12:00:00Z"
+    }
+  ],
+  "min_confidence": 0.35,
+  "max_alternates": 3
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "target": {
+    "node_id": "card_auth",
+    "type": "card",
+    "title": "Customer authentication",
+    "confidence": 0.621,
+    "score_breakdown": {
+      "semantic": 0.286,
+      "scale": 1.0,
+      "scope": 1.0,
+      "recency": 1.0,
+      "conviction": 0.92
+    },
+    "reasons": ["semantic_match", "scale_match", "scope_match", "recent_activity", "high_conviction"]
+  },
+  "alternates": [],
+  "orphaned": false,
+  "review_reason": null
+}
+```
+
+If no candidate clears `min_confidence`, `target` is `null`, `orphaned` is `true`, and `review_reason` is `no_candidate_above_min_confidence`.
+
 ## Function Definitions (for MCP/Custom GPT)
 
 ### brainshare_push

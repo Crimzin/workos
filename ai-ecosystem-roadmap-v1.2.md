@@ -10,6 +10,9 @@
 
 - Decisions made as we build. Most recent on top.
 
+- **2026-05-04 — Roadmap reconciled after BrainShare 2.0-2.2 implementation.**
+- BrainShare now has the service foundation, Graphiti/default backend path, provider-key setup, AI conversation ingestion/extraction, conviction scoring, duplicate/conflict validation, correction episodes, WorkOS Memory-tab ingestion into BrainShare, and a first primitive-relevance context assembly endpoint. The next real product gap is the reverse direction: BrainShare must choose a WorkOS target, write extracted primitives into the node Memory tab or create the right node, and give the user a review/correction surface.
+
 - **2026-05-01 — BrainShare extraction pipeline: Claude/ChatGPT conversations first, Discord second.**
 - AI conversations are the richest source of decision-making context for AI-native teams, and "your AI never forgets" is BrainShare's most visceral first value prop. Claude/ChatGPT conversation extraction exercises the core pipeline (chunking, typed primitive extraction, conviction scoring, graph storage) on moderately structured data. Discord is the second pipeline — it exercises harder cases (implicit decisions, emoji approval, freeform chat). Factor/Notion ingestion deferred until the core pipeline is proven.
 
@@ -477,25 +480,57 @@ Build the reference implementation from the extraction spec. Claude/ChatGPT conv
 
 ### 2.3 WorkOS Writeback + Context Map
 
-- [ ] If extracted context relates to an existing WorkOS card or stack, write it into that node's Memory tab as structured context; do not add routine context updates to the Posts tab — sometimes a stack is the right scope (strategic decisions spanning multiple cards), sometimes a card (specific implementation choices)
+This is the next core product bridge. WorkOS-to-BrainShare ingestion exists; this milestone builds the reverse path so extracted BrainShare graph primitives become useful, reviewable WorkOS context.
+
+**2.3.1 Existing WorkOS memory into BrainShare — ✅ Complete**
+
+- [x] Add BrainShare endpoint for WorkOS Memory-tab primitives (`/workos/memory-primitives`) so rationale, assumptions, and decisions can become BrainShare Episodes + graph primitives
+
+- [x] Map WorkOS rationale to BrainShare work-item context, and map assumptions/decisions directly without forcing WorkOS to become the graph database
+
+- [x] Preserve WorkOS source metadata: instance, node, memory primitive id/type, source post, source label, external episode id, actor, and timestamps
+
+**2.3.2 Target resolution: BrainShare primitive → WorkOS node**
+
+- [ ] Build target-candidate search across WorkOS cards and stacks using title, posts, fields, existing memory primitives, linked nodes, owner/status/priority/lifecycle, and graph proximity
+
+- [ ] Score candidate targets by semantic relevance, graph distance, recency, conviction, source scope, node lifecycle, and whether the primitive is card-scale or stack-scale
+
+- [x] Return an explainable target-resolution payload: best target, alternates, confidence, "why this target", and "why not create a new node" — first BrainShare API slice complete via `/workos/target-resolution`; WorkOS candidate search still remains open
+
+- [ ] Flag orphan primitives that could not be confidently linked to a goal/card/stack for user review
+
+**2.3.3 BrainShare → WorkOS writeback**
+
+- [ ] If extracted context relates to an existing WorkOS card or stack, write it into that node's Memory tab as structured context; do not add routine context updates to the Posts tab
+
+- [ ] Preserve BrainShare provenance on WorkOS memory rows: BrainShare primitive id, episode ids, source tool/location, supporting message indices, conviction, status, and review state
 
 - [ ] If no relevant card/stack exists, create a WorkOS card or stack populated with the extracted primitive as context
-
-- [ ] Link extracted assumptions to decisions in WorkOS where possible
 
 - [ ] Add extracted actions as child cards under the relevant WorkOS node, preserving the recursive stack/card model rather than introducing a separate sub-item/task type
 
 - [ ] Treat any card with child cards as stack-like in UI and data behavior, so users can operate at whatever altitude the work requires
 
-- [ ] Flag orphan primitives that could not be linked to a goal/card/stack for user review
+- [ ] Link extracted assumptions to decisions in WorkOS where possible
 
-- [ ] Add a WorkOS review surface for captured primitives: confirm, correct, retract, link to node, or create node
+**2.3.4 Review + correction surfaces**
+
+- [ ] Add a WorkOS review surface for captured primitives: confirm, correct, retract, link to node, choose alternate target, or create node
+
+- [ ] Corrections from WorkOS should call BrainShare correction endpoints so history is superseded/retracted rather than deleted
 
 - [ ] Add a Memory tab indicator showing new/unreviewed context count since the user last checked that node's memory
 
-- [ ] Add Memory Browser View — a "Memory" or "Context" view within WorkOS (alongside Board and Feed) showing a structured table/list of BrainShare primitives with filters by type, project/scope, conviction level, status, date range, actor, and source tool
-
 - [ ] Add post reactions as lightweight confirmation/correction signals once BrainShare review surfaces exist
+
+**2.3.5 Memory Browser / Context Map**
+
+- [ ] Add Memory Browser View — a "Memory" or "Context" view within WorkOS (alongside Board and Feed) showing a structured table/list of BrainShare primitives with filters by type, project/scope, conviction level, status, date range, actor, review state, source tool, and linked WorkOS node
+
+- [ ] Support orphan review, bulk confirm, bulk link, and "show why included" interactions from the Memory Browser
+
+- [ ] Use the Memory Browser as the first visible Context Map before building a richer graph/board hybrid visualization
 
 ### 2.4 Memory Layers + Context Structures
 
@@ -521,11 +556,11 @@ Build the reference implementation from the extraction spec. Claude/ChatGPT conv
 
 ### 2.5 Context Assembly Engine
 
-- [ ] Build structured context payload assembly from all four memory layers
+- [x] Build first structured context payload assembly endpoint (`/context/assemble`) from stored BrainShare primitives
 
 - [ ] Add retrieval routing: simple factual → vector, relational → graph traversal, causal → Why Chain / Decision Graph, global summary → community summaries, temporal → Graphiti temporal traversal
 
-- [ ] Prioritize context by relevance, recency, conviction, explicit user signals, source quality, and graph distance from the current node/question
+- [x] Add primitive-relevance v0 ranking by query match, conviction, and recency
 
 - [ ] Include WorkOS node context: posts, pins, fields, memory primitives, linked items, owner/status/priority/lifecycle
 
@@ -535,7 +570,9 @@ Build the reference implementation from the extraction spec. Claude/ChatGPT conv
 
 - [ ] Expose a context preview/debug view so we can see why a payload included each item
 
-- [ ] Serve context via MCP for Claude ecosystem tools, API for others
+- [x] Serve first context/query surface via MCP, REST API, and CLI
+
+- [ ] Upgrade the context endpoint from primitive-relevance v0 to the full four-layer retrieval contract
 
 ### 2.6 BrainShare Chat Surface
 
@@ -585,17 +622,17 @@ BrainShare's UI is WorkOS, but the BrainShare-first entry is chat-first. Do not 
 
 Discord is the second pipeline because it exercises the hardest extraction case: freeform chat, implicit decisions, emoji reactions, unresolved threads.
 
-- [ ] Discord message ingestion API creates immutable Episodes from raw message batches
+- [x] Discord message ingestion API creates immutable Episodes from raw message batches
 
-- [ ] Time-based chunking: same channel, nearby messages, thread boundaries, max chunk size; semantic topic-shift detection can come later
+- [x] Time-based chunking: same channel/thread grouping, nearby messages, max chunk size; semantic topic-shift detection can come later
 
 - [ ] Discord bot receives messages in real time and sends them to the ingestion API
 
-- [ ] Interpret emoji reactions from authority-weighted actors as approval when supported by surrounding messages
+- [x] Interpret emoji reactions from authority-weighted actors as approval when supported by surrounding messages
 
-- [ ] Store source citations on Discord Episodes: message IDs, per-message indices, authors, timestamps, replies, reactions, channel/thread labels
+- [x] Store source citations on Discord Episodes: message IDs, per-message indices, authors, timestamps, replies, reactions, channel/thread labels
 
-- [ ] Carry source citations from extraction through to BrainShare primitives so every primitive can be traced back to an episode/message
+- [x] Carry source citations from extraction through to BrainShare primitives so every primitive can be traced back to an episode/message
 
 - [ ] Post concise confirmation back to Discord: captured decision / assumption / action, with "anything wrong?" correction affordance
 
