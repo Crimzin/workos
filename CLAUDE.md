@@ -23,6 +23,17 @@ Work OS is designed from the ground up as the coordination layer for teams of hu
 - `ai-ecosystem-roadmap.md` — Build roadmap + architecture decisions log. Phase 1 (WorkOS v0) is the current build target.
 - `AGENTS.md` — Notes for AI agents working on this codebase.
 
+## Mandatory Agent Startup
+
+Every Claude Code and Codex session in this repo must begin by loading the project workflow, not by searching files ad hoc:
+
+1. Read `AGENTS.md` and identify the active role: Platform Agent, Data Agent, BrainShare Agent, and/or Review Agent.
+2. Invoke Superpowers startup behavior. In Codex, use the installed Superpowers skills and start with `using-superpowers`; for bug fixes use `systematic-debugging`, for new work use `brainstorming`, for implementation plans use `writing-plans`, and for verification use `verification-before-completion`.
+3. Start AiDex with `aidex_session({ path: "/Users/williamcorbett/Desktop/Claude-Projects/WorkOS" })`. If a session note exists, show it to the user before continuing.
+4. Use AiDex for code search and structure discovery before `rg`, glob, or broad file reads. Known files, configs, docs, and exact code locations may still be read directly.
+5. If Superpowers or AiDex tools are unavailable, say so explicitly, follow the same workflow manually, and use the best available fallback.
+6. Before ending substantial work, leave an AiDex note with the current state and next step.
+
 ## Architecture
 
 ### Data Model: Recursive Tree

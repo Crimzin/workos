@@ -6,6 +6,32 @@ This file defines agent roles for Claude Code and Codex sessions on the WorkOS p
 
 The project is a monorepo: `apps/platform` (WorkOS Core — Next.js/TypeScript), `apps/brainshare` (BrainShare service — Python/FastAPI/Graphiti), `apps/swarm` (Swarm — future).
 
+### Routing: Which Agent Am I?
+
+Determine the role based on what the task touches:
+
+- Working in `apps/platform/src/`? → **Platform Agent**
+- Working in `supabase/migrations/` or designing schemas? → **Data Agent**
+- Working in `apps/brainshare/`? → **BrainShare Agent**
+- Reviewing code or checking conventions before a commit? → **Review Agent**
+- Task spans multiple apps (e.g., BrainShare writeback to WorkOS)? → Lead with the agent that owns the initiating side (BrainShare Agent for writeback), and **consult** the other agent's standards for the receiving side.
+
+### The Consult Pattern
+
+No agent tries to know everything. When a task crosses boundaries, consult the relevant spec or agent definition rather than guessing:
+
+| If you're in... | And you need to understand... | Consult... |
+|-----------------|-------------------------------|------------|
+| Platform Agent | How BrainShare primitives are structured | `apps/brainshare/context-docs/brainshare-product-spec.md` |
+| Platform Agent | What the Memory tab should display | `apps/brainshare/context-docs/brainshare-product-spec.md` §12 |
+| BrainShare Agent | How WorkOS cards/stacks are structured | `CLAUDE.md` Architecture section + `apps/platform/src/lib/` |
+| BrainShare Agent | What the UI should look like | `docs/work-os-ui-design-spec.md` |
+| Data Agent | What typed primitives BrainShare needs | `apps/brainshare/context-docs/brainshare-extraction-pipeline.md` §4 |
+| Data Agent | What Graphiti expects | Graphiti docs at https://github.com/getzep/graphiti |
+| Any agent | Design tokens, layout, component patterns | `docs/work-os-ui-design-spec.md` |
+| Any agent | Build roadmap and phasing | `ai-ecosystem-roadmap.md` |
+| Any agent | Competitive context | `workos-competitor-context.md` |
+
 ---
 
 ## Platform Agent (apps/platform)

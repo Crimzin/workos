@@ -18,14 +18,46 @@ cp .env.local.example .env.local
 # edit .env.local with the URL + anon key from step 1
 ```
 
-### 3. Apply the schema
+### 3. Link Supabase and apply migrations
 
-In the Supabase dashboard, open **SQL Editor → New query** and paste the contents of:
+The Supabase CLI is installed as a local dev dependency for this app. Run these
+commands from `apps/platform`:
 
-1. `supabase/migrations/0001_init_nodes.sql` — creates the `nodes` table and trigger
-2. `supabase/seed.sql` — loads minimal workspace/stack/card seed data
+```sh
+npm install
+npm run db:login
+npm run db:link -- --project-ref <your-project-ref>
+npm run db:list
+npm run db:push
+```
 
-Run each one. (We'll migrate to the Supabase CLI for versioned migrations when we hit Phase 1.5 or so.)
+`db:login` opens the Supabase CLI login flow and stores a local access token.
+In non-interactive environments, set `SUPABASE_ACCESS_TOKEN` instead, then run
+`npm run db:link -- --project-ref <your-project-ref>`.
+
+`db:push` applies every pending SQL file in `supabase/migrations/` to the linked
+remote project. If this is a brand-new database and you want the sample data,
+load `supabase/seed.sql` after the migrations:
+
+```sh
+npx supabase db query --linked --file supabase/seed.sql
+```
+
+Useful migration commands:
+
+```sh
+npm run db:new -- <migration_name>   # create a new timestamped migration
+npm run db:list                      # compare local and remote migration state
+npm run db:push                      # apply pending migrations to linked remote
+npm run db:pull                      # pull remote schema changes into a migration
+npm run db:lint                      # lint local SQL migrations
+npm run db:start                     # start local Supabase via Docker
+npm run db:reset                     # reset local DB from migrations + seed
+npm run db:stop                      # stop local Supabase
+```
+
+Do not paste one-off schema changes into the SQL editor. Add a migration under
+`supabase/migrations/`, then run `npm run db:push`.
 
 ### 4. Run the app
 
@@ -61,7 +93,9 @@ app/
 │       ├── nodes.ts          # query helpers
 │       └── types.ts          # WorkNode type
 └── supabase/
+    ├── config.toml
     ├── migrations/
-    │   └── 0001_init_nodes.sql
+    │   ├── 0001_init_nodes.sql
+    │   └── ...
     └── seed.sql
 ```

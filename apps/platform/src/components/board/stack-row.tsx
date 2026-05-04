@@ -169,7 +169,7 @@ function DroppableColumn({
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col:${stackId}:${col.id}`,
-    data: { type: "column", stackId, columnId: col.id },
+    data: { type: "column", stackId, columnId: col.id, columnFieldId: columnField?.id ?? null },
   });
 
   const router = useRouter();

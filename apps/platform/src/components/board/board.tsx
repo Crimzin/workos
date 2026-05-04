@@ -23,7 +23,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { BoardActor, BoardCard, BoardData, BoardField, BoardStack } from "@/lib/board-types";
+import type { BoardCard, BoardData, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import type { ViewFilter, WorkspaceView } from "@/lib/views";
 import { createStack } from "@/lib/actions/nodes";
@@ -35,8 +35,13 @@ import { StackRow } from "./stack-row";
 import { CardTileOverlay } from "./card-tile";
 import { ViewTabs } from "./view-tabs";
 import { FilterMenu } from "./filter-menu";
+import {
+  applyCardDrop,
+  findCardLocation,
+  getCardColumn,
+} from "./board-dnd";
 
-type ActiveCard = { type: "card"; card: BoardCard };
+type ActiveCard = { type: "card"; card: BoardCard; columnFieldId: string | null };
 type ActiveStack = { type: "stack"; stack: BoardStack };
 type ActiveItem = ActiveCard | ActiveStack | null;
 
@@ -62,7 +67,14 @@ export function Board({ data, views }: BoardProps) {
   const [localStacks, setLocalStacks] = useState<BoardStack[]>(data.stacks);
   const [activeItem, setActiveItem] = useState<ActiveItem>(null);
   const preDragStacks = useRef<BoardStack[]>(data.stacks);
-  const lastMoveRef = useRef<{ activeId: string; overId: string; insertAfter: boolean } | null>(null);
+  const lastMoveRef = useRef<{
+    activeId: string;
+    targetStackId: string;
+    targetColumnId: string;
+    columnFieldId: string | null;
+    overCardId: string | null;
+    overCardPlacement: "before" | "after";
+  } | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeDetailId = searchParams.get("d");
@@ -234,7 +246,11 @@ export function Board({ data, views }: BoardProps) {
     } else if (type === "card") {
       for (const stack of localStacks) {
         const card = stack.cards.find((c) => c.dnd_id === active.id);
-        if (card) { setActiveItem({ type: "card", card }); break; }
+        if (card) {
+          const activeColumnFieldId = getDndColumnFieldId(active.data.current, columnFieldId);
+          setActiveItem({ type: "card", card, columnFieldId: activeColumnFieldId });
+          break;
+        }
       }
     }
   }
@@ -245,33 +261,52 @@ export function Board({ data, views }: BoardProps) {
 
     const activeId = active.id as string;
     const overType = over.data.current?.type as string | undefined;
+    const activeColumnFieldId = getDndColumnFieldId(active.data.current, columnFieldId);
 
-    const activeLoc = findCardLocation(localStacks, activeId, null);
+    const activeLoc = findCardLocation(localStacks, activeId, activeColumnFieldId, UNASSIGNED_COL_ID);
     if (!activeLoc) return;
     const activeCard = localStacks[activeLoc.stackIdx].cards[activeLoc.cardIdx];
-    const activeColId = getCardColumn(activeCard, columnFieldId);
+    const activeColId = getCardColumn(activeCard, activeColumnFieldId, UNASSIGNED_COL_ID);
     const activeStackId = localStacks[activeLoc.stackIdx].id;
 
     let targetStackId: string;
     let targetColId: string;
+    let targetColumnFieldId: string | null;
+    let overCardId: string | null = null;
+    let overCardPlacement: "before" | "after" = "after";
 
     if (overType === "column") {
       targetStackId = over.data.current!.stackId as string;
       targetColId = over.data.current!.columnId as string;
+      targetColumnFieldId = getDndColumnFieldId(over.data.current, columnFieldId);
     } else if (overType === "card") {
       const overId = over.id as string;
-      const overLoc = findCardLocation(localStacks, overId, null);
+      targetColumnFieldId = getDndColumnFieldId(over.data.current, columnFieldId);
+      const overLoc = findCardLocation(localStacks, overId, targetColumnFieldId, UNASSIGNED_COL_ID);
       if (!overLoc) return;
       const overCard = localStacks[overLoc.stackIdx].cards[overLoc.cardIdx];
-      targetColId = getCardColumn(overCard, columnFieldId);
+      targetColId = getCardColumn(overCard, targetColumnFieldId, UNASSIGNED_COL_ID);
       targetStackId = localStacks[overLoc.stackIdx].id;
+      overCardId = overId;
+      overCardPlacement = getOverCardPlacement(active.rect.current.translated, over.rect);
 
-      if (activeStackId === targetStackId && activeColId === targetColId) {
+      if (
+        activeStackId === targetStackId &&
+        activeColumnFieldId === targetColumnFieldId &&
+        activeColId === targetColId
+      ) {
         // Same column, same stack — let SortableContext handle the visual preview
         // and use arrayMove in handleDragOver to update localStacks for live feedback.
         // Dedup by (activeId, overId) to prevent stale-rect oscillation.
-        if (lastMoveRef.current?.activeId === activeId && lastMoveRef.current?.overId === overId) return;
-        lastMoveRef.current = { activeId, overId, insertAfter: false };
+        if (
+          lastMoveRef.current?.activeId === activeId &&
+          lastMoveRef.current.targetStackId === targetStackId &&
+          lastMoveRef.current.targetColumnId === targetColId &&
+          lastMoveRef.current.columnFieldId === targetColumnFieldId &&
+          lastMoveRef.current.overCardId === overId &&
+          lastMoveRef.current.overCardPlacement === overCardPlacement
+        ) return;
+        lastMoveRef.current = { activeId, targetStackId, targetColumnId: targetColId, columnFieldId: targetColumnFieldId, overCardId, overCardPlacement };
 
         const stackIdx = activeLoc.stackIdx;
         if (activeLoc.cardIdx === overLoc.cardIdx) return;
@@ -285,12 +320,32 @@ export function Board({ data, views }: BoardProps) {
       return;
     }
 
-    // Cross-column or cross-stack: move card to target, appended to end.
-    // handleDragEnd will use pointer Y to place it precisely within the target column.
-    if (activeStackId === targetStackId && activeColId === targetColId) return;
-    lastMoveRef.current = null;
+    // Cross-column or cross-stack: move card to the target column, preserving
+    // the hovered-card insertion point when DnD gives us one.
+    if (
+      activeStackId === targetStackId &&
+      activeColumnFieldId === targetColumnFieldId &&
+      activeColId === targetColId
+    ) return;
+    if (
+      lastMoveRef.current?.activeId === activeId &&
+      lastMoveRef.current.targetStackId === targetStackId &&
+      lastMoveRef.current.targetColumnId === targetColId &&
+      lastMoveRef.current.columnFieldId === targetColumnFieldId &&
+      lastMoveRef.current.overCardId === overCardId &&
+      lastMoveRef.current.overCardPlacement === overCardPlacement
+    ) return;
+    lastMoveRef.current = { activeId, targetStackId, targetColumnId: targetColId, columnFieldId: targetColumnFieldId, overCardId, overCardPlacement };
     setLocalStacks((prev) =>
-      applyCardOverColumn(prev, activeId, targetStackId, targetColId, columnFieldId)
+      applyCardDrop(prev, {
+        activeId,
+        targetStackId,
+        targetColumnId: targetColId,
+        columnFieldId: targetColumnFieldId,
+        overCardId,
+        overCardPlacement,
+        unassignedColumnId: UNASSIGNED_COL_ID,
+      })
     );
   }
 
@@ -332,14 +387,13 @@ export function Board({ data, views }: BoardProps) {
 
     if (type === "card") {
       // handleDragOver already positioned the card correctly via arrayMove (same-column)
-      // or applyCardOverColumn (cross-column/stack). Do NOT reposition here — over.rect
-      // is stale during drag so any midpoint comparison would give wrong results and
-      // undo the correct placement handleDragOver already applied.
-      const loc = findCardLocation(localStacks, activeId, columnFieldId);
+      // or applyCardDrop (cross-column/stack).
+      const finalColumnFieldId = getDndColumnFieldId(over.data.current, getDndColumnFieldId(active.data.current, columnFieldId));
+      const loc = findCardLocation(localStacks, activeId, finalColumnFieldId, UNASSIGNED_COL_ID);
       if (!loc) return;
 
       const colCards = localStacks[loc.stackIdx].cards.filter(
-        (c) => getCardColumn(c, columnFieldId) === loc.columnId
+        (c) => getCardColumn(c, finalColumnFieldId, UNASSIGNED_COL_ID) === loc.columnId
       );
       const cardIdxInCol = colCards.findIndex((c) => c.dnd_id === activeId);
       const newPos = midpoint(
@@ -356,7 +410,7 @@ export function Board({ data, views }: BoardProps) {
       const targetStackId = localStacks[loc.stackIdx].id;
 
       try {
-        await moveCardAppearance(realCardId, sourceStackId, targetStackId, newPos, columnFieldId, newOptionId, workspaceId);
+        await moveCardAppearance(realCardId, sourceStackId, targetStackId, newPos, finalColumnFieldId, newOptionId, workspaceId);
         router.refresh();
       } catch {
         setLocalStacks(preDragStacks.current);
@@ -367,6 +421,7 @@ export function Board({ data, views }: BoardProps) {
 
   return (
     <DndContext
+      id={`board-${workspaceId}`}
       sensors={sensors}
       collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
@@ -485,7 +540,7 @@ export function Board({ data, views }: BoardProps) {
             <CardTileOverlay
               card={activeItem.card}
               fields={data.fields}
-              columnFieldId={columnFieldId}
+              columnFieldId={activeItem.columnFieldId}
             />
           </div>
         )}
@@ -510,78 +565,29 @@ export function Board({ data, views }: BoardProps) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function getCardColumn(card: BoardCard, columnFieldId: string | null): string {
-  if (!columnFieldId) return UNASSIGNED_COL_ID;
-  const vals = card.field_values[columnFieldId] ?? [];
-  return vals[0] ?? UNASSIGNED_COL_ID;
-}
-
-function setCardColumn(card: BoardCard, columnFieldId: string | null, colId: string): BoardCard {
-  if (!columnFieldId) return card;
-  return {
-    ...card,
-    field_values: {
-      ...card.field_values,
-      [columnFieldId]: colId === UNASSIGNED_COL_ID ? [] : [colId],
-    },
-  };
-}
-
-function findCardLocation(
-  stacks: BoardStack[],
-  dndId: string,
-  columnFieldId: string | null
-): { stackIdx: number; cardIdx: number; columnId: string } | null {
-  for (let si = 0; si < stacks.length; si++) {
-    const ci = stacks[si].cards.findIndex((c) => c.dnd_id === dndId);
-    if (ci !== -1) {
-      return {
-        stackIdx: si,
-        cardIdx: ci,
-        columnId: getCardColumn(stacks[si].cards[ci], columnFieldId),
-      };
-    }
-  }
-  return null;
-}
-
-
-function applyCardOverColumn(
-  stacks: BoardStack[],
-  activeId: string,
-  targetStackId: string,
-  targetColId: string,
-  columnFieldId: string | null
-): BoardStack[] {
-  const activeLoc = findCardLocation(stacks, activeId, null);
-  if (!activeLoc) return stacks;
-
-  const activeCard = stacks[activeLoc.stackIdx].cards[activeLoc.cardIdx];
-  // Already in this column of this stack — nothing to do.
-  if (
-    stacks[activeLoc.stackIdx].id === targetStackId &&
-    getCardColumn(activeCard, columnFieldId) === targetColId
-  )
-    return stacks;
-
-  const updatedCard = setCardColumn(activeCard, columnFieldId, targetColId);
-  const next = stacks.map((s) => ({ ...s, cards: [...s.cards] }));
-
-  next[activeLoc.stackIdx].cards.splice(activeLoc.cardIdx, 1);
-
-  const targetIdx = next.findIndex((s) => s.id === targetStackId);
-  if (targetIdx !== -1) {
-    next[targetIdx].cards.push(updatedCard);
-  }
-
-  return next;
-}
-
 function midpoint(prev: number | null, next: number | null): number {
   if (prev === null && next === null) return 0;
   if (prev === null) return next! - 1;
   if (next === null) return prev + 1;
   return (prev + next) / 2;
+}
+
+function getDndColumnFieldId(
+  data: Record<string, unknown> | undefined,
+  fallback: string | null
+): string | null {
+  if (!data || !("columnFieldId" in data)) return fallback;
+  return (data.columnFieldId as string | null | undefined) ?? null;
+}
+
+function getOverCardPlacement(
+  activeRect: { top: number; height: number } | null,
+  overRect: { top: number; height: number }
+): "before" | "after" {
+  if (!activeRect) return "after";
+  const activeMiddle = activeRect.top + activeRect.height / 2;
+  const overMiddle = overRect.top + overRect.height / 2;
+  return activeMiddle > overMiddle ? "after" : "before";
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────────────

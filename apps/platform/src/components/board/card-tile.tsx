@@ -129,7 +129,7 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
   // Use the compound dnd_id so two appearances of the same card in different
   // stacks get distinct DnD identifiers.
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: card.dnd_id, data: { type: "card" } });
+    useSortable({ id: card.dnd_id, data: { type: "card", stackId, columnFieldId } });
 
   const style = {
     transform: CSS.Transform.toString(transform),
