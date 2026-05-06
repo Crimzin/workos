@@ -10,8 +10,23 @@
 
 - Decisions made as we build. Most recent on top.
 
+- **2026-04-29 — 1.11 Inline AI in Posts carved out.**
+- Three AI surfaces in WorkOS now: (a) **1.11 Inline AI in Posts** — Claude as newsfeed teammate, replies in post threads when @-mentioned on a card/stack, with that node's context; (b) **2.6 BrainShare Chat Surface** — bottom AI panel for general workspace conversation, BrainShare-grounded; (c) **2.2.5 External AI MCP** — Claude.app/ChatGPT/Codex pull WorkOS+BrainShare context outward. (a) is the spec §2.1.5 "AI as newsfeed participant" pattern; built on existing @mention infrastructure (1.9); doesn't require BrainShare for v1. v1 minimum ships ahead of Phase 2 to give Will an immediate Claude.ai-projects-replacement workflow organized by card/stack; v1.5 routes through BrainShare for graph-augmented context once 2.0/2.1 are firm.
+
+- **2026-05-04 — AI Session Continuity v0 is the next simple usable sprint.**
+- The first visceral BrainShare use case is not WorkOS writeback; it is "I had a conversation in one AI session, and the next AI session already knows what mattered." This must work tool-agnostically: Claude chat → Claude chat, Claude → Claude Code, Claude/ChatGPT → Codex, Codex → Claude, IDE agent → browser chat, or any future model/tool surface. Codex is a dogfood consumer, not the product center.
+
+- **2026-05-04 — Episodes are source-generic but provenance-preserving.**
+- Generic Episodes mean extraction/storage/retrieval do not care whether the source is Claude, ChatGPT, Codex, Discord, Slack, GitHub, or Figma. They do NOT mean source-blind memory. Every Episode and primitive must preserve source tool, source kind, source location, actor identity, timestamps, attachments/artifacts, permissions/scope metadata, raw content hash, cited message/turn indices, and enough pointers to trace a primitive back to the exact source span.
+
+- **2026-05-04 — BrainShare UI has global and workspace-scoped memory views.**
+- BrainShare/Memory/Context needs an instance-wide view for the whole graph, organized by BrainShare-native concepts rather than workspace structure: goals, people, projects/domains, decisions, assumptions, open questions, standards/preferences, signals/patterns, and sources. Each workspace also gets a Memory/Context/BrainShare subtab in the left nav beside Board and Feed, scoped to that workspace but able to include graph-near cross-workspace context. Review should happen inside the navigable map view, not as a raw episode log.
+
+- **2026-05-04 — Traceability mode 1 is MCP/tool response.**
+- BrainShare should first "chime in" through MCP/tool calls or equivalent API/CLI context responses inside Claude, Codex, ChatGPT-style tools, IDE agents, and future model surfaces. The response should be compact and usable by the active AI, but every included primitive must carry conviction and citation/provenance metadata. Browser extensions/connectors, CLI preambles, and proactive warnings can come after this first tool-response path.
+
 - **2026-05-04 — Roadmap reconciled after BrainShare 2.0-2.2 implementation.**
-- BrainShare now has the service foundation, Graphiti/default backend path, provider-key setup, AI conversation ingestion/extraction, conviction scoring, duplicate/conflict validation, correction episodes, WorkOS Memory-tab ingestion into BrainShare, and a first primitive-relevance context assembly endpoint. The next real product gap is the reverse direction: BrainShare must choose a WorkOS target, write extracted primitives into the node Memory tab or create the right node, and give the user a review/correction surface.
+- BrainShare now has the service foundation, Graphiti/default backend path, provider-key setup, AI conversation ingestion/extraction, conviction scoring, duplicate/conflict validation, correction episodes, WorkOS Memory-tab ingestion into BrainShare, and a first primitive-relevance context assembly endpoint. WorkOS writeback is still needed, but it is not the first simple usable loop; AI session continuity comes first.
 
 - **2026-05-01 — BrainShare extraction pipeline: Claude/ChatGPT conversations first, Discord second.**
 - AI conversations are the richest source of decision-making context for AI-native teams, and "your AI never forgets" is BrainShare's most visceral first value prop. Claude/ChatGPT conversation extraction exercises the core pipeline (chunking, typed primitive extraction, conviction scoring, graph storage) on moderately structured data. Discord is the second pipeline — it exercises harder cases (implicit decisions, emoji approval, freeform chat). Factor/Notion ingestion deferred until the core pipeline is proven.
@@ -373,6 +388,60 @@ Swarm planning signals
 
 - [x] Migration IDs 0016 (memory_primitives) and 0017 (planning_signals)
 
+### 1.11 Inline AI in Posts (AI-as-Teammate v1)
+
+Spec §2.1.5: "AI is a first-class participant in the newsfeed, not a sidebar or separate mode." Tag @Claude in any card or stack post; Claude reads the node's context (title, fields, memory primitives, full thread, linked nodes) and replies inline as the Claude actor. Each card becomes a "project," each thread a continuing conversation — replaces the Claude.ai projects/chats workflow with WorkOS-native organization scoped by node.
+
+Distinct from 2.6 (BrainShare bottom-panel chat) and 2.2.5 (external MCP). Built entirely on existing @mention infrastructure (1.9); no BrainShare dependency for v1.
+
+**v1 minimum — ✅ Complete (2026-04-29)**
+
+- [x] Anthropic SDK (`@anthropic-ai/sdk`) installed; `ANTHROPIC_API_KEY` env var documented in `.env.local.example`
+
+- [x] `findAgentMentions(bodyJson)` — walks BlockNote document JSON, returns distinct `kind='agent'` mentions ordered + deduped (`src/lib/agents/mention-detection.ts`)
+
+- [x] `assembleNodeContext(nodeId)` — composes system prompt + user message from `getNodeDetail`, `getNodePosts`, `getNodeLinks`, `getNodeMemoryPrimitives`. Renders BlockNote bodies (including mentions) as plain text; renders thread chronologically (`src/lib/agents/context-assembly.ts`)
+
+- [x] `invokeClaude({ systemPrompt, userMessage })` — Anthropic SDK wrapper using `claude-sonnet-4-5`, ephemeral prompt caching on the system block, 4096 max tokens (`src/lib/agents/claude.ts`)
+
+- [x] `postAgentReply(nodeId, workspaceId, agentActorId, text)` — text → BlockNote paragraph blocks; insert post with the agent's `actor_id`; revalidate (`src/lib/agents/reply-poster.ts`)
+
+- [x] `createPost` schedules agent invocation via `unstable_after` so the user's post returns instantly and Claude's reply lands ~5–10s later via cache revalidation; `filterClaudeAgents` resolves mentions to actors whose name starts with "Claude"
+
+**v1 polished — deferred**
+
+- [ ] "Claude is thinking…" placeholder post inserted immediately, replaced when reply lands
+
+- [ ] Add `agent_provider` column to `actors` (`anthropic` | `openai` | null) — replaces fragile name-prefix match
+
+- [ ] Model picker (Sonnet vs Opus) per actor or per invocation
+
+- [ ] Error states surface as a post (API failures, rate limits, timeouts)
+
+- [ ] Token / cost logging
+
+- [ ] Markdown rendering in agent replies (currently plain-text paragraphs only)
+
+**v2 streaming — deferred**
+
+- [ ] SSE streaming endpoint; Claude's response materializes word-by-word into the post
+
+- [ ] BlockNote-friendly incremental update strategy
+
+- [ ] Cancel-mid-stream affordance
+
+**v1.5 BrainShare-routed — deferred**
+
+- [ ] Route Claude calls through BrainShare's chat endpoint so the context payload is automatically graph-augmented (decisions, assumptions, cross-node memory, conviction-weighted)
+
+- [ ] Provider keys move to BrainShare's encrypted store; remove `ANTHROPIC_API_KEY` from WorkOS env
+
+**Multi-agent — deferred**
+
+- [ ] Wire BrainShare, Swarm, and Claude Code agents — each has its own integration when ready
+
+- [ ] Long-context strategy: when threads exceed model context, summarize older posts (v1 sends everything and accepts truncation)
+
 ### Phase 1 Deferred Follow-Ups
 
 These are intentionally not part of the completed Phase 1 surface. They are preserved from v1.0 so the work is not lost, but moved out of completed milestone checklists.
@@ -478,9 +547,33 @@ Build the reference implementation from the extraction spec. Claude/ChatGPT conv
 
 - [x] Preserve corrections as new Episodes that supersede or retract prior primitives rather than deleting history
 
+### 2.2.5 AI Session Continuity v0 — Next Sprint
+
+Goal: prove BrainShare's core promise before building more WorkOS UI: a new AI session in any supported tool can inherit relevant context from prior AI conversations, with provenance and conviction intact.
+
+- [x] Harden the provider-neutral Episode contract so AI conversation, IDE agent, chat thread, message thread, PR, and document adapters all map into the same source-preserving shape
+
+- [x] Preserve provenance on every Episode and primitive: source tool, source kind, source location, actor identity, timestamps, attachments/artifacts, permissions/scope metadata, raw content hash, cited message/turn indices, and source span pointers
+
+- [x] Build robust manual AI conversation ingestion for Claude/ChatGPT/Codex-style transcripts through CLI/API: JSON first, then Markdown/HTML/export variants
+
+- [ ] Ensure long AI conversations chunk by topic/explicit shifts/long pauses/size limits, not source-specific assumptions or Discord-style time windows
+
+- [x] Make extraction explicitly source-agnostic: the extractor receives normalized Episodes and cited turns/spans, not Discord-specific messages
+
+- [x] Upgrade context assembly from primitive-relevance v0 toward a tool-agnostic AI-session payload: compact summary, structured primitives, conviction labels, citations, and "why included" metadata
+
+- [x] Add first-class AI conversation synthesis records so long conversations produce a narrative briefing, topic map, Why Chain, and durable primitive candidates before retrieval
+
+- [x] Expose traceability mode 1 through MCP/tool response: `brainshare_get_context` (or equivalent) returns relevant context with citations inside Claude/Codex/ChatGPT-style tools and IDE agents
+
+- [ ] Dogfood cross-session continuity on WorkOS: ingest a real Claude/Codex planning/build conversation, start a fresh AI session, and verify the new session can retrieve the relevant decisions without re-explanation
+
+- [ ] Define the minimum WorkOS UI contract for memory governance without building the full surface yet: instance-wide BrainShare view, workspace Memory subtab, navigable map/review mode, primitive drawer with citations/actions
+
 ### 2.3 WorkOS Writeback + Context Map
 
-This is the next core product bridge. WorkOS-to-BrainShare ingestion exists; this milestone builds the reverse path so extracted BrainShare graph primitives become useful, reviewable WorkOS context.
+This is the WorkOS visibility/governance bridge after the AI session continuity loop is proven. WorkOS-to-BrainShare ingestion exists; this milestone builds the reverse path so extracted BrainShare graph primitives become useful, reviewable WorkOS context.
 
 **2.3.1 Existing WorkOS memory into BrainShare — ✅ Complete**
 
@@ -526,11 +619,15 @@ This is the next core product bridge. WorkOS-to-BrainShare ingestion exists; thi
 
 **2.3.5 Memory Browser / Context Map**
 
-- [ ] Add Memory Browser View — a "Memory" or "Context" view within WorkOS (alongside Board and Feed) showing a structured table/list of BrainShare primitives with filters by type, project/scope, conviction level, status, date range, actor, review state, source tool, and linked WorkOS node
+- [ ] Add instance-wide BrainShare/Memory/Context view — the whole graph, organized by BrainShare-native concepts (goals, people, projects/domains, decisions, assumptions, open questions, standards/preferences, signals/patterns, sources), not forced into workspace structure
 
-- [ ] Support orphan review, bulk confirm, bulk link, and "show why included" interactions from the Memory Browser
+- [ ] Add workspace-level Memory/Context/BrainShare subtab in the left nav beside Board and Feed, scoped to the workspace but able to include graph-near cross-workspace context
 
-- [ ] Use the Memory Browser as the first visible Context Map before building a richer graph/board hybrid visualization
+- [ ] Build the first navigable Context Map view: primitives and relationships, not raw Episode logs; review happens in-place through filters/states such as All, Needs review, Conflicts, Unlinked
+
+- [ ] Add primitive drawer with statement, conviction, linked goals/nodes, source citations, exact snippets/spans, and actions: Confirm, Correct, Retract, Link, Move scope
+
+- [ ] Support orphan review, bulk confirm, bulk link, and "show why included" interactions from the Context Map
 
 ### 2.4 Memory Layers + Context Structures
 

@@ -20,6 +20,7 @@
     "db:reset": "supabase db reset"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.0",
     "@blocknote/core": "^0.49.0",
     "@blocknote/mantine": "^0.49.0",
     "@blocknote/react": "^0.49.0",
