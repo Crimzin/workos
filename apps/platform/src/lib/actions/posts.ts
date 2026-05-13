@@ -5,16 +5,40 @@ import { after } from "next/server";
 import { supabase } from "../supabase";
 import { getCurrentActor } from "../actor";
 import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
+import { getNodePosts, type PostRecord } from "../posts";
+
+/**
+ * Server action used by the 1.11 streaming-agent polling effect. Returns the
+ * latest posts for a node directly from Supabase — `getNodePosts` is
+ * deliberately uncached (see the docstring there for rationale).
+ */
+export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
+  return getNodePosts(nodeId);
+}
 import { findAgentMentions, type MentionedAgent } from "../agents/mention-detection";
-import { assembleNodeContext } from "../agents/context-assembly";
-import { invokeClaude } from "../agents/claude";
-import { postAgentReply } from "../agents/reply-poster";
+import { gatherNodeContext } from "../agents/node-context";
+import { renderClaudePrompt } from "../agents/claude-prompt";
+import { streamClaude } from "../agents/claude";
+import {
+  createStreamingAgentReply,
+  updateStreamingAgentReply,
+  type StreamingReplyHandle,
+} from "../agents/reply-poster";
+
+/** Cadence at which we flush the accumulated streaming text to Supabase
+ *  during an agent reply. Balances perceived latency against DB write rate.
+ *  At 400ms + the client's 750ms poll cadence the user sees new text every
+ *  ~1.2s on average — close enough to feel real-time. */
+const STREAM_FLUSH_INTERVAL_MS = 400;
 
 export async function createPost(
   nodeId: string,
   workspaceId: string,
   body: string
 ): Promise<void> {
+  console.log(
+    `[1.11] createPost ENTER nodeId=${nodeId.slice(0, 8)} bodyChars=${body.length}`
+  );
   const trimmed = body.trim();
   if (!trimmed) return;
   const actor = await getCurrentActor();
@@ -34,23 +58,173 @@ export async function createPost(
   // 1.11 Inline AI: if Claude was @-mentioned, schedule a reply. Runs after
   // the response is sent so the user's post lands instantly; Claude's reply
   // appears via cache revalidation a few seconds later.
+  //
+  // Verbose logging through the full pipeline (createPost → mention filter →
+  // context assembly → Anthropic call → reply post) so we can pinpoint where
+  // an invocation stalls. Search server logs for "[1.11]".
   const mentions = findAgentMentions(trimmed);
-  if (mentions.length > 0) {
-    const claudeAgents = await filterClaudeAgents(mentions);
-    for (const agent of claudeAgents) {
-      after(async () => {
-        try {
-          const ctx = await assembleNodeContext(nodeId);
-          const reply = await invokeClaude({
-            systemPrompt: ctx.systemPrompt,
-            userMessage: ctx.userMessage,
-          });
-          await postAgentReply(nodeId, workspaceId, agent.id, reply);
-        } catch (err) {
-          console.error("[1.11 inline-ai] agent invocation failed:", err);
-        }
-      });
+  console.log(
+    `[1.11] createPost: detected ${mentions.length} agent mention(s)`,
+    mentions.map((m) => `${m.name}(${m.id.slice(0, 8)})`)
+  );
+
+  if (mentions.length === 0) return;
+
+  let claudeAgents: MentionedAgent[];
+  try {
+    claudeAgents = await filterClaudeAgents(mentions);
+  } catch (err) {
+    console.error("[1.11] filterClaudeAgents failed:", err);
+    return;
+  }
+  console.log(
+    `[1.11] createPost: ${claudeAgents.length} Claude actor(s) after filter`,
+    claudeAgents.map((m) => `${m.name}(${m.id.slice(0, 8)})`)
+  );
+
+  if (claudeAgents.length === 0) {
+    console.log(
+      "[1.11] createPost: no Claude actors matched — invocation skipped. " +
+        "Verify the mentioned actor's `name` starts with 'claude' (case-insensitive) and `kind='agent'`."
+    );
+    return;
+  }
+
+  // Gather agent-agnostic context + render Claude-specific prompt
+  // SYNCHRONOUSLY, in request context. Doing the cache-backed reads inside
+  // after() deadlocks against the revalidate*() calls above: unstable_cache
+  // reads in post-response after() context hang waiting on a request scope
+  // that no longer exists. Reading here costs ~750ms (1–2s with broader
+  // family-thread context) but the user's post is already inserted and the
+  // response has effectively been sent — only the slow Anthropic call (10–15s)
+  // stays inside after().
+  let ctxPrompt: ReturnType<typeof renderClaudePrompt>;
+  try {
+    const tCtx = Date.now();
+    const ctx = await gatherNodeContext(nodeId);
+    if (!ctx) {
+      console.error("[1.11] gatherNodeContext: node not found:", nodeId);
+      return;
     }
+    console.log(
+      `[1.11] context gathered (own=${ctx.ownThread.length} parent=${ctx.parentThread ? ctx.parentThread.posts.length : 0} siblings=${ctx.siblingThreads.length} children=${ctx.childThreads.length}, ${Date.now() - tCtx}ms)`
+    );
+    ctxPrompt = renderClaudePrompt(ctx);
+    console.log(
+      `[1.11] claude prompt rendered (system=${ctxPrompt.systemPrompt.length}c, user=${ctxPrompt.userMessage.length}c)`
+    );
+  } catch (err) {
+    console.error("[1.11] context gather/render failed:", err);
+    return;
+  }
+
+  for (const agent of claudeAgents) {
+    console.log(
+      `[1.11] createPost: scheduling after() for ${agent.name}(${agent.id.slice(0, 8)})`
+    );
+    after(async () => {
+      const t0 = Date.now();
+      console.log(`[1.11] after(): START for ${agent.name}`);
+
+      // Streaming flow:
+      //   1. Wait for Claude's first chunk → insert the reply post seeded
+      //      with that text. The post is visible to clients via the next
+      //      revalidation/poll cycle. This replaces the "Claude is thinking"
+      //      placeholder with the actual reply, growing in real-time.
+      //   2. Continue streaming. Every STREAM_FLUSH_INTERVAL_MS, update the
+      //      post body in-place with the full accumulated text.
+      //   3. After the stream ends, do one final update with the canonical
+      //      complete text so no chunks are lost in the last flush window.
+      let handle: StreamingReplyHandle | null = null;
+      let accumulated = "";
+      let lastFlush = 0;
+      let flushCount = 0;
+
+      try {
+        for await (const event of streamClaude({
+          systemPrompt: ctxPrompt.systemPrompt,
+          userMessage: ctxPrompt.userMessage,
+        })) {
+          if (event.type === "delta") {
+            accumulated += event.text;
+
+            if (!handle) {
+              // First chunk → create the post now. The user sees Claude
+              // appear in the thread with their first sentence already
+              // visible instead of a long blank wait.
+              handle = await createStreamingAgentReply(
+                nodeId,
+                workspaceId,
+                agent.id,
+                accumulated
+              );
+              lastFlush = Date.now();
+              console.log(
+                `[1.11] after(): first delta + post created (id=${handle.postId.slice(0, 8)}, ${Date.now() - t0}ms)`
+              );
+              continue;
+            }
+
+            const now = Date.now();
+            if (now - lastFlush >= STREAM_FLUSH_INTERVAL_MS) {
+              await updateStreamingAgentReply(
+                handle,
+                nodeId,
+                workspaceId,
+                accumulated
+              );
+              flushCount++;
+              lastFlush = now;
+            }
+          } else if (event.type === "complete") {
+            // Canonical final text — supersedes anything we accumulated, in
+            // case the SDK provided trailing content not in chunk deltas.
+            accumulated = event.text;
+          }
+        }
+
+        if (!handle) {
+          // Stream completed without yielding any text deltas (e.g. an
+          // entirely empty response). Create a placeholder post so the user
+          // gets feedback instead of an indefinitely-spinning indicator.
+          handle = await createStreamingAgentReply(
+            nodeId,
+            workspaceId,
+            agent.id,
+            accumulated || "(Claude returned an empty response.)"
+          );
+        } else {
+          // Final flush — ensures the last buffered tokens are visible.
+          await updateStreamingAgentReply(
+            handle,
+            nodeId,
+            workspaceId,
+            accumulated
+          );
+          flushCount++;
+        }
+
+        console.log(
+          `[1.11] after(): stream finalized ✓ for ${agent.name} (flushes=${flushCount}, chars=${accumulated.length}, total ${Date.now() - t0}ms)`
+        );
+      } catch (err) {
+        console.error("[1.11] agent invocation failed:", err);
+        // Best-effort: leave the user with what we got plus a visible error
+        // marker so they don't think the indicator just vanished.
+        if (handle) {
+          try {
+            await updateStreamingAgentReply(
+              handle,
+              nodeId,
+              workspaceId,
+              `${accumulated}\n\n_⚠️ Stream interrupted. Please try again._`
+            );
+          } catch {
+            /* ignore — we already logged the original error */
+          }
+        }
+      }
+    });
   }
 }
 

@@ -88,6 +88,23 @@ export function PostEditor({
     uploadFile: editable ? uploadImage : undefined,
   });
 
+  // VIEWER-mode live update. `useCreateBlockNote` only honours `initialContent`
+  // on first mount; subsequent prop changes are ignored. That's correct for
+  // the editing case (the user owns the document and we don't want their
+  // typing wiped out by a re-render), but breaks the 1.11 streaming-agent
+  // case: the post body keeps updating from DB polling and the viewer would
+  // freeze on the first chunk forever. So when we're in viewer mode and
+  // `initialContent` actually changed, we replace the editor's blocks. We
+  // serialise both sides before swapping to avoid pointless work on the
+  // many polls where the body is unchanged.
+  useEffect(() => {
+    if (editable || !initialContent) return;
+    const incoming = JSON.stringify(initialContent);
+    const current = JSON.stringify(editor.document);
+    if (incoming === current) return;
+    editor.replaceBlocks(editor.document, initialContent);
+  }, [initialContent, editor, editable]);
+
   // Cmd/Ctrl+Enter → submit; Escape → cancel. Uses capture phase so we beat
   // ProseMirror's own keymap handlers.
   useEffect(() => {

@@ -1,36 +1,12 @@
 // Inserts an agent's reply as a post in the same thread, authored by the
-// agent actor. Converts plain text → BlockNote JSON paragraphs.
+// agent actor. Renders the reply text from Markdown → BlockNote JSON so that
+// **bold**, *italic*, `code`, headings, lists and links display correctly in
+// the post viewer. Falls back to a single paragraph for empty input.
 
 import { supabase } from "../supabase";
 import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
 import { revalidatePath } from "next/cache";
-
-interface BlockNoteParagraph {
-  type: "paragraph";
-  content: Array<{ type: "text"; text: string; styles: Record<string, never> }>;
-}
-
-/**
- * Convert plain text into a minimal BlockNote document. Each paragraph
- * (separated by blank lines) becomes a `paragraph` block; line breaks within
- * a paragraph are preserved as soft breaks via single \n inside a single
- * text node — BlockNote renders \n as visible newlines in display blocks.
- *
- * v1 plain-text only. Markdown rendering (headings, bullets, code) is a
- * v1 polished follow-up.
- */
-function textToBlockNote(text: string): BlockNoteParagraph[] {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return [{ type: "paragraph", content: [] as BlockNoteParagraph["content"] }];
-  }
-  // Split on blank lines → paragraph blocks. Preserve single newlines inside.
-  const paragraphs = trimmed.split(/\n{2,}/);
-  return paragraphs.map((p) => ({
-    type: "paragraph" as const,
-    content: [{ type: "text" as const, text: p, styles: {} }],
-  }));
-}
+import { markdownToBlockNote } from "./markdown-to-blocknote";
 
 export async function postAgentReply(
   nodeId: string,
@@ -38,7 +14,7 @@ export async function postAgentReply(
   agentActorId: string,
   text: string
 ): Promise<void> {
-  const blocks = textToBlockNote(text);
+  const blocks = markdownToBlockNote(text);
   const body = JSON.stringify(blocks);
 
   const { error } = await supabase.from("posts").insert({
@@ -52,4 +28,78 @@ export async function postAgentReply(
   revalidateNodePosts(nodeId);
   revalidateWorkspaceFeed(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Streaming variant — used by 1.11 Inline AI so Claude's reply appears
+// incrementally instead of all-at-once after a 60s+ wait.
+//
+// Flow:
+//   1. Caller waits for Claude's first chunk, then calls `createStreamingAgentReply`
+//      to insert a post containing that first chunk. The post is visible
+//      immediately via revalidation.
+//   2. As more chunks arrive, the caller batches them (every ~400ms) and
+//      calls `updateStreamingAgentReply` to update the post body in-place.
+//   3. After the stream completes, one final `updateStreamingAgentReply` is
+//      called with the full text to ensure no truncation.
+// ---------------------------------------------------------------------------
+
+export interface StreamingReplyHandle {
+  postId: string;
+}
+
+/**
+ * Insert a brand-new agent reply post seeded with `initialText`. Returns a
+ * handle the caller uses with `updateStreamingAgentReply` to keep updating
+ * the same post as more text streams in.
+ */
+export async function createStreamingAgentReply(
+  nodeId: string,
+  workspaceId: string,
+  agentActorId: string,
+  initialText: string
+): Promise<StreamingReplyHandle> {
+  const body = JSON.stringify(markdownToBlockNote(initialText));
+
+  const { data, error } = await supabase
+    .from("posts")
+    .insert({
+      node_id: nodeId,
+      actor_id: agentActorId,
+      post_type: "post",
+      body,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  revalidateNodePosts(nodeId);
+  revalidateWorkspaceFeed(workspaceId);
+  revalidatePath(`/n/${workspaceId}`);
+
+  return { postId: data.id as string };
+}
+
+/**
+ * Update an in-flight streaming reply's body with the full accumulated text
+ * so far. We re-render markdown→BlockNote each flush; cheap relative to the
+ * Supabase round-trip. Revalidates the posts cache so the next client poll
+ * picks up the new body.
+ */
+export async function updateStreamingAgentReply(
+  handle: StreamingReplyHandle,
+  nodeId: string,
+  workspaceId: string,
+  fullText: string
+): Promise<void> {
+  const body = JSON.stringify(markdownToBlockNote(fullText));
+
+  const { error } = await supabase
+    .from("posts")
+    .update({ body, updated_at: new Date().toISOString() })
+    .eq("id", handle.postId);
+  if (error) throw error;
+
+  revalidateNodePosts(nodeId);
+  revalidateWorkspaceFeed(workspaceId);
 }

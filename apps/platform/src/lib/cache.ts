@@ -42,12 +42,22 @@ export function revalidateWorkspaceViews(workspaceId: string) {
   revalidateTag(cacheTags.workspaceViews(workspaceId), PROFILE);
 }
 
+// Post threads are interactive — when the agent (1.11) inserts a reply or a
+// user submits a new post, the next read MUST return the fresh value, not a
+// stale-while-revalidate snapshot. Using the "max" SWR profile here caused a
+// "whiplash" bug where Claude's reply only appeared after the *next* user
+// @-mention (because every poll was being served the stale snapshot while a
+// background refresh ran). `{ expire: 0 }` forces the tag to expire NOW so
+// the next read fetches fresh from Supabase. Other tags keep "max" because
+// their reads are read-heavy and tolerate brief staleness.
+const IMMEDIATE = { expire: 0 } as const;
+
 export function revalidateNodePosts(nodeId: string) {
-  revalidateTag(cacheTags.nodePosts(nodeId), PROFILE);
+  revalidateTag(cacheTags.nodePosts(nodeId), IMMEDIATE);
 }
 
 export function revalidateWorkspaceFeed(workspaceId: string) {
-  revalidateTag(cacheTags.workspaceFeed(workspaceId), PROFILE);
+  revalidateTag(cacheTags.workspaceFeed(workspaceId), IMMEDIATE);
 }
 
 export function revalidateNodeLinksFor(nodeIds: string[]) {

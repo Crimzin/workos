@@ -1,14 +1,56 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Pin } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
-import { createPost } from "@/lib/actions/posts";
+import { createPost, pollNodePosts } from "@/lib/actions/posts";
+import { findAgentMentions } from "@/lib/agents/mention-detection";
 import { PostEditor, serializePostBody } from "./post-editor";
 import { PostItem } from "./post-item";
+
+/**
+ * How long to wait for a Claude reply before hiding the thinking indicator.
+ * 4 minutes accommodates the worst-case agent path (broad context + long
+ * response). With streaming the indicator is normally replaced by the
+ * actual reply within ~3s, so this is purely a safety net.
+ */
+const CLAUDE_THINKING_TIMEOUT_MS = 240_000;
+/**
+ * Cadence for polling the server while a Claude reply is streaming. Faster
+ * polling makes the streamed text appear closer to real-time. 750ms +
+ * 400ms server-side flush = ~1.2s perceived latency per chunk, which feels
+ * like live typing in practice.
+ */
+const CLAUDE_POLL_INTERVAL_MS = 750;
+/**
+ * Initial polling window after the user submits an @Claude post. Polling
+ * runs at least this long even with zero activity — handles the case where
+ * Claude's first chunk takes 30–60s to arrive on large-context payloads.
+ */
+const POLL_INITIAL_DURATION_MS = 90_000;
+/**
+ * Polling stays alive at least this long after the LAST observed Claude
+ * post body growth. Streams typically finish + final flush within this
+ * window, so the user sees the complete reply without manually refreshing.
+ */
+const POLL_IDLE_EXTENSION_MS = 15_000;
+
+interface ThinkingClaude {
+  id: string;
+  name: string;
+  /**
+   * Post IDs that already existed when the user submitted. The indicator
+   * clears as soon as we see a post by this Claude actor that ISN'T in this
+   * set — i.e. a brand-new reply that landed after the @-mention. We use
+   * post-id presence rather than `created_at > startedAt` because client and
+   * DB clocks drift, which made timestamp comparisons unreliable (the
+   * indicator stuck even after the reply arrived).
+   */
+  knownPostIds: Set<string>;
+}
 
 interface PostsTabContentProps {
   nodeId: string;
@@ -43,6 +85,17 @@ export function PostsTabContent({
   const [pending, startTransition] = useTransition();
   // Increment to force-remount (reset) the BlockNote composer after submit.
   const [composerKey, setComposerKey] = useState(0);
+  // Claude actors we're waiting on. Empty means no thinking indicator shown.
+  const [thinkingClaudes, setThinkingClaudes] = useState<ThinkingClaude[]>([]);
+  // Toggles the polling loop on. We keep this independent of the indicator
+  // state because the indicator hides as soon as Claude's first chunk lands,
+  // but we still need to keep polling so subsequent stream flushes update
+  // the rendered post body.
+  const [isPolling, setIsPolling] = useState(false);
+  // Wall-clock deadline beyond which the poll loop stops. Stored in a ref
+  // (not state) so updating it doesn't restart the polling effect, which
+  // would clear/recreate the interval on every observed chunk.
+  const pollDeadlineRef = useRef<number>(0);
   const currentBlocksRef = useRef<Block[]>([]);
   const router = useRouter();
 
@@ -51,16 +104,142 @@ export function PostsTabContent({
     setPosts(initialPosts);
   }, [initialPosts]);
 
+  // 1.11 Inline AI streaming poll loop. Runs while `isPolling` is true.
+  // Bypasses `router.refresh()` (which goes through unstable_cache and is
+  // unreliable to invalidate from inside `after()` callbacks in Next 16 dev)
+  // and hits Supabase directly via the `pollNodePosts` server action. The
+  // result REPLACES local `posts` state immediately, so streamed body
+  // updates appear within one poll interval.
+  //
+  // Lifecycle:
+  //   - `pollDeadlineRef` is set to a wall-clock deadline when the user
+  //     submits an @Claude post (or when activity extends it).
+  //   - Each poll checks if Date.now() ≥ deadline; if so, sets isPolling to
+  //     false and stops.
+  //   - Each poll also detects activity (a Claude post body grew) and
+  //     EXTENDS the deadline by POLL_IDLE_EXTENSION_MS so polling stays
+  //     alive for the duration of the stream + a little buffer.
+  //
+  // The thinking indicator's visibility is controlled separately by the
+  // auto-hide effect below — polling outlives the indicator on purpose so
+  // chunks keep streaming after the first one lands.
+  useEffect(() => {
+    if (!isPolling) return;
+    let cancelled = false;
+    // Track per-post body lengths between polls so we can detect growth and
+    // extend the deadline. Lives in the effect closure — wiped on restart.
+    const lastSeenLengths = new Map<string, number>();
+
+    const poll = async () => {
+      if (Date.now() >= pollDeadlineRef.current) {
+        cancelled = true;
+        setIsPolling(false);
+        return;
+      }
+      try {
+        const fresh = await pollNodePosts(nodeId);
+        if (cancelled) return;
+        setPosts(fresh);
+
+        // Did any agent post grow since the last poll? If so, extend the
+        // deadline so the next chunk has time to land. We only count GROWTH
+        // (not just presence), so the deadline doesn't extend forever on a
+        // long-since-finished post.
+        let grew = false;
+        for (const p of fresh) {
+          if (p.actor?.kind !== "agent" || p.post_type !== "post") continue;
+          const len = p.body?.length ?? 0;
+          const prev = lastSeenLengths.get(p.id) ?? 0;
+          if (len > prev) grew = true;
+          lastSeenLengths.set(p.id, len);
+        }
+        if (grew) {
+          pollDeadlineRef.current = Math.max(
+            pollDeadlineRef.current,
+            Date.now() + POLL_IDLE_EXTENSION_MS
+          );
+        }
+      } catch {
+        /* swallow — next tick will retry */
+      }
+    };
+
+    // Kick off an immediate poll so the first streamed text arrives without
+    // waiting a full interval.
+    poll();
+    const interval = setInterval(poll, CLAUDE_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isPolling, nodeId]);
+
+  // Safety timeout for the THINKING INDICATOR ONLY. If Claude never replies
+  // (network failure, etc.) we hide the indicator after the full timeout.
+  // Polling has its own deadline mechanism above and doesn't share this
+  // timer.
+  useEffect(() => {
+    if (thinkingClaudes.length === 0) return;
+    const safety = setTimeout(
+      () => setThinkingClaudes([]),
+      CLAUDE_THINKING_TIMEOUT_MS
+    );
+    return () => clearTimeout(safety);
+  }, [thinkingClaudes]);
+
+  // Auto-hide thinking indicator the moment Claude's reply post lands. We
+  // detect a "new" reply as any post authored by one of the Claude actors
+  // we're waiting on whose ID was NOT already known when we started waiting.
+  // ID-based check sidesteps clock-skew bugs that broke the previous
+  // created_at > startedAt comparison.
+  useEffect(() => {
+    if (thinkingClaudes.length === 0) return;
+    setThinkingClaudes((prev) =>
+      prev.filter(
+        (c) =>
+          !posts.some(
+            (p) =>
+              p.actor_id === c.id &&
+              p.post_type === "post" &&
+              !c.knownPostIds.has(p.id)
+          )
+      )
+    );
+  }, [posts, thinkingClaudes.length]);
+
   const pinnedCount = posts.filter((p) => p.pinned).length;
   const visiblePosts = showPinnedOnly ? posts.filter((p) => p.pinned) : posts;
 
   const handleSubmit = (blocks: Block[]) => {
     if (isEditorEmpty(blocks)) return;
     const body = serializePostBody(blocks);
+
+    // 1.11 Inline AI: detect Claude @-mentions in the body so we can show the
+    // "Claude is thinking…" indicator immediately on submit. Mirrors the
+    // server-side filter in posts.ts (name starts with "claude", case-insensitive).
+    const claudeMentions = findAgentMentions(body).filter((m) =>
+      m.name.toLowerCase().startsWith("claude")
+    );
+
+    // Snapshot the post IDs visible right now — used by the auto-hide effect
+    // to decide whether a freshly-arrived Claude post is the awaited reply.
+    const knownPostIds = new Set(posts.map((p) => p.id));
+
     startTransition(async () => {
       await createPost(nodeId, workspaceId, body);
       setComposerKey((k) => k + 1); // remounts editor → clean slate
       setHasContent(false);
+      if (claudeMentions.length > 0) {
+        setThinkingClaudes(
+          claudeMentions.map((m) => ({ id: m.id, name: m.name, knownPostIds }))
+        );
+        // Start the streaming poll loop. The deadline is wall-clock; the
+        // poll effect will extend it whenever it observes Claude post body
+        // growth, so polling stays alive for the full duration of the
+        // stream + a 15s buffer afterward.
+        pollDeadlineRef.current = Date.now() + POLL_INITIAL_DURATION_MS;
+        setIsPolling(true);
+      }
       router.refresh();
     });
   };
@@ -143,7 +322,7 @@ export function PostsTabContent({
       )}
 
       {/* Empty state */}
-      {visiblePosts.length === 0 && (
+      {visiblePosts.length === 0 && thinkingClaudes.length === 0 && (
         <p className="py-10 text-center text-sm text-text-tertiary">
           {showPinnedOnly
             ? "No pinned posts."
@@ -151,24 +330,86 @@ export function PostsTabContent({
         </p>
       )}
 
-      {/* Feed */}
+      {/* Feed. Newest post is at index 0; the "Claude is thinking…" indicator
+          is injected directly *after* that post so it visually follows the
+          user's just-submitted message rather than sitting above it. When
+          Claude's actual reply lands it'll become the new index 0 and the
+          indicator unmounts via the auto-hide effect. */}
       {visiblePosts.length > 0 && (
         <div className="divide-y divide-border">
-          {visiblePosts.map((post) => (
-            <PostItem
-              key={post.id}
-              post={post}
-              nodeId={nodeId}
-              workspaceId={workspaceId}
-              currentActorId={currentActorId}
-              actors={actors}
-              onPinToggle={handlePinToggle}
-              onDelete={handleDelete}
-              onUpdate={handleUpdate}
-            />
+          {visiblePosts.map((post, idx) => (
+            <Fragment key={post.id}>
+              <PostItem
+                post={post}
+                nodeId={nodeId}
+                workspaceId={workspaceId}
+                currentActorId={currentActorId}
+                actors={actors}
+                onPinToggle={handlePinToggle}
+                onDelete={handleDelete}
+                onUpdate={handleUpdate}
+              />
+              {idx === 0 &&
+                thinkingClaudes.length > 0 &&
+                !showPinnedOnly &&
+                thinkingClaudes.map((c) => (
+                  <ClaudeThinkingIndicator key={c.id} name={c.name} />
+                ))}
+            </Fragment>
           ))}
         </div>
       )}
+
+      {/* Edge case: empty thread with an in-flight Claude reply. Shouldn't
+          normally happen (the user's post is always inserted first) but we
+          render the indicator anyway so the user gets feedback. */}
+      {visiblePosts.length === 0 && thinkingClaudes.length > 0 && !showPinnedOnly && (
+        <div className="divide-y divide-border">
+          {thinkingClaudes.map((c) => (
+            <ClaudeThinkingIndicator key={c.id} name={c.name} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 1.11 Inline AI — visible feedback while we wait for Claude's reply. Shows a
+ * pulsing purple-ringed avatar (matching the agent ring used on PostItem) plus
+ * a row of bouncing dots so the user knows their @-mention was received and
+ * a response is generating. Auto-disappears when the reply lands or after the
+ * 60s safety timeout.
+ */
+function ClaudeThinkingIndicator({ name }: { name: string }) {
+  const initial = name.trim().charAt(0).toUpperCase() || "C";
+  return (
+    <div
+      className="px-5 py-3 bg-bg-secondary/40"
+      aria-live="polite"
+      aria-label={`${name} is thinking`}
+    >
+      <div className="flex items-center gap-2">
+        <div className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold bg-bg-hover text-text-secondary ring-2 ring-agent-accent animate-pulse">
+          {initial}
+        </div>
+        <span className="text-xs font-medium text-text-primary">{name}</span>
+        <span className="text-[11px] text-text-tertiary">is thinking</span>
+        <span className="inline-flex items-end gap-[3px] ml-0.5" aria-hidden="true">
+          <span
+            className="h-1 w-1 rounded-full bg-agent-accent animate-bounce"
+            style={{ animationDelay: "0ms", animationDuration: "1s" }}
+          />
+          <span
+            className="h-1 w-1 rounded-full bg-agent-accent animate-bounce"
+            style={{ animationDelay: "150ms", animationDuration: "1s" }}
+          />
+          <span
+            className="h-1 w-1 rounded-full bg-agent-accent animate-bounce"
+            style={{ animationDelay: "300ms", animationDuration: "1s" }}
+          />
+        </span>
+      </div>
     </div>
   );
 }
