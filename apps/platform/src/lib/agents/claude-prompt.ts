@@ -10,7 +10,9 @@
 
 import type { NodeContext, RelativeThread } from "./node-context";
 import { plainTextFromBody } from "./node-context";
+import { renderAIStandardsForPrompt } from "../ai-standards";
 import type { PostRecord } from "../posts";
+import type { AIStandard } from "../types";
 
 export interface ClaudePrompt {
   systemPrompt: string;
@@ -24,6 +26,11 @@ export interface ClaudePromptOptions {
    * sibling/parent thread or an earlier @-mention.
    */
   targetPostId?: string;
+  /**
+   * Effective BrainShare inborn standards for this instance. These are
+   * product-level defaults plus instance overrides.
+   */
+  standards?: AIStandard[];
 }
 
 export function renderClaudePrompt(
@@ -31,7 +38,7 @@ export function renderClaudePrompt(
   options: ClaudePromptOptions = {}
 ): ClaudePrompt {
   return {
-    systemPrompt: buildSystemPrompt(ctx),
+    systemPrompt: buildSystemPrompt(ctx, options),
     userMessage: buildUserMessage(ctx, options),
   };
 }
@@ -53,12 +60,18 @@ export function renderClaudeNotFoundPrompt(): ClaudePrompt {
 // System prompt
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(ctx: NodeContext): string {
+function buildSystemPrompt(
+  ctx: NodeContext,
+  options: ClaudePromptOptions
+): string {
   const lines: Array<string | null> = [
     `You are Claude, a teammate inside WorkOS — a work management platform where humans and AI agents collaborate as peers in card and stack post threads.`,
     ``,
     `You have been @-mentioned in a post thread. Your job is to be useful: think with the user, draft, analyze, summarize, plan, or push back honestly. Be concise. Ground every claim in the context below; if context is missing, ask. Only respond to the post explicitly marked "TARGET @MENTION TO ANSWER". Do NOT answer earlier @-mentions or adjacent parent/sibling threads unless the target post asks you to use them. Do NOT @-mention yourself or other agents in your reply. Do NOT prefix your message with "Claude:" or your name — the post is already attributed to you.`,
     ``,
+    options.standards && options.standards.length > 0
+      ? `${renderAIStandardsForPrompt(options.standards)}\n`
+      : null,
     `# Node`,
     `- Type: ${ctx.node.type}`,
     `- Title: ${ctx.node.title}`,

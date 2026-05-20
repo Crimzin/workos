@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { supabase } from "../supabase";
 import { getCurrentActor } from "../actor";
+import { DEFAULT_AI_STANDARDS } from "../ai-standards";
+import { getEffectiveAIStandards } from "../ai-standards-server";
 import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
 import { getNodePosts, type PostRecord } from "../posts";
 import { findAgentMentions, type MentionedAgent } from "../agents/mention-detection";
@@ -118,10 +120,19 @@ export async function createPost(
       return;
     }
     const targetAwareCtx = ensureTargetPostInOwnThread(ctx, targetPost);
-    console.log(
-      `[1.11] context gathered (own=${targetAwareCtx.ownThread.length} parent=${targetAwareCtx.parentThread ? targetAwareCtx.parentThread.posts.length : 0} siblings=${targetAwareCtx.siblingThreads.length} children=${targetAwareCtx.childThreads.length}, ${Date.now() - tCtx}ms)`
+    const standards = await getEffectiveAIStandards(actor.instance_id).catch(
+      (err) => {
+        console.error("[1.11] ai standards fallback:", err);
+        return DEFAULT_AI_STANDARDS;
+      }
     );
-    ctxPrompt = renderClaudePrompt(targetAwareCtx, { targetPostId: targetPost.id });
+    console.log(
+      `[1.11] context gathered (own=${targetAwareCtx.ownThread.length} parent=${targetAwareCtx.parentThread ? targetAwareCtx.parentThread.posts.length : 0} siblings=${targetAwareCtx.siblingThreads.length} children=${targetAwareCtx.childThreads.length}, standards=${standards.length}, ${Date.now() - tCtx}ms)`
+    );
+    ctxPrompt = renderClaudePrompt(targetAwareCtx, {
+      targetPostId: targetPost.id,
+      standards,
+    });
     console.log(
       `[1.11] claude prompt rendered (system=${ctxPrompt.systemPrompt.length}c, user=${ctxPrompt.userMessage.length}c)`
     );
