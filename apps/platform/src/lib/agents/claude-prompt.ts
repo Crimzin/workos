@@ -17,10 +17,22 @@ export interface ClaudePrompt {
   userMessage: string;
 }
 
-export function renderClaudePrompt(ctx: NodeContext): ClaudePrompt {
+export interface ClaudePromptOptions {
+  /**
+   * The exact post that triggered this invocation. When present, the renderer
+   * marks that post in the active thread so Claude does not answer a nearby
+   * sibling/parent thread or an earlier @-mention.
+   */
+  targetPostId?: string;
+}
+
+export function renderClaudePrompt(
+  ctx: NodeContext,
+  options: ClaudePromptOptions = {}
+): ClaudePrompt {
   return {
     systemPrompt: buildSystemPrompt(ctx),
-    userMessage: buildUserMessage(ctx),
+    userMessage: buildUserMessage(ctx, options),
   };
 }
 
@@ -45,7 +57,7 @@ function buildSystemPrompt(ctx: NodeContext): string {
   const lines: Array<string | null> = [
     `You are Claude, a teammate inside WorkOS — a work management platform where humans and AI agents collaborate as peers in card and stack post threads.`,
     ``,
-    `You have been @-mentioned in a post thread. Your job is to be useful: think with the user, draft, analyze, summarize, plan, or push back honestly. Be concise. Ground every claim in the context below; if context is missing, ask. Do NOT @-mention yourself or other agents in your reply. Do NOT prefix your message with "Claude:" or your name — the post is already attributed to you.`,
+    `You have been @-mentioned in a post thread. Your job is to be useful: think with the user, draft, analyze, summarize, plan, or push back honestly. Be concise. Ground every claim in the context below; if context is missing, ask. Only respond to the post explicitly marked "TARGET @MENTION TO ANSWER". Do NOT answer earlier @-mentions or adjacent parent/sibling threads unless the target post asks you to use them. Do NOT @-mention yourself or other agents in your reply. Do NOT prefix your message with "Claude:" or your name — the post is already attributed to you.`,
     ``,
     `# Node`,
     `- Type: ${ctx.node.type}`,
@@ -86,12 +98,8 @@ function buildSystemPrompt(ctx: NodeContext): string {
 // User message — the conversational thread + family threads
 // ---------------------------------------------------------------------------
 
-function buildUserMessage(ctx: NodeContext): string {
+function buildUserMessage(ctx: NodeContext, options: ClaudePromptOptions): string {
   const sections: string[] = [];
-
-  // Own thread (the one Claude was @-mentioned in). Posts come back
-  // newest-first; reverse to chronological so the @-mention sits at the bottom.
-  sections.push(renderThreadSection(`# Thread on "${ctx.node.title}"`, ctx.ownThread));
 
   // Parent stack thread, when applicable.
   if (ctx.parentThread) {
@@ -113,19 +121,40 @@ function buildUserMessage(ctx: NodeContext): string {
     sections.push(renderRelativeSection(`# Child card: "${c.node.title}"`, c));
   }
 
+  // Own thread (the one Claude was @-mentioned in) must come last, immediately
+  // before the instruction. Related threads are useful context, but putting
+  // them after the active thread made Claude sometimes answer a sibling card
+  // or an earlier @-mention.
   sections.push(
-    [`---`, `Respond to the most recent post (the one that mentioned you).`].join("\n")
+    renderThreadSection(
+      `# Active thread on "${ctx.node.title}"`,
+      ctx.ownThread,
+      options.targetPostId
+    )
+  );
+
+  sections.push(
+    [
+      `---`,
+      options.targetPostId
+        ? `Respond only to the post marked "TARGET @MENTION TO ANSWER".`
+        : `Respond to the most recent post in the active thread (the one that mentioned you).`,
+    ].join("\n")
   );
 
   return sections.join("\n\n");
 }
 
-function renderThreadSection(heading: string, posts: PostRecord[]): string {
+function renderThreadSection(
+  heading: string,
+  posts: PostRecord[],
+  targetPostId?: string
+): string {
   const lines: string[] = [heading, ``];
   // newest-first → chronological
   const chronological = [...posts].reverse();
   for (const p of chronological) {
-    lines.push(renderPost(p));
+    lines.push(renderPost(p, targetPostId));
     lines.push("");
   }
   return lines.join("\n").trimEnd();
@@ -141,21 +170,25 @@ function renderRelativeSection(heading: string, thread: RelativeThread): string 
   return lines.join("\n").trimEnd();
 }
 
-function renderPost(post: PostRecord): string {
+function renderPost(post: PostRecord, targetPostId?: string): string {
   const author = post.actor?.name ?? "Unknown";
   const when = relativeTime(post.created_at);
+  const marker =
+    targetPostId && post.id === targetPostId
+      ? `>>> TARGET @MENTION TO ANSWER <<<\n`
+      : "";
 
   if (post.post_type === "card_created" && post.metadata) {
     const title = (post.metadata as Record<string, string>).card_title ?? "(card)";
-    return `[${author} · ${when}] (activity) created card "${title}"`;
+    return `${marker}[${author} · ${when}] (activity) created card "${title}"`;
   }
   if (post.post_type === "link_created" && post.metadata) {
     const target = (post.metadata as Record<string, string>).target_title ?? "(node)";
-    return `[${author} · ${when}] (activity) linked to "${target}"`;
+    return `${marker}[${author} · ${when}] (activity) linked to "${target}"`;
   }
 
   const body = plainTextFromBody(post.body ?? "");
-  return `[${author} · ${when}]\n${body}`;
+  return `${marker}[${author} · ${when}]\n${body}`;
 }
 
 function relativeTime(iso: string): string {

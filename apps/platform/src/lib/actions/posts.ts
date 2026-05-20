@@ -6,6 +6,15 @@ import { supabase } from "../supabase";
 import { getCurrentActor } from "../actor";
 import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
 import { getNodePosts, type PostRecord } from "../posts";
+import { findAgentMentions, type MentionedAgent } from "../agents/mention-detection";
+import { gatherNodeContext, type NodeContext } from "../agents/node-context";
+import { renderClaudePrompt } from "../agents/claude-prompt";
+import { streamClaude } from "../agents/claude";
+import {
+  createStreamingAgentReply,
+  updateStreamingAgentReply,
+  type StreamingReplyHandle,
+} from "../agents/reply-poster";
 
 /**
  * Server action used by the 1.11 streaming-agent polling effect. Returns the
@@ -15,15 +24,6 @@ import { getNodePosts, type PostRecord } from "../posts";
 export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
   return getNodePosts(nodeId);
 }
-import { findAgentMentions, type MentionedAgent } from "../agents/mention-detection";
-import { gatherNodeContext } from "../agents/node-context";
-import { renderClaudePrompt } from "../agents/claude-prompt";
-import { streamClaude } from "../agents/claude";
-import {
-  createStreamingAgentReply,
-  updateStreamingAgentReply,
-  type StreamingReplyHandle,
-} from "../agents/reply-poster";
 
 /** Cadence at which we flush the accumulated streaming text to Supabase
  *  during an agent reply. Balances perceived latency against DB write rate.
@@ -43,13 +43,24 @@ export async function createPost(
   if (!trimmed) return;
   const actor = await getCurrentActor();
 
-  const { error } = await supabase.from("posts").insert({
-    node_id: nodeId,
-    actor_id: actor.id,
-    post_type: "post",
-    body: trimmed,
-  });
+  const { data: insertedPost, error } = await supabase
+    .from("posts")
+    .insert({
+      node_id: nodeId,
+      actor_id: actor.id,
+      post_type: "post",
+      body: trimmed,
+    })
+    .select(
+      "id,node_id,actor_id,post_type,body,metadata,pinned,pinned_at,created_at,updated_at"
+    )
+    .single();
   if (error) throw error;
+
+  const targetPost: PostRecord = {
+    ...insertedPost,
+    actor: { id: actor.id, name: actor.name, kind: "human" },
+  } as PostRecord;
 
   revalidateNodePosts(nodeId);
   revalidateWorkspaceFeed(workspaceId);
@@ -106,10 +117,11 @@ export async function createPost(
       console.error("[1.11] gatherNodeContext: node not found:", nodeId);
       return;
     }
+    const targetAwareCtx = ensureTargetPostInOwnThread(ctx, targetPost);
     console.log(
-      `[1.11] context gathered (own=${ctx.ownThread.length} parent=${ctx.parentThread ? ctx.parentThread.posts.length : 0} siblings=${ctx.siblingThreads.length} children=${ctx.childThreads.length}, ${Date.now() - tCtx}ms)`
+      `[1.11] context gathered (own=${targetAwareCtx.ownThread.length} parent=${targetAwareCtx.parentThread ? targetAwareCtx.parentThread.posts.length : 0} siblings=${targetAwareCtx.siblingThreads.length} children=${targetAwareCtx.childThreads.length}, ${Date.now() - tCtx}ms)`
     );
-    ctxPrompt = renderClaudePrompt(ctx);
+    ctxPrompt = renderClaudePrompt(targetAwareCtx, { targetPostId: targetPost.id });
     console.log(
       `[1.11] claude prompt rendered (system=${ctxPrompt.systemPrompt.length}c, user=${ctxPrompt.userMessage.length}c)`
     );
@@ -226,6 +238,20 @@ export async function createPost(
       }
     });
   }
+}
+
+function ensureTargetPostInOwnThread(
+  ctx: NodeContext,
+  targetPost: PostRecord
+): NodeContext {
+  if (ctx.ownThread.some((p) => p.id === targetPost.id)) return ctx;
+  return {
+    ...ctx,
+    ownThread: [targetPost, ...ctx.ownThread].sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    ),
+  };
 }
 
 /**
