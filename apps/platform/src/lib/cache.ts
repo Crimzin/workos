@@ -11,6 +11,7 @@ export const cacheTags = {
   children: (parentId: string) => `node-children:${parentId}`,
   workspaceBoard: (workspaceId: string) => `workspace-board:${workspaceId}`,
   instanceFields: (instanceId: string) => `instance-fields:${instanceId}`,
+  aiStandards: (instanceId: string) => `ai-standards:${instanceId}`,
   workspaceViews: (workspaceId: string) => `workspace-views:${workspaceId}`,
   nodePosts: (nodeId: string) => `posts:${nodeId}`,
   workspaceFeed: (workspaceId: string) => `workspace-feed:${workspaceId}`,
@@ -36,6 +37,10 @@ export function revalidateRootNodes() {
 
 export function revalidateInstanceFields(instanceId: string) {
   revalidateTag(cacheTags.instanceFields(instanceId), PROFILE);
+}
+
+export function revalidateAIStandards(instanceId: string) {
+  revalidateTag(cacheTags.aiStandards(instanceId), PROFILE);
 }
 
 export function revalidateWorkspaceViews(workspaceId: string) {

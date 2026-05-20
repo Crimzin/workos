@@ -1,19 +1,14 @@
-export type AIStandardCategory = "interaction" | "output";
-export type AIStandardMode = "latent" | "visible_when_useful";
-export type AIStandardSource = "default" | "override" | "custom";
+import { unstable_cache } from "next/cache";
+import { cacheTags } from "./cache";
+import { supabase } from "./supabase";
+import type { AIStandard } from "./types";
 
-export interface AIStandardDefinition {
-  standard_key: string;
-  category: AIStandardCategory;
-  title: string;
-  instruction: string;
-  mode: AIStandardMode;
-  enabled: boolean;
-  position: number;
-  source: AIStandardSource;
-}
+export type AIStandardDefinition = AIStandard;
 
-export type AIStandardOverrideRow = Omit<AIStandardDefinition, "source"> & {
+export type AIStandardOverrideRow = Omit<
+  AIStandard,
+  "id" | "instance_id" | "created_at" | "updated_at"
+> & {
   source: "override" | "custom";
 };
 
@@ -216,4 +211,29 @@ export function renderAIStandardsForPrompt(
     "## Output",
     renderRows(output),
   ].join("\n");
+}
+
+export async function getEffectiveAIStandards(
+  instanceId: string
+): Promise<AIStandardDefinition[]> {
+  return unstable_cache(
+    async () => {
+      const { data, error } = await supabase
+        .from("ai_standards")
+        .select(
+          "standard_key,category,title,instruction,mode,enabled,position,source"
+        )
+        .eq("instance_id", instanceId)
+        .order("position", { ascending: true });
+
+      if (error) throw error;
+
+      return mergeAIStandards(
+        DEFAULT_AI_STANDARDS,
+        (data ?? []) as AIStandardOverrideRow[]
+      );
+    },
+    [`ai-standards-instance-${instanceId}`],
+    { tags: [cacheTags.aiStandards(instanceId)], revalidate: false }
+  )();
 }
