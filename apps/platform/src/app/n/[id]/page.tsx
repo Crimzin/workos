@@ -27,10 +27,16 @@ export default async function NodePage({
     ]);
     if (!board) notFound();
     return (
-      <div className="flex h-full flex-col">
-        <WorkspaceHeader title={node.title} description={node.description} />
+      <div className="h-full min-h-0">
         <ResizablePanelGroup
-          board={<Board data={board} views={views} />}
+          board={
+            <div className="flex h-full min-h-0 flex-col">
+              <WorkspaceHeader title={node.title} description={node.description} />
+              <div className="min-h-0 flex-1">
+                <Board data={board} views={views} />
+              </div>
+            </div>
+          }
           detail={
             detailId ? (
               <Suspense key={detailId} fallback={<DetailPanelSkeleton />}>
@@ -117,11 +123,11 @@ function DetailPanelSkeleton() {
 
 function WorkspaceHeader({ title, description }: { title: string; description: string | null }) {
   return (
-    <div className="shrink-0 border-b border-border px-6 py-4">
+    <div className="shrink-0 border-b border-border px-6 py-3">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="section-label">Workspace</div>
-          <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-text-primary">
+          <h1 className="mt-0.5 truncate text-lg font-semibold tracking-tight text-text-primary">
             {title}
           </h1>
           {description && <p className="mt-1 text-sm text-text-secondary">{description}</p>}

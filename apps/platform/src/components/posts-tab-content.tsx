@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Pin } from "lucide-react";
 import type { Block } from "@blocknote/core";
@@ -8,6 +8,7 @@ import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
 import { createPost, pollNodePosts } from "@/lib/actions/posts";
 import { findAgentMentions } from "@/lib/agents/mention-detection";
+import { orderPostsForThread } from "@/lib/post-order";
 import { PostEditor, serializePostBody } from "./post-editor";
 import { PostItem } from "./post-item";
 
@@ -97,10 +98,13 @@ export function PostsTabContent({
   // would clear/recreate the interval on every observed chunk.
   const pollDeadlineRef = useRef<number>(0);
   const currentBlocksRef = useRef<Block[]>([]);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
   const router = useRouter();
 
   // Keep local posts in sync when server passes fresh data (after router.refresh()).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPosts(initialPosts);
   }, [initialPosts]);
 
@@ -187,28 +191,44 @@ export function PostsTabContent({
     return () => clearTimeout(safety);
   }, [thinkingClaudes]);
 
-  // Auto-hide thinking indicator the moment Claude's reply post lands. We
-  // detect a "new" reply as any post authored by one of the Claude actors
-  // we're waiting on whose ID was NOT already known when we started waiting.
-  // ID-based check sidesteps clock-skew bugs that broke the previous
-  // created_at > startedAt comparison.
-  useEffect(() => {
-    if (thinkingClaudes.length === 0) return;
-    setThinkingClaudes((prev) =>
-      prev.filter(
-        (c) =>
-          !posts.some(
-            (p) =>
-              p.actor_id === c.id &&
-              p.post_type === "post" &&
-              !c.knownPostIds.has(p.id)
-          )
-      )
-    );
-  }, [posts, thinkingClaudes.length]);
-
   const pinnedCount = posts.filter((p) => p.pinned).length;
   const visiblePosts = showPinnedOnly ? posts.filter((p) => p.pinned) : posts;
+  const orderedVisiblePosts = useMemo(
+    () => orderPostsForThread(visiblePosts),
+    [visiblePosts]
+  );
+  // Hide the thinking indicator the moment Claude's reply post lands. We
+  // detect a "new" reply as any post authored by one of the Claude actors
+  // we're waiting on whose ID was NOT already known when we started waiting.
+  // ID-based checks sidestep clock skew between client and DB timestamps.
+  const activeThinkingClaudes = thinkingClaudes.filter(
+    (c) =>
+      !posts.some(
+        (p) =>
+          p.actor_id === c.id &&
+          p.post_type === "post" &&
+          !c.knownPostIds.has(p.id)
+      )
+  );
+  const feedScrollKey = orderedVisiblePosts
+    .map((p) => `${p.id}:${p.updated_at}:${p.body?.length ?? 0}`)
+    .join("|");
+
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed || !shouldStickToBottomRef.current) return;
+    requestAnimationFrame(() => {
+      feed.scrollTop = feed.scrollHeight;
+    });
+  }, [feedScrollKey, activeThinkingClaudes.length, showPinnedOnly]);
+
+  const handleFeedScroll = () => {
+    const feed = feedRef.current;
+    if (!feed) return;
+    const distanceFromBottom =
+      feed.scrollHeight - feed.scrollTop - feed.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom < 48;
+  };
 
   const handleSubmit = (blocks: Block[]) => {
     if (isEditorEmpty(blocks)) return;
@@ -266,15 +286,87 @@ export function PostsTabContent({
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Pinned filter toggle */}
+      {pinnedCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowPinnedOnly((v) => !v)}
+          className={[
+            "flex w-full items-center gap-1.5 border-b border-border px-5 py-2 text-left text-xs transition-colors",
+            showPinnedOnly
+              ? "bg-accent/5 text-accent"
+              : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary",
+          ].join(" ")}
+        >
+          <Pin size={11} className="shrink-0" />
+          <span>
+            {pinnedCount} pinned
+            {showPinnedOnly && " · click to show all"}
+          </span>
+        </button>
+      )}
+
+      {/* Feed. Posts render oldest-to-newest so the newest post sits at the bottom.
+          The "Claude is thinking…" indicator follows the current newest post. */}
+      <div
+        ref={feedRef}
+        onScroll={handleFeedScroll}
+        className="min-h-0 flex-1 overflow-auto"
+      >
+        {orderedVisiblePosts.length === 0 && activeThinkingClaudes.length === 0 && (
+          <p className="py-10 text-center text-sm text-text-tertiary">
+            {showPinnedOnly
+              ? "No pinned posts."
+              : "No posts yet. Be the first to post."}
+          </p>
+        )}
+
+        {orderedVisiblePosts.length > 0 && (
+          <div className="divide-y divide-border">
+            {orderedVisiblePosts.map((post, idx) => (
+              <Fragment key={post.id}>
+                <PostItem
+                  post={post}
+                  nodeId={nodeId}
+                  workspaceId={workspaceId}
+                  currentActorId={currentActorId}
+                  actors={actors}
+                  onPinToggle={handlePinToggle}
+                  onDelete={handleDelete}
+                  onUpdate={handleUpdate}
+                />
+                {idx === orderedVisiblePosts.length - 1 &&
+                  activeThinkingClaudes.length > 0 &&
+                  !showPinnedOnly &&
+                  activeThinkingClaudes.map((c) => (
+                    <ClaudeThinkingIndicator key={c.id} name={c.name} />
+                  ))}
+              </Fragment>
+            ))}
+          </div>
+        )}
+
+        {/* Edge case: empty thread with an in-flight Claude reply. Shouldn't
+            normally happen (the user's post is always inserted first) but we
+            render the indicator anyway so the user gets feedback. */}
+        {orderedVisiblePosts.length === 0 && activeThinkingClaudes.length > 0 && !showPinnedOnly && (
+          <div className="divide-y divide-border">
+            {activeThinkingClaudes.map((c) => (
+              <ClaudeThinkingIndicator key={c.id} name={c.name} />
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Composer */}
       <div
         className={[
-          "border-b border-border px-5 py-4",
+          "shrink-0 border-t border-border px-4 py-3",
           pending ? "opacity-60 pointer-events-none" : "",
         ].join(" ")}
       >
-        <div className="rounded-md border border-border bg-bg-card overflow-hidden focus-within:ring-1 focus-within:ring-accent">
+        <div className="post-composer-editor rounded-md border border-border bg-bg-card overflow-hidden focus-within:ring-1 focus-within:ring-accent">
           <PostEditor
             key={composerKey}
             editable
@@ -300,76 +392,6 @@ export function PostsTabContent({
           </button>
         </div>
       </div>
-
-      {/* Pinned filter toggle */}
-      {pinnedCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowPinnedOnly((v) => !v)}
-          className={[
-            "flex w-full items-center gap-1.5 border-b border-border px-5 py-2 text-left text-xs transition-colors",
-            showPinnedOnly
-              ? "bg-accent/5 text-accent"
-              : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary",
-          ].join(" ")}
-        >
-          <Pin size={11} className="shrink-0" />
-          <span>
-            {pinnedCount} pinned
-            {showPinnedOnly && " · click to show all"}
-          </span>
-        </button>
-      )}
-
-      {/* Empty state */}
-      {visiblePosts.length === 0 && thinkingClaudes.length === 0 && (
-        <p className="py-10 text-center text-sm text-text-tertiary">
-          {showPinnedOnly
-            ? "No pinned posts."
-            : "No posts yet. Be the first to post."}
-        </p>
-      )}
-
-      {/* Feed. Newest post is at index 0; the "Claude is thinking…" indicator
-          is injected directly *after* that post so it visually follows the
-          user's just-submitted message rather than sitting above it. When
-          Claude's actual reply lands it'll become the new index 0 and the
-          indicator unmounts via the auto-hide effect. */}
-      {visiblePosts.length > 0 && (
-        <div className="divide-y divide-border">
-          {visiblePosts.map((post, idx) => (
-            <Fragment key={post.id}>
-              <PostItem
-                post={post}
-                nodeId={nodeId}
-                workspaceId={workspaceId}
-                currentActorId={currentActorId}
-                actors={actors}
-                onPinToggle={handlePinToggle}
-                onDelete={handleDelete}
-                onUpdate={handleUpdate}
-              />
-              {idx === 0 &&
-                thinkingClaudes.length > 0 &&
-                !showPinnedOnly &&
-                thinkingClaudes.map((c) => (
-                  <ClaudeThinkingIndicator key={c.id} name={c.name} />
-                ))}
-            </Fragment>
-          ))}
-        </div>
-      )}
-
-      {/* Edge case: empty thread with an in-flight Claude reply. Shouldn't
-          normally happen (the user's post is always inserted first) but we
-          render the indicator anyway so the user gets feedback. */}
-      {visiblePosts.length === 0 && thinkingClaudes.length > 0 && !showPinnedOnly && (
-        <div className="divide-y divide-border">
-          {thinkingClaudes.map((c) => (
-            <ClaudeThinkingIndicator key={c.id} name={c.name} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

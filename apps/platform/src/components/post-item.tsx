@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Pin, Pencil, Trash2 } from "lucide-react";
+import { Check, Clipboard, Pin, Pencil, Trash2 } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
 import { updatePost, deletePost, pinPost } from "@/lib/actions/posts";
+import { postBodyToMarkdown } from "@/lib/blocknote-markdown";
 import { PostEditor, parsePostBody, serializePostBody } from "./post-editor";
 
 interface PostItemProps {
@@ -24,7 +25,6 @@ export function PostItem({
   post,
   nodeId,
   workspaceId,
-  currentActorId,
   actors,
   onPinToggle,
   onDelete,
@@ -33,9 +33,9 @@ export function PostItem({
   const [localPinned, setLocalPinned] = useState(post.pinned);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const isOwn = post.actor_id === currentActorId;
   const isActivity = post.post_type !== "post";
 
   const handleSaveEdit = (blocks: Block[]) => {
@@ -62,6 +62,12 @@ export function PostItem({
       await pinPost(post.id, nodeId, workspaceId, newPinned);
       onPinToggle?.(post.id, newPinned);
     });
+  };
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(copyTextForPost(post));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
   };
 
   const actorName = post.actor?.name ?? "Unknown";
@@ -129,7 +135,15 @@ export function PostItem({
       {/* Hover actions */}
       {!editing && !confirmDelete && (
         <div className="absolute right-4 bottom-2.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {!isActivity && isOwn && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            title={copied ? "Copied" : "Copy Markdown"}
+            className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+          >
+            {copied ? <Check size={11} /> : <Clipboard size={11} />}
+          </button>
+          {!isActivity && (
             <>
               <button
                 type="button"
@@ -154,7 +168,7 @@ export function PostItem({
               </button>
             </>
           )}
-          {isOwn && (
+          {!isActivity && (
             <button
               type="button"
               disabled={pending}
@@ -191,6 +205,17 @@ export function PostItem({
       )}
     </div>
   );
+}
+
+function copyTextForPost(post: PostRecord): string {
+  if (post.post_type === "post") return postBodyToMarkdown(post.body);
+  if (post.post_type === "card_created" && post.metadata) {
+    return `Created card: ${post.metadata.card_title ?? "Untitled"}`;
+  }
+  if (post.post_type === "link_created" && post.metadata) {
+    return `Linked: ${post.metadata.target_title ?? "Untitled"}`;
+  }
+  return post.post_type;
 }
 
 function ActivityBody({ post, workspaceId }: { post: PostRecord; workspaceId: string }) {

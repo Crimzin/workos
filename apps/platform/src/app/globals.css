@@ -232,6 +232,12 @@ samp {
   min-height: 80px;
 }
 
+.post-composer-editor .bn-post-editor .bn-editor {
+  min-height: 44px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
 /* Viewer mode (editable=false): tighter padding, no min-height */
 .prose-post .bn-post-editor .bn-editor {
   padding: 0;

@@ -4,7 +4,8 @@
 // the subset Claude actually emits in chat replies:
 //
 //   Block-level:  # / ## / ### headings, "- " and "* " bullets, "1. " numbered
-//                 lists, "> " blockquotes, ``` fenced code blocks, paragraphs
+//                 lists, "> " blockquotes, ``` fenced code blocks, pipe tables,
+//                 paragraphs
 //   Inline:       **bold**, *italic* / _italic_, `inline code`, [text](url)
 //
 // Anything we don't recognise becomes plain text. This is a v1 polished
@@ -37,10 +38,20 @@ interface InlineLink {
 
 type Inline = InlineText | InlineLink;
 
+interface TableCell {
+  type: "tableCell";
+  content: Inline[];
+}
+
+interface TableContent {
+  type: "tableContent";
+  rows: { cells: TableCell[] }[];
+}
+
 export interface MarkdownBlock {
   type: string;
   props?: Record<string, unknown>;
-  content: Inline[];
+  content: Inline[] | TableContent;
   children?: MarkdownBlock[];
 }
 
@@ -83,6 +94,26 @@ export function markdownToBlockNote(input: string): MarkdownBlock[] {
         content: parseInline(heading[2]),
       });
       i++;
+      continue;
+    }
+
+    // Pipe table:
+    // | Header | Header |
+    // | --- | --- |
+    // | Cell | Cell |
+    if (isTableStart(lines, i)) {
+      const rows: { cells: TableCell[] }[] = [
+        { cells: parseTableRow(lines[i]) },
+      ];
+      i += 2; // consume header + separator
+      while (i < lines.length && isTableDataRow(lines[i])) {
+        rows.push({ cells: parseTableRow(lines[i]) });
+        i++;
+      }
+      blocks.push({
+        type: "table",
+        content: { type: "tableContent", rows },
+      });
       continue;
     }
 
@@ -138,6 +169,7 @@ export function markdownToBlockNote(input: string): MarkdownBlock[] {
       if (
         /^```/.test(next) ||
         /^#{1,3}\s+/.test(next) ||
+        isTableStart(lines, i) ||
         /^[-*]\s+/.test(next) ||
         /^\d+\.\s+/.test(next) ||
         /^>\s?/.test(next)
@@ -160,6 +192,42 @@ export function markdownToBlockNote(input: string): MarkdownBlock[] {
     blocks.push({ type: "paragraph", content: [] });
   }
   return blocks;
+}
+
+function isTableStart(lines: string[], index: number): boolean {
+  return (
+    isTableDataRow(lines[index]) &&
+    index + 1 < lines.length &&
+    isTableSeparatorRow(lines[index + 1])
+  );
+}
+
+function isTableDataRow(line: string | undefined): boolean {
+  if (!line) return false;
+  return /^\s*\|.+\|\s*$/.test(line) && !isTableSeparatorRow(line);
+}
+
+function isTableSeparatorRow(line: string | undefined): boolean {
+  if (!line) return false;
+  const cells = splitTableCells(line);
+  return (
+    cells.length > 0 &&
+    cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")))
+  );
+}
+
+function parseTableRow(line: string): TableCell[] {
+  return splitTableCells(line).map((cell) => ({
+    type: "tableCell",
+    content: parseInline(cell),
+  }));
+}
+
+function splitTableCells(line: string): string[] {
+  let trimmed = line.trim();
+  if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
+  return trimmed.split("|").map((cell) => cell.trim());
 }
 
 // ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ export function DetailPanelTabs({
     ...(nodeType === "stack" ? ([{ id: "cards" as TabId, label: "Cards" }]) : []),
   ];
 
-  const [active, setActive] = useState<TabId>("fields");
+  const [active, setActive] = useState<TabId>("posts");
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -37,7 +37,7 @@ export function DetailPanelTabs({
             type="button"
             onClick={() => setActive(tab.id)}
             className={[
-              "px-3 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
+              "px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px",
               active === tab.id
                 ? "border-accent text-text-primary"
                 : "border-transparent text-text-secondary hover:text-text-primary",
@@ -48,7 +48,7 @@ export function DetailPanelTabs({
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className={active === "posts" ? "flex-1 overflow-hidden" : "flex-1 overflow-auto"}>
         {active === "posts" && postsContent}
         {active === "fields" && fieldsContent}
         {active === "memory" && memoryContent}

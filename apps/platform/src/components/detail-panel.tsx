@@ -166,7 +166,7 @@ function DetailBody({
   return (
     <>
       {/* Header */}
-      <div className="shrink-0 border-b border-border px-5 py-4">
+      <div className="shrink-0 border-b border-border px-4 py-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             {/* Breadcrumb */}
@@ -180,7 +180,7 @@ function DetailBody({
             )}
 
             {/* Editable title */}
-            <div className="mt-1">
+            <div className="mt-0.5">
               <EditableTitle
                 nodeId={node.id}
                 workspaceId={workspaceId}
@@ -191,7 +191,7 @@ function DetailBody({
 
             {/* Field badges */}
             {headerBadges.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
+              <div className="mt-1.5 flex flex-wrap gap-1">
                 {headerBadges.map((b) => (
                   <FieldBadge key={b.id} name={b.name} color={b.color} />
                 ))}
@@ -285,7 +285,7 @@ function OwnerMembersRow({
   if (all.length === 0) return null;
 
   return (
-    <div className="mt-2 flex items-center gap-1.5">
+    <div className="mt-1.5 flex items-center gap-1.5">
       {all.map((a) => (
         <ActorChip key={a.id} name={a.name} kind={a.kind} isOwner={a.isOwner} />
       ))}
