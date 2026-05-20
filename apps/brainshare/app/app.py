@@ -16,6 +16,12 @@ import urllib.request
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from conversation_synthesis import (
+    claude_synthesis_prompt,
+    deterministic_conversation_synthesis,
+    validate_synthesis_shape,
+)
+
 
 APP_DIR = Path(__file__).resolve().parent
 STORE_FILE = Path(os.getenv("BRAINSHARE_STORE_FILE", APP_DIR / "brainshare-dev-store.json"))
@@ -119,6 +125,24 @@ class Primitive(PrimitiveCreate):
     updated_at: str
 
 
+class ConversationSynthesisCreate(BaseModel):
+    conversation_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    source_episode_ids: list[str] = Field(default_factory=list)
+    source_provenance: dict[str, Any] = Field(default_factory=dict)
+    conversation_brief: dict[str, Any]
+    topics: list[dict[str, Any]] = Field(default_factory=list)
+    why_chains: list[dict[str, Any]] = Field(default_factory=list)
+    primitives: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationSynthesis(ConversationSynthesisCreate):
+    id: str
+    created_at: str
+    updated_at: str
+
+
 class PrimitiveCorrectionIn(BaseModel):
     correction: str = Field(..., min_length=1)
     correction_type: Literal["supersede", "retract"] = "supersede"
@@ -153,6 +177,12 @@ class EpisodeExtractionRequest(BaseModel):
     foundation_context: str = ""
     actor_context: dict[str, Any] = Field(default_factory=dict)
     store_primitives: bool = True
+
+
+class ConversationSynthesisRequest(BaseModel):
+    provider: Literal["dev-rule", "claude"] = "dev-rule"
+    store_synthesis: bool = True
+    store_primitives: bool = False
 
 
 class ExtractedPrimitive(BaseModel):
@@ -321,6 +351,56 @@ def body_to_text(body: Optional[Any]) -> str:
     if isinstance(body, str):
         return body
     return json.dumps(body, sort_keys=True)
+
+
+def content_hash(value: str) -> str:
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def compact_metadata_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [compact_metadata_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): compact_metadata_value(item) for key, item in value.items()}
+    return str(value)
+
+
+def metadata_copy(value: Any) -> Any:
+    return json.loads(json.dumps(compact_metadata_value(value)))
+
+
+def source_provenance(
+    *,
+    source_tool: str,
+    source_kind: str,
+    source_location: str,
+    raw_content: str,
+    actor_ids: list[str],
+    timestamp_start: Optional[str],
+    timestamp_end: Optional[str],
+    message_count: Optional[int],
+    permission_scope: Optional[str] = None,
+    attention_scope: Optional[str] = None,
+    source_url: Optional[str] = None,
+) -> dict[str, Any]:
+    return {
+        "source_tool": source_tool,
+        "source_kind": source_kind,
+        "source_location": source_location,
+        "source_url": source_url,
+        "content_hash": content_hash(raw_content),
+        "actor_ids": actor_ids,
+        "timestamp_start": timestamp_start,
+        "timestamp_end": timestamp_end,
+        "message_count": message_count,
+        "permission_scope": permission_scope,
+        "attention_scope": attention_scope,
+    }
 
 
 TARGET_RESOLUTION_STOPWORDS = {
@@ -552,6 +632,7 @@ def ensure_store_shape(data: dict[str, Any]) -> dict[str, Any]:
     data.setdefault("team_name", "Demo Team")
     data.setdefault("episodes", [])
     data.setdefault("primitives", [])
+    data.setdefault("conversation_syntheses", [])
     data.setdefault("legacy_context", [])
     data.setdefault("actor_authority", {})
     data.setdefault("provider_keys", {})
@@ -891,6 +972,30 @@ def format_ai_conversation_messages(messages: list[AIConversationMessageIn]) -> 
     return "\n".join(lines)
 
 
+def ai_conversation_participants(
+    messages: list[AIConversationMessageIn],
+    source_tool: str,
+) -> list[dict[str, Any]]:
+    participants_by_id = {}
+    for message in messages:
+        role = normalize_ai_role(message.role)
+        author_name = ai_message_author(message)
+        participant_id = author_name if role == "human" else f"{source_tool}:{author_name}"
+        participants_by_id[participant_id] = {
+            "id": participant_id,
+            "role": role,
+            "author_name": author_name,
+            **({"source_tool": source_tool} if role == "ai" else {}),
+        }
+    return [
+        participants_by_id[key]
+        for key in sorted(
+            participants_by_id,
+            key=lambda item: (participants_by_id[item]["role"] != "human", item),
+        )
+    ]
+
+
 def estimated_tokens(text: str) -> int:
     return max(1, int(len(text.split()) * 1.3))
 
@@ -964,8 +1069,20 @@ def ai_conversation_chunk_to_episode(
     chunk_count: int,
 ) -> EpisodeCreate:
     chunk_messages = [message for _, message in chunk]
-    title = payload.title or payload.conversation_id or "Untitled AI conversation"
-    source_location = payload.conversation_id or title
+    conversation_id = payload.conversation_id or payload.metadata.get("conversation_id")
+    title = (
+        payload.title
+        or payload.metadata.get("title")
+        or conversation_id
+        or "Untitled AI conversation"
+    )
+    project_name = payload.project_name or payload.metadata.get("project_name")
+    source_url = (
+        payload.source_url
+        or payload.metadata.get("source_url")
+        or payload.metadata.get("url")
+    )
+    source_location = str(conversation_id or title)
     if chunk_count > 1:
         source_location = f"{source_location}#chunk-{chunk_index + 1}"
     timestamps = [
@@ -980,22 +1097,44 @@ def ai_conversation_chunk_to_episode(
             if normalize_ai_role(message.role) == "human"
         }
     )
+    participants = ai_conversation_participants(chunk_messages, payload.source_tool)
+    raw_content = format_ai_conversation_messages(chunk_messages)
+    permission_scope = payload.metadata.get("permission_scope")
+    attention_scope = payload.metadata.get("attention_scope")
 
     return EpisodeCreate(
         source_tool=payload.source_tool,
         source_location=source_location,
-        raw_content=format_ai_conversation_messages(chunk_messages),
+        raw_content=raw_content,
         timestamp_start=timestamps[0] if timestamps else None,
         timestamp_end=timestamps[-1] if timestamps else None,
         actors=actors,
         message_count=len(chunk_messages),
         metadata={
+            **payload.metadata,
             "episode_type": "message",
             "source_kind": "ai_conversation",
-            "conversation_id": payload.conversation_id,
-            "title": payload.title,
-            "project_name": payload.project_name,
-            "source_url": payload.source_url,
+            "conversation_id": conversation_id,
+            "title": title,
+            "project_name": project_name,
+            "source_url": source_url,
+            "permission_scope": permission_scope,
+            "attention_scope": attention_scope,
+            "participants": participants,
+            "provenance": source_provenance(
+                source_tool=payload.source_tool,
+                source_kind="ai_conversation",
+                source_location=source_location,
+                raw_content=raw_content,
+                actor_ids=actors,
+                timestamp_start=timestamps[0] if timestamps else None,
+                timestamp_end=timestamps[-1] if timestamps else None,
+                message_count=len(chunk_messages),
+                permission_scope=permission_scope,
+                attention_scope=attention_scope,
+                source_url=source_url,
+            )
+            | {"participant_ids": [participant["id"] for participant in participants]},
             "chunk_index": chunk_index,
             "chunk_count": chunk_count,
             "message_ids": [
@@ -1013,10 +1152,17 @@ def ai_conversation_chunk_to_episode(
                     "timestamp": message.timestamp,
                     "attachments": message.attachments,
                     "metadata": message.metadata,
+                    "source_span": {
+                        "kind": "message",
+                        "source_tool": payload.source_tool,
+                        "source_location": source_location,
+                        "message_id": message.id or f"turn_{original_index}",
+                        "turn_index": chunk_indexed,
+                        "source_message_index": original_index,
+                    },
                 }
                 for chunk_indexed, (original_index, message) in enumerate(chunk, start=1)
             ],
-            **payload.metadata,
         },
     )
 
@@ -1053,24 +1199,28 @@ def source_citations_for_episode(
     episode: dict[str, Any],
     supporting_messages: list[int],
 ) -> list[dict[str, Any]]:
-    supporting_by_index = {
-        item.get("index"): item
-        for item in episode.get("metadata", {}).get("supporting_messages", [])
-    }
+    raw_supporting = episode.get("metadata", {}).get("supporting_messages", [])
+    supporting = raw_supporting if isinstance(raw_supporting, list) else []
+    supporting_by_index = {}
+    for item in supporting:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        if not isinstance(index, int):
+            continue
+        supporting_by_index[index] = item
+
     citations = []
     for index in supporting_messages:
-        source = supporting_by_index.get(index, {})
-        citations.append(
-            {
-                "episode_id": episode["id"],
-                "message_index": index,
-                "message_id": source.get("message_id"),
-                "author_id": source.get("author_id"),
-                "timestamp": source.get("timestamp"),
-                "reply_to_message_id": source.get("reply_to_message_id"),
-                "reactions": source.get("reactions", []),
-            }
-        )
+        source = supporting_by_index.get(index)
+        if source:
+            citation = metadata_copy(source)
+            citation.setdefault("episode_id", episode["id"])
+            citation.setdefault("message_index", index)
+            citation.setdefault("reactions", [])
+            citations.append(citation)
+        else:
+            citations.append({"episode_id": episode["id"], "index": index, "message_index": index})
     return citations
 
 
@@ -1219,6 +1369,66 @@ def ai_message_looks_like_artifact(content: str) -> bool:
     return len(content.split()) >= 25 or any(marker in lower for marker in artifact_markers)
 
 
+def strip_human_approval_prefix(content: str) -> str:
+    cleaned = content.strip()
+    patterns = [
+        r"^i agree[.!]?\s*(?:some context though:\s*)?",
+        r"^makes sense[.!]?\s*(?:and\s+)?",
+        r"^yes[,.!]?\s*",
+        r"^exactly[,.!]?\s*",
+        r"^perfect[,.!]?\s*",
+        r"^looks good[,.!]?\s*",
+    ]
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned
+
+
+def concise_text(value: str, max_chars: int = 360) -> str:
+    text = re.sub(r"\s+", " ", value).strip().rstrip(".")
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def synthesized_ai_artifact_statement(ai_content: str, human_content: str) -> str:
+    human_detail = strip_human_approval_prefix(human_content)
+    if len(human_detail.split()) >= 12 and not human_detail.lower().startswith(
+        ("here's", "heres", "the full exchange", "full exchange")
+    ):
+        if "only did pm at vega" in human_detail.lower() and "~1.5 years" in human_detail:
+            return (
+                "Will has ~1.5 years formal PM experience at Vega, then shifted into "
+                "consulting, exec coaching, L&D, keynotes, GTM, and CoS work while still "
+                "identifying as product-minded."
+            )
+        return concise_text(human_detail)
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", ai_content.strip())
+        if len(sentence.split()) >= 8
+    ]
+    priority_markers = [
+        "what i'd do next",
+        "the honest read",
+        "the risk",
+        "you should",
+        "watch for",
+        "strong fit",
+        "concern",
+        "plan",
+        "strategy",
+    ]
+    for marker in priority_markers:
+        for sentence in sentences:
+            if marker in sentence.lower():
+                return concise_text(sentence)
+    if sentences:
+        return concise_text(sentences[0])
+    return concise_text(ai_content)
+
+
 def accepted_ai_artifact_extractions(episode: dict[str, Any]) -> list[ExtractedPrimitive]:
     if episode.get("metadata", {}).get("source_kind") != "ai_conversation":
         return []
@@ -1255,14 +1465,15 @@ def accepted_ai_artifact_extractions(episode: dict[str, Any]) -> list[ExtractedP
             if not isinstance(ai_index, int) or not isinstance(human_index, int):
                 pending_ai = None
                 continue
-            statement = str(content).strip()
-            if len(statement) > 140:
-                statement = statement[:137].rstrip() + "..."
+            statement = synthesized_ai_artifact_statement(
+                str(pending_ai.get("content") or ""),
+                content,
+            )
             accepted.append(
                 ExtractedPrimitive(
                     type="CONTEXT_UPDATE",
                     content={
-                        "statement": f"Human-approved AI artifact: {statement}",
+                        "statement": statement,
                         "actor": item.get("author_name") or "Human",
                         "relates_to": episode.get("metadata", {}).get("title")
                         or episode.get("source_location"),
@@ -1380,11 +1591,137 @@ def primitive_relevance_score(primitive: dict[str, Any], query: str) -> float:
             score += 0.35
         elif q and q in body:
             score += 0.2
-        score += 0.03 * len(set(q.split()) & set(statement.split()))
+        score += 0.03 * len(meaningful_term_overlap(q, f"{statement} {body}"))
     return round(score, 3)
 
 
+CONTEXT_MATCH_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "for", "from", "in", "is",
+    "it", "new", "of", "on", "or", "our", "should", "that", "the", "this",
+    "to", "what", "with", "about", "know",
+}
+
+
+def meaningful_terms(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", text.lower())
+        if len(word) > 2 and word not in CONTEXT_MATCH_STOPWORDS
+    }
+
+
+def meaningful_term_overlap(left: str, right: str) -> list[str]:
+    return sorted(meaningful_terms(left) & meaningful_terms(right))
+
+
+def why_included_for_context_item(
+    primitive: dict[str, Any],
+    query: str,
+    relevance: float,
+    threshold: ConvictionThreshold,
+) -> str:
+    reasons = [f"{threshold.label.replace('_', ' ')} memory"]
+    if query:
+        q = query.lower()
+        statement = str(primitive.get("statement") or "").lower()
+        body = str(primitive.get("body") or "").lower()
+        if q in statement or q in body:
+            reasons.append("direct query match")
+        else:
+            overlap = meaningful_term_overlap(q, f"{statement} {body}")
+            if overlap:
+                reasons.append(f"matched terms: {', '.join(overlap[:4])}")
+    reasons.append(f"relevance {relevance}")
+    return "; ".join(reasons)
+
+
+def ai_session_context_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item["id"],
+        "type": item["type"],
+        "statement": item["statement"],
+        "status": item.get("status"),
+        "conviction": item.get("conviction"),
+        "threshold": item.get("threshold"),
+        "why_included": item.get("why_included"),
+        "source_provenance": item.get("source_provenance", {}),
+        "citations": item.get("source_citations", []),
+    }
+
+
+def synthesis_matches_query(synthesis: dict[str, Any], query: str) -> bool:
+    if not query:
+        return True
+    q_terms = meaningful_terms(query)
+    if not q_terms:
+        return True
+    haystack_parts = [
+        synthesis.get("title", ""),
+        synthesis.get("conversation_brief", {}).get("summary", ""),
+    ]
+    haystack_parts.extend(str(topic.get("name", "")) for topic in synthesis.get("topics", []))
+    haystack_parts.extend(str(topic.get("summary", "")) for topic in synthesis.get("topics", []))
+    haystack_parts.extend(str(item.get("statement", "")) for item in synthesis.get("primitives", []))
+    haystack = " ".join(haystack_parts)
+    return bool(q_terms & meaningful_terms(haystack))
+
+
+def synthesis_relevance_score(synthesis: dict[str, Any], query: str) -> float:
+    score = 0.8
+    if not query:
+        return score
+    haystack = " ".join(
+        [
+            synthesis.get("title", ""),
+            synthesis.get("conversation_brief", {}).get("summary", ""),
+            *[str(topic.get("name", "")) for topic in synthesis.get("topics", [])],
+            *[str(topic.get("summary", "")) for topic in synthesis.get("topics", [])],
+            *[str(item.get("statement", "")) for item in synthesis.get("primitives", [])],
+        ]
+    )
+    score += 0.05 * len(meaningful_term_overlap(query, haystack))
+    return round(score, 3)
+
+
+def latest_relevant_synthesis(query: str) -> Optional[dict[str, Any]]:
+    syntheses = [
+        synthesis
+        for synthesis in store.load()["conversation_syntheses"]
+        if synthesis_matches_query(synthesis, query)
+    ]
+    if not syntheses:
+        return None
+    return sorted(
+        syntheses,
+        key=lambda synthesis: (
+            synthesis_relevance_score(synthesis, query),
+            synthesis.get("created_at", ""),
+        ),
+        reverse=True,
+    )[0]
+
+
+def synthesis_primitive_context_item(primitive: dict[str, Any]) -> dict[str, Any]:
+    conviction = float(primitive.get("conviction") or 0.5)
+    threshold = conviction_threshold(conviction)
+    return {
+        "id": primitive.get("id") or f"synthesis:{primitive.get('topic')}:{primitive.get('statement')}",
+        "type": primitive.get("type"),
+        "statement": primitive.get("statement"),
+        "status": primitive.get("status"),
+        "conviction": conviction,
+        "threshold": threshold.model_dump(),
+        "why_included": primitive.get("rationale"),
+        "source_provenance": primitive.get("source_provenance", {}),
+        "citations": primitive.get("citations", []),
+        "topic": primitive.get("topic"),
+        "rationale": primitive.get("rationale"),
+        "human_signal": primitive.get("human_signal"),
+    }
+
+
 def assemble_context_payload(payload: ContextAssemblyRequest) -> dict[str, Any]:
+    relevant_synthesis = latest_relevant_synthesis(payload.query)
     primitives = store.load()["primitives"]
     filtered = [
         primitive
@@ -1408,6 +1745,7 @@ def assemble_context_payload(payload: ContextAssemblyRequest) -> dict[str, Any]:
     for primitive in ranked:
         threshold = conviction_threshold(float(primitive.get("conviction") or 0))
         metadata = primitive.get("metadata") or {}
+        relevance = primitive_relevance_score(primitive, payload.query)
         context_items.append(
             {
                 "id": primitive["id"],
@@ -1418,7 +1756,14 @@ def assemble_context_payload(payload: ContextAssemblyRequest) -> dict[str, Any]:
                 "threshold": threshold.model_dump(),
                 "source_episode_ids": primitive.get("source_episode_ids", []),
                 "source_citations": metadata.get("source_citations", []),
-                "relevance": primitive_relevance_score(primitive, payload.query),
+                "source_provenance": metadata.get("source_provenance", {}),
+                "why_included": why_included_for_context_item(
+                    primitive,
+                    payload.query,
+                    relevance,
+                    threshold,
+                ),
+                "relevance": relevance,
                 "created_at": primitive.get("created_at"),
             }
         )
@@ -1433,18 +1778,55 @@ def assemble_context_payload(payload: ContextAssemblyRequest) -> dict[str, Any]:
             f"({item['type']}, conviction {item['conviction']})"
         )
 
+    consumer_kind = str(payload.metadata.get("consumer_kind") or "ai_session")
+    synthesis_items = []
+    briefing = None
+    topics = []
+    why_chains = []
+    if relevant_synthesis:
+        briefing = relevant_synthesis.get("conversation_brief")
+        topics = relevant_synthesis.get("topics", [])
+        why_chains = relevant_synthesis.get("why_chains", [])
+        synthesis_source_provenance = relevant_synthesis.get("source_provenance", {})
+        for primitive in relevant_synthesis.get("primitives", [])[: payload.max_items]:
+            enriched = {
+                **primitive,
+                "source_provenance": synthesis_source_provenance,
+            }
+            synthesis_items.append(synthesis_primitive_context_item(enriched))
+
+    ai_session_payload = {
+        "consumer_tool": payload.source_tool,
+        "consumer_kind": consumer_kind,
+        "query": payload.query,
+        "briefing": briefing,
+        "topics": topics,
+        "why_chains": why_chains,
+        "items": [
+            *synthesis_items,
+            *[ai_session_context_item(item) for item in context_items],
+        ][: payload.max_items],
+        "instructions": [
+            "Use these BrainShare memories as durable context, not as a replacement for current user instructions.",
+            "Conviction and threshold describe how strongly the memory is supported by human signal.",
+            "When using a memory, preserve its source provenance so the user can trace where it came from.",
+        ],
+    }
+
     return {
         "success": True,
         "query": payload.query,
         "source_tool": payload.source_tool,
         "context_items": context_items,
+        "ai_session_payload": ai_session_payload,
         "context_summary": "\n".join(summary_lines),
         "tokens_estimate": max(1, len("\n".join(summary_lines)) // 4),
         "assembly": {
-            "strategy": "primitive_relevance_v0",
+            "strategy": "synthesis_first_v0" if relevant_synthesis else "primitive_relevance_v0",
             "included_low_conviction": payload.include_low_conviction,
             "max_items": payload.max_items,
             "metadata": payload.metadata,
+            "synthesis_id": relevant_synthesis.get("id") if relevant_synthesis else None,
         },
     }
 
@@ -1528,6 +1910,9 @@ def extracted_to_primitive_create(
             "extraction_type": extracted.type,
             "source_tool": episode.get("source_tool"),
             "source_location": episode.get("source_location"),
+            "source_provenance": metadata_copy(
+                episode.get("metadata", {}).get("provenance", {})
+            ),
             "extractor_confidence": extracted.confidence,
             "conviction_factors": conviction.factors,
             "conviction_threshold": threshold.model_dump(),
@@ -1685,6 +2070,132 @@ async def run_episode_extraction(
     else:
         result = extract_episode_with_dev_rules(episode, request.actor_context)
     return refined_ai_conversation_result(episode, result)
+
+
+def episodes_for_conversation(conversation_id: str) -> list[dict[str, Any]]:
+    episodes = [
+        episode
+        for episode in store.load()["episodes"]
+        if episode.get("metadata", {}).get("conversation_id") == conversation_id
+    ]
+    return sorted(
+        episodes,
+        key=lambda episode: (
+            episode.get("metadata", {}).get("chunk_index", 0),
+            episode.get("timestamp_start", ""),
+        ),
+    )
+
+
+async def synthesize_conversation_with_claude(
+    conversation_id: str,
+    title: str,
+    episodes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    api_key = provider_api_key("claude")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="anthropic_api_key_required")
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="anthropic_package_required") from exc
+
+    client = AsyncAnthropic(api_key=api_key)
+    response = await client.messages.create(
+        model=DEFAULT_CLAUDE_MODEL,
+        max_tokens=6000,
+        temperature=0,
+        messages=[
+            {
+                "role": "user",
+                "content": claude_synthesis_prompt(conversation_id, title, episodes),
+            }
+        ],
+    )
+    text = "\n".join(
+        block.text
+        for block in response.content
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None)
+    )
+    try:
+        parsed = parse_json_response(text)
+        parsed.setdefault("source_episode_ids", [episode["id"] for episode in episodes])
+        parsed.setdefault("source_provenance", {})
+        parsed.setdefault("metadata", {})
+        parsed["metadata"] = {
+            **parsed["metadata"],
+            "provider": "claude",
+            "synthesis_version": "ai_conversation_synthesis_v0",
+        }
+        return validate_synthesis_shape(parsed)
+    except (ValueError, HTTPException) as exc:
+        raise HTTPException(status_code=502, detail=f"invalid_synthesis_json: {exc}") from exc
+
+
+async def run_conversation_synthesis(
+    conversation_id: str,
+    request: ConversationSynthesisRequest,
+) -> ConversationSynthesisCreate:
+    episodes = episodes_for_conversation(conversation_id)
+    if not episodes:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    title = (
+        episodes[0].get("metadata", {}).get("title")
+        or conversation_id
+        or "Untitled conversation"
+    )
+    if request.provider == "claude":
+        raw = await synthesize_conversation_with_claude(conversation_id, title, episodes)
+    else:
+        raw = deterministic_conversation_synthesis(
+            conversation_id=conversation_id,
+            title=title,
+            episodes=episodes,
+        )
+    validated = validate_synthesis_shape(raw)
+    return ConversationSynthesisCreate(**validated)
+
+
+def synthesis_primitive_to_create(
+    synthesis: ConversationSynthesisCreate,
+    primitive_payload: dict[str, Any],
+) -> PrimitiveCreate:
+    primitive_type = str(primitive_payload.get("type") or "context_update")
+    if primitive_type not in PrimitiveType.__args__:  # type: ignore[attr-defined]
+        primitive_type = "context_update"
+    conviction = float(primitive_payload.get("conviction") or 0.5)
+    return PrimitiveCreate(
+        type=primitive_type,  # type: ignore[arg-type]
+        statement=str(primitive_payload.get("statement") or "").strip(),
+        body=json.dumps(
+            {
+                "rationale": primitive_payload.get("rationale"),
+                "human_signal": primitive_payload.get("human_signal"),
+                "topic": primitive_payload.get("topic"),
+                "relationships": primitive_payload.get("relationships", []),
+            },
+            sort_keys=True,
+        ),
+        status=primitive_payload.get("status"),
+        conviction=max(0, min(conviction, 1)),
+        source_episode_ids=synthesis.source_episode_ids,
+        supporting_messages=[
+            citation.get("message_index")
+            for citation in primitive_payload.get("citations", [])
+            if isinstance(citation.get("message_index"), int)
+        ],
+        actors=synthesis.source_provenance.get("actor_ids", []),
+        metadata={
+            "source": "brainshare.conversation_synthesis",
+            "synthesis_version": synthesis.metadata.get("synthesis_version"),
+            "source_provenance": synthesis.source_provenance,
+            "source_citations": primitive_payload.get("citations", []),
+            "topic": primitive_payload.get("topic"),
+            "rationale": primitive_payload.get("rationale"),
+            "human_signal": primitive_payload.get("human_signal"),
+            "relationships": primitive_payload.get("relationships", []),
+        },
+    )
 
 
 def looks_like_question(content: str) -> bool:
@@ -2030,6 +2541,28 @@ class DevStore:
         self.save(data)
         return primitive
 
+    async def add_conversation_synthesis(
+        self,
+        payload: ConversationSynthesisCreate,
+    ) -> ConversationSynthesis:
+        data = self.load()
+        synthesis = ConversationSynthesis(
+            id=f"syn_{uuid4().hex}",
+            created_at=now_iso(),
+            updated_at=now_iso(),
+            **payload.model_dump(),
+        )
+        data["conversation_syntheses"].append(synthesis.model_dump())
+        self.save(data)
+        return synthesis
+
+    def conversation_syntheses_for(self, conversation_id: str) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in self.load()["conversation_syntheses"]
+            if item.get("conversation_id") == conversation_id
+        ]
+
     def get_primitive(self, primitive_id: str) -> Optional[dict[str, Any]]:
         return next(
             (primitive for primitive in self.load()["primitives"] if primitive["id"] == primitive_id),
@@ -2371,6 +2904,43 @@ async def extract_episode(
         "stored_primitives": [primitive.model_dump() for primitive in stored_primitives],
         "graph_validation": graph_validation,
         "confirmation": confirmation_payload_for_primitives(stored_primitives),
+    }
+
+
+@app.post("/conversations/{conversation_id}/synthesize", dependencies=[Depends(require_auth)])
+async def synthesize_conversation(
+    conversation_id: str,
+    payload: ConversationSynthesisRequest,
+) -> dict[str, Any]:
+    synthesis_payload = await run_conversation_synthesis(conversation_id, payload)
+    stored_synthesis: Optional[ConversationSynthesis] = None
+    if payload.store_synthesis:
+        stored_synthesis = await store.add_conversation_synthesis(synthesis_payload)
+
+    stored_primitives: list[Primitive] = []
+    graph_validation: list[dict[str, Any]] = []
+    if payload.store_primitives:
+        for primitive_payload in synthesis_payload.primitives:
+            primitive_create = synthesis_primitive_to_create(
+                synthesis_payload,
+                primitive_payload,
+            )
+            primitive, validation = await store_primitive_with_graph_validation(
+                primitive_create,
+            )
+            graph_validation.append(validation)
+            if primitive:
+                stored_primitives.append(primitive)
+
+    synthesis = stored_synthesis.model_dump() if stored_synthesis else synthesis_payload.model_dump()
+    return {
+        "success": True,
+        "conversation_id": conversation_id,
+        "provider": payload.provider,
+        "synthesis": synthesis,
+        "stored_synthesis": stored_synthesis.model_dump() if stored_synthesis else None,
+        "stored_primitives": [primitive.model_dump() for primitive in stored_primitives],
+        "graph_validation": graph_validation,
     }
 
 

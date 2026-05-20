@@ -200,7 +200,10 @@ Assemble a structured context payload for a future AI session. This is the first
   "query": "provider key architecture",
   "max_items": 10,
   "include_low_conviction": false,
-  "source_tool": "codex"
+  "source_tool": "codex",
+  "metadata": {
+    "consumer_kind": "ai_session"
+  }
 }
 ```
 
@@ -217,9 +220,78 @@ Assemble a structured context payload for a future AI session. This is the first
       "conviction": 0.9,
       "threshold": {"action": "assert", "label": "high_confidence"},
       "source_episode_ids": ["ep_123"],
-      "source_citations": []
+      "source_citations": [],
+      "source_provenance": {
+        "source_tool": "claude",
+        "source_kind": "ai_conversation",
+        "source_location": "claude_conv_123",
+        "content_hash": "sha256:..."
+      },
+      "why_included": "high confidence memory; matched terms: provider, key; relevance 1.04"
     }
-  ]
+  ],
+  "ai_session_payload": {
+    "consumer_tool": "codex",
+    "consumer_kind": "ai_session",
+    "query": "provider key architecture",
+    "briefing": {
+      "summary": "When a relevant conversation synthesis exists, this leads with a narrative briefing before primitive items.",
+      "status": "needs_review",
+      "audience": "future_ai_session"
+    },
+    "topics": [],
+    "why_chains": [],
+    "items": [
+      {
+        "id": "prim_123",
+        "type": "decision",
+        "statement": "BrainShare stores provider keys server-side.",
+        "conviction": 0.9,
+        "why_included": "high confidence memory; matched terms: provider, key; relevance 1.04",
+        "source_provenance": {
+          "source_tool": "claude",
+          "source_kind": "ai_conversation",
+          "source_location": "claude_conv_123",
+          "content_hash": "sha256:..."
+        },
+        "citations": []
+      }
+    ],
+    "instructions": [
+      "Use these BrainShare memories as durable context, not as a replacement for current user instructions.",
+      "Conviction and threshold describe how strongly the memory is supported by human signal.",
+      "When using a memory, preserve its source provenance so the user can trace where it came from."
+    ]
+  }
+}
+```
+
+### POST /conversations/{conversation_id}/synthesize
+Synthesize all Episodes from one AI conversation into a first-class BrainShare memory map. This is the preferred path for long Claude/ChatGPT/Codex conversations because it produces a narrative briefing, topic map, Why Chains, and durable primitive candidates before context assembly.
+
+**Request:**
+```json
+{
+  "provider": "dev-rule",
+  "store_synthesis": true,
+  "store_primitives": false
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "conversation_id": "claude:abc123",
+  "provider": "dev-rule",
+  "synthesis": {
+    "id": "syn_123",
+    "conversation_id": "claude:abc123",
+    "conversation_brief": {"summary": "Will is prioritizing Anthropic..."},
+    "topics": [{"name": "Anthropic career path", "summary": "Anthropic remains the primary high-fit path."}],
+    "why_chains": [{"name": "Anthropic career path why-chain", "nodes": []}],
+    "primitives": [{"type": "goal", "statement": "Will is prioritizing Anthropic as the primary high-fit path."}]
+  }
 }
 ```
 
@@ -300,6 +372,20 @@ If no candidate clears `min_confidence`, `target` is `null`, `orphaned` is `true
   "description": "Query team's shared context for relevant information",
   "parameters": {
     "query": {"type": "string", "description": "What to search for in team context"}
+  }
+}
+```
+
+### brainshare_get_context
+```json
+{
+  "name": "brainshare_get_context",
+  "description": "Assemble provider-neutral BrainShare memory for the current AI session, including provenance and citations",
+  "parameters": {
+    "query": {"type": "string", "description": "What this AI session needs context about"},
+    "source_tool": {"type": "string", "description": "The consuming tool or agent, for example claude, chatgpt, codex, claude_code, or cursor"},
+    "max_items": {"type": "number", "description": "Maximum memory primitives to include"},
+    "include_low_conviction": {"type": "boolean", "description": "Whether to include tentative or low-conviction memories"}
   }
 }
 ```

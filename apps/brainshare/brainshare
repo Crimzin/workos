@@ -11,6 +11,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from conversation_normalizer import normalize_conversation_file
+
 
 DEFAULT_API = os.getenv("BRAINSHARE_API", "http://localhost:3100")
 DEFAULT_TOKEN = os.getenv("BRAINSHARE_TOKEN", "bs_team_abc123")
@@ -93,9 +97,13 @@ def cmd_context(args: argparse.Namespace) -> None:
             "max_items": args.max_items,
             "include_low_conviction": args.include_low_conviction,
             "source_tool": "brainshare-cli",
+            "metadata": {"consumer_kind": "ai_session"},
         },
         api=args.api,
     )
+    if args.ai_session_json:
+        print_json(result.get("ai_session_payload", {}))
+        return
     if args.json:
         print_json(result)
         return
@@ -121,78 +129,13 @@ def cmd_ingest(args: argparse.Namespace) -> None:
 
 
 def load_conversation_payload(args: argparse.Namespace) -> dict[str, Any]:
-    path = Path(args.file)
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(raw, list):
-        messages = raw
-        base: dict[str, Any] = {}
-    elif isinstance(raw, dict):
-        messages = (
-            raw.get("messages")
-            or raw.get("turns")
-            or raw.get("mapping")
-            or []
-        )
-        base = {key: value for key, value in raw.items() if key not in {"messages", "turns", "mapping"}}
-    else:
-        raise SystemExit("Conversation export must be a JSON object or array.")
-
-    if isinstance(messages, dict):
-        messages = list(messages.values())
-    if not isinstance(messages, list) or not messages:
-        raise SystemExit("Conversation export did not contain any messages.")
-
-    normalized = []
-    for index, message in enumerate(messages, start=1):
-        if not isinstance(message, dict):
-            continue
-        content = message.get("content")
-        if isinstance(content, dict):
-            parts = content.get("parts")
-            if isinstance(parts, list):
-                content = "\n".join(str(part) for part in parts if part)
-        if not content:
-            continue
-        role = (
-            message.get("role")
-            or message.get("author", {}).get("role")
-            or message.get("sender")
-            or "human"
-        )
-        if role == "user":
-            role = "human"
-        if role == "assistant":
-            role = "ai"
-        timestamp = message.get("timestamp") or message.get("create_time")
-        normalized.append(
-            {
-                "id": str(message.get("id") or index),
-                "role": role if role in {"human", "user", "assistant", "ai", "system", "tool"} else "human",
-                "content": str(content),
-                "author_name": message.get("author_name") or message.get("name"),
-                "timestamp": str(timestamp) if timestamp is not None else None,
-                "metadata": {
-                    "source_index": index,
-                    "source_file": str(path),
-                },
-            }
-        )
-
-    if not normalized:
-        raise SystemExit("Conversation export did not contain text messages.")
-
-    return {
-        "source_tool": args.source_tool,
-        "conversation_id": args.conversation_id or base.get("conversation_id") or base.get("id"),
-        "title": args.title or base.get("title") or path.stem,
-        "project_name": args.project_name or base.get("project_name"),
-        "source_url": base.get("source_url") or base.get("url"),
-        "messages": normalized,
-        "metadata": {
-            "ingested_by": "brainshare-cli",
-            "source_file": str(path),
-        },
-    }
+    return normalize_conversation_file(
+        args.file,
+        source_tool=args.source_tool,
+        conversation_id=args.conversation_id,
+        title=args.title,
+        project_name=args.project_name,
+    )
 
 
 def cmd_ingest_conversation(args: argparse.Namespace) -> None:
@@ -204,6 +147,35 @@ def cmd_ingest_conversation(args: argparse.Namespace) -> None:
         api=args.api,
     )
     print_json(result)
+
+
+def cmd_synthesize_conversation(args: argparse.Namespace) -> None:
+    result = request_json(
+        "POST",
+        f"/conversations/{args.conversation_id}/synthesize",
+        args.token,
+        body={
+            "provider": args.provider,
+            "store_synthesis": not args.no_store_synthesis,
+            "store_primitives": args.store_primitives,
+        },
+        api=args.api,
+    )
+    if args.json:
+        print_json(result)
+        return
+    synthesis = result.get("synthesis", {})
+    brief = synthesis.get("conversation_brief", {}).get("summary", "")
+    print(f"BrainShare synthesis for {args.conversation_id}")
+    if brief:
+        print()
+        print(brief)
+    topics = synthesis.get("topics", [])
+    if topics:
+        print()
+        print("Topics:")
+        for topic in topics:
+            print(f"- {topic.get('name')}: {topic.get('summary')}")
 
 
 def cmd_provider_list(args: argparse.Namespace) -> None:
@@ -262,6 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--max-items", type=int, default=10)
     context.add_argument("--include-low-conviction", action="store_true")
     context.add_argument("--json", action="store_true")
+    context.add_argument("--ai-session-json", action="store_true")
     context.set_defaults(func=cmd_context)
 
     ingest = subparsers.add_parser("ingest", help="Ingest a text/export file as an Episode")
@@ -275,11 +248,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ingest a Claude/ChatGPT conversation JSON export as Episodes",
     )
     ingest_conversation.add_argument("file")
-    ingest_conversation.add_argument("--source-tool", choices=["claude", "chatgpt", "claude_code", "other_ai"], default="claude")
+    ingest_conversation.add_argument("--source-tool", default="claude")
     ingest_conversation.add_argument("--conversation-id")
     ingest_conversation.add_argument("--title")
     ingest_conversation.add_argument("--project-name")
     ingest_conversation.set_defaults(func=cmd_ingest_conversation)
+
+    synthesize_conversation = subparsers.add_parser(
+        "synthesize-conversation",
+        help="Synthesize a full AI conversation into a BrainShare topic map and briefing",
+    )
+    synthesize_conversation.add_argument("conversation_id")
+    synthesize_conversation.add_argument("--provider", choices=["dev-rule", "claude"], default="dev-rule")
+    synthesize_conversation.add_argument("--no-store-synthesis", action="store_true")
+    synthesize_conversation.add_argument("--store-primitives", action="store_true")
+    synthesize_conversation.add_argument("--json", action="store_true")
+    synthesize_conversation.set_defaults(func=cmd_synthesize_conversation)
 
     provider = subparsers.add_parser("providers", help="Manage provider API keys")
     provider_subparsers = provider.add_subparsers(dest="provider_command", required=True)

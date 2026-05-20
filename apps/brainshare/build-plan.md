@@ -32,23 +32,28 @@ curl "http://localhost:3100/pull?query=React" \
 
 **Expected**: You should see success responses, and a `brainshare-dev-store.json` file created in the app directory unless `BRAINSHARE_STORE_FILE` points elsewhere.
 
-**Test 3 - Ingest Discord messages as Episodes:**
+**Test 3 - Ingest an AI conversation as Episodes:**
 ```bash
-curl -X POST http://localhost:3100/sources/discord/messages \
+curl -X POST http://localhost:3100/sources/ai/conversations \
   -H "Authorization: Bearer bs_team_abc123" \
   -H "Content-Type: application/json" \
   -d '{
-    "guild_id": "burn-dev",
-    "guild_name": "Burn",
+    "source_tool": "claude",
+    "conversation_id": "claude_conv_123",
+    "title": "BrainShare continuity",
     "messages": [
       {
         "id": "m1",
-        "channel_id": "c1",
-        "channel_name": "development",
-        "author_id": "will",
+        "role": "human",
         "author_name": "Will",
-        "content": "I think we should use Firebase Auth",
+        "content": "BrainShare should let Codex know what I decided in Claude.",
         "timestamp": "2026-04-29T10:00:00Z"
+      },
+      {
+        "id": "m2",
+        "role": "assistant",
+        "content": "Use provider-neutral Episodes with source provenance.",
+        "timestamp": "2026-04-29T10:01:00Z"
       }
     ]
   }'
@@ -74,7 +79,7 @@ curl -X POST http://localhost:3100/episodes/EPISODE_ID/extract \
   }'
 ```
 
-**Expected**: The response includes the strict extraction prompt, extracted primitives, and stored BrainShare primitives. Stored primitives include `source_episode_ids`, `supporting_messages`, and `metadata.source_citations` so each item can be traced back to specific Discord message IDs. Decision primitives also include `metadata.conviction_factors`; authority-weighted approval reactions can raise conviction and appear in `approved_by`.
+**Expected**: The response includes the strict extraction prompt, extracted primitives, and stored BrainShare primitives. Stored primitives include `source_episode_ids`, `supporting_messages`, `metadata.source_citations`, and `metadata.source_provenance` so each item can be traced back to a specific conversation, message/turn, source tool, and raw content hash. Decision conviction still traces to human signal, even when the AI produced useful content.
 
 To use Claude for production-quality extraction, connect a provider key through BrainShare setup:
 
@@ -163,8 +168,9 @@ For file-only local development, set `BRAINSHARE_STORE_BACKEND=json` before star
 Start a **new Claude Code session** and try:
 - "Use brainshare_push to add 'We're using Python for the backend' as a decision"
 - "Use brainshare_pull to search for React"
+- "Use brainshare_get_context for BrainShare continuity"
 
-**Expected**: Should see responses about context being added/found
+**Expected**: Should see responses about context being added/found. `brainshare_get_context` should return a JSON AI-session payload with memory items, `why_included`, citations, and source provenance.
 
 ## Phase 3: Real Usage Test (1 week)
 
@@ -174,9 +180,13 @@ The `brainshare` CLI wraps the REST API for local power-user use:
 ```bash
 ./brainshare query "Firebase Auth"
 ./brainshare context "Firebase Auth"
+./brainshare context "BrainShare continuity" --ai-session-json
 ./brainshare push "We decided to use Firebase Auth" --category decision
 ./brainshare ingest ./conversation-export.md --source-tool claude --source-location "Claude export"
 ./brainshare ingest-conversation ./conversation-export.json --source-tool claude --title "Claude export"
+./brainshare ingest-conversation ./chatgpt-export.json --source-tool chatgpt
+./brainshare synthesize-conversation "claude:conversation-id" --provider dev-rule
+./brainshare synthesize-conversation "claude:conversation-id" --provider claude --json
 ./brainshare providers set claude --env-var ANTHROPIC_API_KEY
 ```
 

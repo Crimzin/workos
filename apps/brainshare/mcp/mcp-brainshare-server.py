@@ -86,6 +86,35 @@ async def handle_list_tools() -> list[Tool]:
                 },
                 "required": ["query"]
             }
+        ),
+        Tool(
+            name="brainshare_get_context",
+            description="Assemble provider-neutral BrainShare memory for the current AI session, including provenance and citations",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What this AI session needs context about",
+                        "default": ""
+                    },
+                    "source_tool": {
+                        "type": "string",
+                        "description": "The consuming tool or agent, for example claude, chatgpt, codex, claude_code, or cursor",
+                        "default": "mcp"
+                    },
+                    "max_items": {
+                        "type": "number",
+                        "description": "Maximum memory primitives to include",
+                        "default": 10
+                    },
+                    "include_low_conviction": {
+                        "type": "boolean",
+                        "description": "Whether to include tentative or low-conviction memories",
+                        "default": False
+                    }
+                }
+            }
         )
     ]
 
@@ -177,6 +206,32 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextCon
                             type="text",
                             text=f"No team context found for '{arguments['query']}'"
                         )]
+                else:
+                    return [TextContent(type="text", text=f"Error: {result.get('error', 'Unknown error')}")]
+
+            elif name == "brainshare_get_context":
+                response = await client.post(
+                    f"{BRAINSHARE_API}/context/assemble",
+                    headers=headers,
+                    json={
+                        "query": arguments.get("query", ""),
+                        "max_items": arguments.get("max_items", 10),
+                        "include_low_conviction": arguments.get("include_low_conviction", False),
+                        "source_tool": arguments.get("source_tool", "mcp"),
+                        "metadata": {"consumer_kind": "ai_session"},
+                    }
+                )
+                result = response.json()
+
+                if result.get("success"):
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(
+                            result.get("ai_session_payload", {}),
+                            indent=2,
+                            sort_keys=True,
+                        )
+                    )]
                 else:
                     return [TextContent(type="text", text=f"Error: {result.get('error', 'Unknown error')}")]
             

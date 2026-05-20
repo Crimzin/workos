@@ -1,8 +1,8 @@
-# BrainShare — Product Specification v1.3
+# BrainShare — Product Specification v1.4
 
 *The teammate in charge of context.*
 
-Will Corbett · April 2026 · DRAFT · **Confidential**
+Will Corbett · May 2026 · DRAFT · **Confidential**
 
 ---
 
@@ -406,6 +406,38 @@ Accumulated observations that aren't decisions or assumptions, but are evidence 
 
 Signal Patterns are raw material. BrainShare detects them; Swarm (if active) uses them to decide whether to intervene. If Swarm is not active, BrainShare surfaces them with appropriate conviction-based framing.
 
+## 7.5 Provenance Manifests
+
+Every primitive in BrainShare's graph carries a **provenance manifest** — a lightweight record of where it came from, how it was derived, and what's happened to it since. This is what makes BrainShare auditable, correctable, and trustworthy.
+
+### Manifest Contents
+
+The manifest is small and travels with the primitive everywhere it goes:
+
+- **Source episode IDs** — pointers to the raw episodes (Discord messages, Figma updates, meeting transcripts, commits) that produced this primitive
+- **Actor identity** — who or what created or proposed the primitive (human, AI agent, BrainShare itself)
+- **Derivation chain** — for inferred primitives, the chain of upstream primitives this one was derived from
+- **Supersession history** — what this primitive replaced, what replaced it, and when
+- **Conviction inputs** — the current reasoning chain that produces the conviction signal (see Section 9.3)
+- **Access metadata** — permissions and scope (which workspace, who can see this)
+- **Temporal validity** — when this was first true, when it stopped being true (inherited from Graphiti)
+
+### Lightweight Manifest, Heavy Trail
+
+The manifest carries **IDs, not full content**. The full source episodes, the complete derivation chains, the entire supersession history — all live in append-only storage and are recoverable by ID. This pattern is borrowed from enterprise telemetry: every output carries the keys needed to reconstruct its lineage, but doesn't carry the lineage itself. Otherwise context bloat eats every retrieval payload.
+
+When BrainShare assembles context for an LLM, it includes the manifest. The LLM sees: "This decision was made by Ziga in Discord on April 22, supersedes a prior decision, and depends on two assumptions — one validated, one untested. Conviction: high." If the LLM (or the user) needs to drill in, BrainShare can fetch the full trail by ID.
+
+### Git-Shaped, Diffable, Mergeable
+
+Manifests are designed to be diffable and mergeable. When two agents (or two humans, or a human and an agent) update the same primitive in parallel, BrainShare can produce a clean diff — what changed, who changed it, what the previous state was — and either merge automatically or surface a conflict for resolution. This is the same pattern as git: every change is attributable, every history is reconstructable, every conflict is visible.
+
+This matters most when multiple agents work simultaneously across tools. Without manifests, "who did this and why" becomes unanswerable as agent volume scales. With manifests, every action — agent-initiated or human-initiated — leaves a trail that can be inspected, rolled back, or used to inject corrected intelligence at any point in the chain.
+
+### Operational Sanity at Scale
+
+This is also what makes BrainShare usable as enterprise infrastructure. When forensic questions arise ("an agent made this decision; we don't agree; where did it go wrong?"), the manifest is the answer. You can trace back through the derivation chain, find the upstream primitive that was wrong, correct it, and either replay downstream or simply mark the correction. Without provenance manifests, this kind of recovery is impossible.
+
 ---
 
 # 8. Philosophical Foundations
@@ -439,6 +471,21 @@ BrainShare uses the hard-to-vary test as an operating principle:
 - Decisions with easy-to-vary rationale get stored with low conviction and flagged: "This decision doesn't have a strong rationale yet. Want to strengthen it?"
 - Each link in a Why Chain should be hard to vary — if you can swap a link and the chain still holds, the chain is weak
 
+## 8.3 The Open-World Assumption
+
+BrainShare operates under an **open-world assumption**: at any moment, there is information BrainShare doesn't yet have. A new Slack message, a new commit, a new decision in a meeting, a new insight from a teammate — any of these can contradict what BrainShare currently believes. Conclusions are always provisional.
+
+This is the opposite of a closed-world database query, where the data IS the answer because the query is complete. BrainShare cannot work that way. Team context is fundamentally incomplete and continually changing.
+
+Design consequences:
+
+- **No rules that depend on negative inference.** BrainShare never reasons "I don't see X, therefore X is false." Absence of information is not evidence of absence. If a decision isn't captured, BrainShare doesn't conclude there was no decision — it surfaces the gap.
+- **Supersession is the mechanism for correction.** When new information contradicts existing context, BrainShare doesn't rewrite history — it creates a new primitive that supersedes the old one. The original stays, marked as superseded, with a link to what replaced it and why. The graph carries its own correction history.
+- **Conclusions carry their reasoning chain, not their confidence.** Because new information might invalidate any conclusion, BrainShare stores *how* a conclusion was reached (the chain of evidence, sources, and inferences) rather than just *what* the conclusion is. When new evidence arrives, BrainShare can re-evaluate the chain.
+- **Conviction is provisional by nature.** A high-conviction decision today might become low-conviction tomorrow if its supporting assumptions are invalidated. The conviction score is not a permanent attribute — it's a current readout of the underlying reasoning chain.
+
+This is also why BrainShare's correction model is "speak up when context drifts" rather than "be right about everything." The product promise is not omniscience — it's vigilance.
+
 ---
 
 # 9. Ongoing Operation: BrainShare as Context Guardian
@@ -468,22 +515,41 @@ BrainShare does NOT speak up about priorities, alignment, or strategic direction
 
 ## 9.3 The Conviction Meter
 
-BrainShare maintains an internal conviction score for every piece of context, based on:
+Conviction is a **derived signal**, not a stored number. It reflects the current state of the reasoning chain behind a piece of context — and it can always be drilled into.
+
+### What Goes Into Conviction
+
+BrainShare evaluates conviction based on:
 
 - **Explicitness:** Was this explicitly stated or implicitly inferred?
 - **Recency:** How recently was this reinforced?
 - **Participant weight:** Was this said by the founder or by a contractor?
 - **Contradiction count:** Has this been challenged or contradicted?
-- **Reinforcement count:** How many times has this been referenced or acted upon?
+- **Reinforcement count:** How many times has this been referenced or acted upon? (Both human and agent usage count.)
 - **Hard-to-vary test:** How specific and interconnected is the rationale? (Deutsch principle)
+- **Assumption status:** Are the assumptions this depends on currently valid?
 
-The conviction score determines assertiveness:
+### Chain of Reasoning, Not a Confidence Number
 
-**High conviction → Assert.** "The spec says Y." No hedging.
+A conviction score like "0.73" is meaningless on its own — it doesn't tell you whether to trust the underlying claim, only how confident some algorithm was. BrainShare avoids this trap by treating conviction as a *summary* of an underlying chain of reasoning, not a primary attribute.
 
-**Medium conviction → Flag.** "You discussed changing this in Discord — which version is current?"
+The conviction signal collapses into one of three levels for product behavior — **assert / flag / ask** — but the underlying chain is always preserved in the manifest. When BrainShare expresses a conviction level, the user (or LLM) can always ask "why?" and get the actual reasoning back: which sources support it, which contradict it, which assumptions are validated vs. untested, what superseded what.
 
-**Low conviction → Ask.** "I think this might be related to the onboarding feature — is that right?"
+This means:
+
+- **No arbitrary thresholds drive critical behavior.** BrainShare doesn't say "if confidence > 0.75, assert." It says "if the reasoning chain is hard-to-vary, the supporting assumptions are validated, and nothing has contradicted this recently, assert."
+- **Conviction is cached but recomputed.** The conviction signal is cached for fast retrieval, but it's recomputed whenever any input to the chain changes — a new contradiction arrives, an assumption gets invalidated, the primitive gets reinforced. The cache is never the source of truth; the chain is.
+- **Users can interrogate the reasoning.** From any BrainShare assertion, the user can drill into the chain and see exactly why BrainShare believes what it believes. This is what makes BrainShare different from a black-box confidence-scored system.
+
+### Assertiveness Mapping
+
+The chain produces a behavior level:
+
+**High conviction → Assert.** "The spec says Y." No hedging. The reasoning chain is strong, recent, and uncontradicted.
+
+**Medium conviction → Flag.** "You discussed changing this in Discord — which version is current?" The reasoning chain has a gap or a recent contradiction.
+
+**Low conviction → Ask.** "I think this might be related to the onboarding feature — is that right?" The reasoning chain is thin or speculative.
 
 ## 9.4 Writing to External Tools
 
@@ -507,6 +573,44 @@ Beyond real-time sync, BrainShare continuously watches for:
 - **Context fragmentation:** Decisions in tools BrainShare watches but not captured durably
 
 BrainShare detects these but **surfaces them to Swarm for intervention** if Swarm is active. If Swarm is not active, BrainShare surfaces them directly with conviction-based framing.
+
+## 9.6 Dual Decay Model
+
+Memory decays — but for two different reasons that work in tandem. BrainShare tracks both.
+
+### Invalidation-Based Decay (Reason-Based)
+
+A primitive decays because its **supporting reasoning has changed**. This is the structural mechanism:
+
+- An assumption gets invalidated → every decision depending on that assumption loses conviction
+- A decision gets superseded → its downstream work items inherit the change
+- A standard gets revised → existing work flagged against the old standard gets re-evaluated
+- A goal gets deprioritized → the Why Chain branches under it weaken
+
+This decay is graph-shaped. It follows the structural links between primitives. When one link in the chain changes, BrainShare traces the downstream impact and updates conviction across affected primitives.
+
+### Usage-Based Decay (Reinforcement Signal)
+
+A primitive decays because **nobody has referenced it in a while**. This is the survival-of-the-fittest mechanism:
+
+- If a decision keeps getting cited in new conversations and shapes downstream work, conviction reinforces
+- If a decision sits untouched for weeks while related work continues without referencing it, conviction decays
+- If an assumption gets referenced repeatedly in active work, it's clearly load-bearing — conviction holds
+- If a primitive falls on the floor — never retrieved, never used, never reinforced — it decays toward archival
+
+This is the signal that the team's (and agents') collective behavior reveals what mattered. BrainShare doesn't have to decide what's important from first principles. It can observe what stays in use.
+
+### Both Signals Feed Conviction
+
+Conviction integrates both forms of decay:
+
+- A primitive can be **structurally valid but usage-decayed** — the reasoning still holds, but nobody's referencing it. BrainShare keeps it but lowers its assertiveness.
+- A primitive can be **structurally invalidated but heavily used** — the assumptions changed but the team keeps citing the old version. BrainShare flags this loudly, because the team is acting on outdated reasoning.
+- A primitive can be **fully decayed on both axes** — invalidated AND unused. BrainShare archives it, preserving the manifest for forensic purposes but removing it from active retrieval.
+
+### What This Replaces
+
+Traditional memory systems decay by time (recency) or frequency (popularity). BrainShare decays by **reason** (the reasoning chain changed) and by **reinforcement** (the team's behavior reveals what matters). Both are explainable. Neither is arbitrary. The user can always ask "why is this fading?" and get a real answer.
 
 ---
 
@@ -625,6 +729,7 @@ BrainShare should use Graphiti as its temporal graph foundation rather than buil
 Graphiti stores generic entities and relationships. BrainShare adds a typed schema layer on top:
 
 **Primitive types:**
+- **Episode** — raw source data (Discord message, Figma update, commit, etc.) that produced one or more primitives. Every primitive traces back to its source episodes.
 - **Decision** — statement, rationale, actors (proposer + approver), timestamp, status (active/superseded/reversed), supersedes reference, revisit triggers, conviction score
 - **Assumption** — statement, evidence status (untested/validated/invalidated), linked decisions, conviction score
 - **Goal** — statement, time horizon, parent goal reference (for Why Chain), linked sub-goals, linked work items
@@ -632,7 +737,6 @@ Graphiti stores generic entities and relationships. BrainShare adds a typed sche
 - **Work Item** — title, owner (Actor), status, linked decisions, linked assumptions, linked goals (Why Chain)
 - **Standard** — statement, scope, enforcement level, origin, linked decisions
 - **Signal** — observation type, evidence, timestamp, trend direction, linked entities
-- **Episode** — raw source data (Discord message, Figma update, commit, etc.) that produced one or more primitives. Every primitive traces back to its source episodes.
 
 **Relationships between primitives:**
 - Decision → depends_on → Assumption
@@ -671,6 +775,14 @@ Cognee's research shows that ontology-grounded extraction produces significantly
 - **Operational patterns:** decision_decay, priority_drift, ownership_ambiguity, scope_creep, etc.
 
 When BrainShare extracts primitives from raw tool data, it validates them against this ontology. Entities that match get canonical names and typed relationships. Entities that don't match get flagged as unvalidated (lower conviction).
+
+### Why Ontology, Not Labeled Property Graph
+
+There's a real fork in knowledge graph design between a **labeled property graph** (Neo4j-style: nodes connected by edges with light labels, semantics live in application code) and an **ontology** (typed entities with semantically meaningful relationships, supports inference and validation at the graph layer). The labeled property graph is faster to build; the ontology pays off when you want the graph itself to support reasoning rather than just retrieval.
+
+BrainShare commits to the ontology path because the entire causal reasoning ambition — Pearl's ladder, hard-to-vary explanations, intervention-outcome learning — depends on it. If BrainShare were a labeled property graph, every reasoning capability would have to be encoded in application code, and the graph would be inert. With an ontology, the graph itself carries the semantics: LLMs can reason over its structure, queries can do graph-shaped traversal across typed relationships, and inborn knowledge can be expressed at the graph layer rather than buried in code.
+
+This is also why Cognee's approach (ontology-grounded extraction) and Graphiti's temporal entity model fit together well: Graphiti supplies the temporal graph engine; the ontology layer on top is what makes BrainShare BrainShare. The combination handles infrastructure and semantics separately, with each layer doing what it does best.
 
 This also makes extraction consistent across teams — "decision" always means the same thing in BrainShare, regardless of how different teams express decisions in their tools.
 
@@ -761,8 +873,8 @@ Fractal attention scoping with three-tier system (✅ full / 🟡 lightweight / 
 ## Context Assembly Algorithm
 The step-by-step protocol for assembling a context payload from all four memory layers using adaptive retrieval. How to prioritize, compress, and fit within token budgets.
 
-## Conviction Calculation
-The specific mechanics of scoring. How the hard-to-vary test gets operationalized. What thresholds trigger assert vs. flag vs. ask. How conviction decays over time.
+## Conviction Calculation — PARTIALLY DESIGNED (see Section 9.3)
+Section 9.3 reframes conviction as a derived signal from a chain of reasoning rather than a stored number. Still needed: the specific mechanics of how each input (explicitness, recency, participant weight, contradictions, reinforcement, hard-to-vary, assumption status) contributes to the assert/flag/ask collapse. Threshold logic. Recomputation triggers when manifest inputs change. How conviction drift gets surfaced (e.g., "this was high-conviction last week, now medium — here's why").
 
 ## Graphiti Integration Details
 How BrainShare's typed primitives map to Graphiti's entity/relationship model. Custom entity types, edge types, and temporal properties. Episode ingestion patterns.
@@ -792,5 +904,7 @@ Standalone pricing model.
 How BrainShare surfaces data to Swarm. Behavior changes when Swarm is active.
 
 ---
+
+*v1.4 changelog: Architectural amendments from a May 18 conversation with KM Corbett (enterprise data architecture). Added Section 7.5 (Provenance Manifests) — lightweight ID-based manifests on every primitive with full trail in append-only storage, git-shaped diffability and mergeability. Added Section 8.3 (Open-World Assumption) — explicit design constraint: no negative inference, supersession as correction mechanism, conclusions always provisional. Rewrote Section 9.3 (Conviction Meter) — conviction is a derived signal from a chain of reasoning, not a stored confidence number; cache exists but is recomputed, chain is source of truth, users can always drill into the reasoning. Added Section 9.6 (Dual Decay Model) — invalidation-based decay (reasoning chain changed) + usage-based decay (reinforcement signal from team and agent behavior), both feed conviction, both are explainable. Amended Section 15.4 — explicit framing of the ontology-vs-labeled-property-graph fork and why BrainShare commits to ontology for causal reasoning support.*
 
 *v1.3 changelog: Added Fractal Attention Scoping (Section 5.7) — three-tier relevance filtering (✅/🟡/❌), fractal sub-categorization, attention scope tree as Why Chain skeleton, proactive scope suggestions, scoping pass as pre-step before extraction. Added Memory Browser View within WorkOS (Section 12). Added MCP as primary integration path (Section 15.7) with API and CLI as secondary. Updated extraction principle: conviction always traces to human signal, not AI generation — both humans and AI produce content, but humans produce the authority signal. Added writeback to cards OR stacks (not just cards). Updated open questions to reflect resolved items.*
