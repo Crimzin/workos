@@ -1,6 +1,4 @@
-import { unstable_cache } from "next/cache";
 import { getActors, getCurrentActor } from "./actor";
-import { cacheTags } from "./cache";
 import { getNodeLinks, type NodeLinks } from "./links";
 import { getNodeMemoryPrimitives } from "./memory-primitives";
 import { getMirrorTargets, getNodeDetail } from "./node-detail";
@@ -22,55 +20,36 @@ export interface ThreadSurfaceData {
 export async function getThreadSurface(
   nodeId: string
 ): Promise<ThreadSurfaceData | null> {
-  const cached = unstable_cache(
-    async (): Promise<ThreadSurfaceData | null> => {
-      const [detail, path, actor, actors] = await Promise.all([
-        getNodeDetail(nodeId),
-        getNodePath(nodeId),
-        getCurrentActor(),
-        getActors(),
-      ]);
-      if (!detail) return null;
+  const [detail, path, actor, actors] = await Promise.all([
+    getNodeDetail(nodeId),
+    getNodePath(nodeId),
+    getCurrentActor(),
+    getActors(),
+  ]);
+  if (!detail) return null;
 
-      const workspaceId = path[0]?.id ?? detail.node.id;
-      const mirrorTargetsPromise =
-        detail.node.type === "stack" || detail.node.type === "card"
-          ? getMirrorTargets(detail.node.instance_id, detail.node.type)
-          : Promise.resolve([]);
+  const workspaceId = path[0]?.id ?? detail.node.id;
+  const mirrorTargetsPromise =
+    detail.node.type === "stack" || detail.node.type === "card"
+      ? getMirrorTargets(detail.node.instance_id, detail.node.type)
+      : Promise.resolve([]);
 
-      const [mirrorTargets, posts, links, memoryPrimitives] = await Promise.all([
-        mirrorTargetsPromise,
-        getNodePosts(nodeId),
-        getNodeLinks(nodeId),
-        getNodeMemoryPrimitives(nodeId),
-      ]);
+  const [mirrorTargets, posts, links, memoryPrimitives] = await Promise.all([
+    mirrorTargetsPromise,
+    getNodePosts(nodeId),
+    getNodeLinks(nodeId),
+    getNodeMemoryPrimitives(nodeId),
+  ]);
 
-      return {
-        detail,
-        path,
-        workspaceId,
-        mirrorTargets,
-        posts,
-        links,
-        memoryPrimitives,
-        actor,
-        actors,
-      };
-    },
-    ["thread-surface", nodeId],
-    {
-      tags: [
-        cacheTags.threadSurface(nodeId),
-        cacheTags.node(nodeId),
-        cacheTags.nodePath(nodeId),
-        cacheTags.children(nodeId),
-        cacheTags.nodePosts(nodeId),
-        cacheTags.nodeLinks(nodeId),
-        cacheTags.nodeMemoryPrimitives(nodeId),
-      ],
-      revalidate: 300,
-    }
-  );
-
-  return cached();
+  return {
+    detail,
+    path,
+    workspaceId,
+    mirrorTargets,
+    posts,
+    links,
+    memoryPrimitives,
+    actor,
+    actors,
+  };
 }
