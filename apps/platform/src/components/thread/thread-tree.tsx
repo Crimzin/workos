@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
+import { getThreadStatusLabel } from "@/lib/thread-status";
 import type { WorkNode } from "@/lib/types";
 import { ThreadSearch } from "./thread-search";
 
 export interface ThreadTreeProps {
-  currentThreadId: string;
   children: WorkNode[];
 }
 
-export function ThreadTree({ currentThreadId, children }: ThreadTreeProps) {
+export function ThreadTree({ children }: ThreadTreeProps) {
   const visibleChildren = children.filter((child) => !child.archived_at);
 
   return (
@@ -19,10 +19,7 @@ export function ThreadTree({ currentThreadId, children }: ThreadTreeProps) {
           Find work in this thread
         </h2>
 
-        <ThreadSearch
-          currentThreadId={currentThreadId}
-          items={visibleChildren}
-        />
+        <ThreadSearch items={visibleChildren} />
       </section>
 
       <section className="space-y-3">
@@ -39,6 +36,9 @@ export function ThreadTree({ currentThreadId, children }: ThreadTreeProps) {
             {visibleChildren.map((child) => {
               const isResolved =
                 child.thread_resolution_status === "resolved";
+              const statusLabel = getThreadStatusLabel(
+                child.thread_resolution_status
+              );
 
               return (
                 <li key={child.id}>
@@ -56,7 +56,7 @@ export function ThreadTree({ currentThreadId, children }: ThreadTreeProps) {
                           : "shrink-0 text-xs font-medium text-text-tertiary"
                       }
                     >
-                      {isResolved ? "Resolved" : "Unresolved"}
+                      {statusLabel}
                     </span>
                   </Link>
                 </li>

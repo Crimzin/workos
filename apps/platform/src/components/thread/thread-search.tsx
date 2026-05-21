@@ -5,14 +5,10 @@ import { useId, useMemo, useState } from "react";
 import type { WorkNode } from "@/lib/types";
 
 export interface ThreadSearchProps {
-  currentThreadId: string;
   items: WorkNode[];
 }
 
-export function ThreadSearch({
-  currentThreadId: _currentThreadId,
-  items,
-}: ThreadSearchProps) {
+export function ThreadSearch({ items }: ThreadSearchProps) {
   const [query, setQuery] = useState("");
   const helperId = useId();
   const trimmedQuery = query.trim();
@@ -42,6 +38,7 @@ export function ThreadSearch({
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search this thread"
+        aria-label="Search this thread"
         aria-describedby={helperId}
         className="w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary transition-colors hover:border-text-tertiary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
