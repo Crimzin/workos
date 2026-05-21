@@ -3,6 +3,7 @@ import {
   flattenSidebarTree,
   getPinnedNodes,
   getSidebarDropPlan,
+  moveSidebarTreeNode,
   nextSidebarPosition,
 } from "./sidebar-tree-dnd";
 import { buildSidebarTree } from "./sidebar-tree";
@@ -92,4 +93,35 @@ assert.deepEqual(
     ]
   ).map((pin) => pin.node.id),
   ["project-a", "pricing"]
+);
+
+const movedTree = moveSidebarTreeNode(tree, "pricing", {
+  parentId: "project-b",
+  previousId: "ops",
+  nextId: null,
+});
+
+assert.deepEqual(
+  flattenSidebarTree(movedTree, new Set(["project-a", "project-b"])).map((row) => [
+    row.id,
+    row.parent_id,
+    row.depth,
+    row.rootId,
+  ]),
+  [
+    ["project-a", null, 0, "project-a"],
+    ["scope", "project-a", 1, "project-a"],
+    ["project-b", null, 0, "project-b"],
+    ["ops", "project-b", 1, "project-b"],
+    ["pricing", "project-b", 1, "project-b"],
+  ]
+);
+
+assert.equal(
+  moveSidebarTreeNode(tree, "project-a", {
+    parentId: "pricing",
+    previousId: null,
+    nextId: null,
+  }),
+  tree
 );

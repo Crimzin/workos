@@ -101,6 +101,110 @@ export function getPinnedNodes(pins: PinnedSidebarNode[]): PinnedSidebarNode[] {
   return [...pins].sort((a, b) => a.position - b.position);
 }
 
+export function moveSidebarTreeNode(
+  tree: SidebarTreeNode[],
+  nodeId: string,
+  plan: SidebarDropPlan
+): SidebarTreeNode[] {
+  const [withoutNode, movedNode] = removeNode(tree, nodeId);
+  if (!movedNode) return tree;
+  if (plan.parentId === nodeId || containsNode(movedNode, plan.parentId)) return tree;
+  return insertNode(withoutNode, movedNode, plan);
+}
+
+function removeNode(
+  nodes: SidebarTreeNode[],
+  nodeId: string
+): [SidebarTreeNode[], SidebarTreeNode | null] {
+  let removed: SidebarTreeNode | null = null;
+  const next: SidebarTreeNode[] = [];
+
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      removed = node;
+      continue;
+    }
+    const [children, childRemoved] = removeNode(node.children, nodeId);
+    if (childRemoved) removed = childRemoved;
+    next.push({ ...node, children });
+  }
+
+  return [next, removed];
+}
+
+function insertNode(
+  tree: SidebarTreeNode[],
+  node: SidebarTreeNode,
+  plan: SidebarDropPlan
+): SidebarTreeNode[] {
+  const moved = { ...node, parent_id: plan.parentId, depth: 0 };
+  if (!plan.parentId) {
+    return normalizeTreeDepths(
+      insertAmongSiblings(tree, moved, plan.previousId, plan.nextId),
+      0,
+      undefined
+    );
+  }
+
+  function visit(nodes: SidebarTreeNode[]): SidebarTreeNode[] {
+    return nodes.map((candidate) => {
+      if (candidate.id !== plan.parentId) {
+        return { ...candidate, children: visit(candidate.children) };
+      }
+      return {
+        ...candidate,
+        children: insertAmongSiblings(
+          candidate.children,
+          moved,
+          plan.previousId,
+          plan.nextId
+        ),
+      };
+    });
+  }
+
+  return normalizeTreeDepths(visit(tree), 0, undefined);
+}
+
+function insertAmongSiblings(
+  siblings: SidebarTreeNode[],
+  node: SidebarTreeNode,
+  previousId: string | null,
+  nextId: string | null
+): SidebarTreeNode[] {
+  const next = [...siblings];
+  const explicitIndex = previousId
+    ? next.findIndex((sibling) => sibling.id === previousId) + 1
+    : nextId
+      ? next.findIndex((sibling) => sibling.id === nextId)
+      : next.length;
+  const index = explicitIndex < 0 ? next.length : explicitIndex;
+  next.splice(index, 0, node);
+  return next;
+}
+
+function normalizeTreeDepths(
+  nodes: SidebarTreeNode[],
+  depth: number,
+  rootId: string | undefined
+): SidebarTreeNode[] {
+  return nodes.map((node) => {
+    const nodeRootId = rootId ?? node.id;
+    return {
+      ...node,
+      depth,
+      rootId: nodeRootId,
+      children: normalizeTreeDepths(node.children, depth + 1, nodeRootId),
+    };
+  });
+}
+
+function containsNode(node: SidebarTreeNode, targetId: string | null): boolean {
+  if (!targetId) return false;
+  if (node.id === targetId) return true;
+  return node.children.some((child) => containsNode(child, targetId));
+}
+
 function maxDepthForDrop(rows: FlatSidebarTreeNode[], overIndex: number) {
   const previous = rows[overIndex - 1];
   return previous ? previous.depth + 1 : 0;

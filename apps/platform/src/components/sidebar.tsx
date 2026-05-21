@@ -7,8 +7,11 @@ import {
   DndContext,
   PointerSensor,
   closestCenter,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -52,6 +55,7 @@ import {
   flattenSidebarTree,
   getPinnedNodes,
   getSidebarDropPlan,
+  moveSidebarTreeNode,
   type FlatSidebarTreeNode,
   type PinnedSidebarNode,
 } from "@/lib/sidebar-tree-dnd";
@@ -70,8 +74,23 @@ const WIDTH_KEY = "workos-sidebar-width";
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 520;
 const COLLAPSED_WIDTH = 56;
+const SINGLE_CLICK_DELAY_MS = 180;
+
+const sidebarCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) return pointerCollisions;
+
+  const intersectionCollisions = rectIntersection(args);
+  if (intersectionCollisions.length > 0) return intersectionCollisions;
+
+  return closestCenter(args);
+};
 
 export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
+  const [projectTreeState, setProjectTreeState] = useState({
+    source: projectTree,
+    tree: projectTree,
+  });
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [width, setWidth] = useState(288);
@@ -86,10 +105,15 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
   const [, startTransition] = useTransition();
   const pathname = usePathname();
   const router = useRouter();
+  if (projectTreeState.source !== projectTree) {
+    setProjectTreeState({ source: projectTree, tree: projectTree });
+  }
+  const localProjectTree =
+    projectTreeState.source === projectTree ? projectTreeState.tree : projectTree;
   const visibleExpandedIds = expandedIds;
   const flatRows = useMemo(
-    () => flattenSidebarTree(projectTree, visibleExpandedIds),
-    [projectTree, visibleExpandedIds]
+    () => flattenSidebarTree(localProjectTree, visibleExpandedIds),
+    [localProjectTree, visibleExpandedIds]
   );
   const visibleProjectRows = useMemo(
     () => collapsed ? flatRows.filter((row) => row.depth === 0) : flatRows,
@@ -204,6 +228,10 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
       });
       if (!plan) return;
 
+      setProjectTreeState((state) => ({
+        source: state.source,
+        tree: moveSidebarTreeNode(state.tree, nodeId, plan),
+      }));
       startTransition(async () => {
         await moveSidebarNode(nodeId, plan.parentId, plan.previousId, plan.nextId);
         if (plan.parentId) setExpanded(plan.parentId, true);
@@ -269,7 +297,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={sidebarCollisionDetection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
@@ -428,6 +456,9 @@ function PinnedNodeRow({
 }) {
   const [, startTransition] = useTransition();
   const initial = node.title.charAt(0).toUpperCase();
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleRef = useRef<HTMLButtonElement>(null);
+  const [showTooltip, setShowTooltip] = useState(false);
   const {
     attributes,
     listeners,
@@ -449,6 +480,24 @@ function PinnedNodeRow({
       router.refresh();
     });
   };
+
+  const updateTooltip = () => {
+    const element = titleRef.current;
+    setShowTooltip(Boolean(element && element.scrollWidth > element.clientWidth));
+  };
+
+  const navigateToNode = () => {
+    clickTimerRef.current = setTimeout(() => {
+      router.push(`/n/${node.id}`);
+      clickTimerRef.current = null;
+    }, SINGLE_CLICK_DELAY_MS);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    };
+  }, []);
 
   if (collapsed) {
     return (
@@ -486,9 +535,18 @@ function PinnedNodeRow({
       <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold bg-bg-card border border-border text-text-secondary">
         {initial}
       </span>
-      <Link href={`/n/${node.id}`} className="min-w-0 flex-1 truncate font-medium">
+      <button
+        ref={titleRef}
+        type="button"
+        onClick={navigateToNode}
+        onMouseEnter={updateTooltip}
+        onFocus={updateTooltip}
+        onMouseLeave={() => setShowTooltip(false)}
+        onBlur={() => setShowTooltip(false)}
+        className="min-w-0 flex-1 truncate text-left font-medium"
+      >
         {node.title}
-      </Link>
+      </button>
       <button
         type="button"
         title={`Unpin ${node.title}`}
@@ -501,13 +559,15 @@ function PinnedNodeRow({
       >
         <PinOff size={11} />
       </button>
-      <div
-        id={tooltipId}
-        role="tooltip"
-        className="pointer-events-none absolute left-6 top-full z-50 mt-1 max-w-[320px] rounded border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary opacity-0 shadow-lg transition-opacity delay-500 group-hover:opacity-100 group-focus-within:opacity-100"
-      >
-        {node.title}
-      </div>
+      {showTooltip && (
+        <div
+          id={tooltipId}
+          role="tooltip"
+          className="pointer-events-none absolute left-6 top-full z-50 mt-1 max-w-[320px] rounded border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary shadow-lg"
+        >
+          {node.title}
+        </div>
+      )}
     </div>
   );
 }
@@ -543,6 +603,9 @@ function ProjectTreeNodeRow({
   const [, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleRef = useRef<HTMLButtonElement>(null);
+  const [showTooltip, setShowTooltip] = useState(false);
   const initial = node.title.charAt(0).toUpperCase();
   const {
     attributes,
@@ -626,6 +689,28 @@ function ProjectTreeNodeRow({
     });
   };
 
+  const updateTooltip = () => {
+    const element = titleRef.current;
+    setShowTooltip(Boolean(element && element.scrollWidth > element.clientWidth));
+  };
+
+  const navigateToNode = () => {
+    clickTimerRef.current = setTimeout(() => {
+      router.push(`/n/${node.id}`);
+      clickTimerRef.current = null;
+    }, SINGLE_CLICK_DELAY_MS);
+  };
+
+  const cancelPendingNavigation = () => {
+    if (!clickTimerRef.current) return;
+    clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = null;
+  };
+
+  useEffect(() => {
+    return () => cancelPendingNavigation();
+  }, []);
+
   if (collapsed) {
     return (
       <Link
@@ -695,17 +780,24 @@ function ProjectTreeNodeRow({
           className="min-w-0 flex-1 rounded border border-accent bg-bg-card px-1 py-0 text-sm text-text-primary outline-none"
         />
       ) : (
-        <Link
-          href={`/n/${node.id}`}
+        <button
+          ref={titleRef}
+          type="button"
+          onClick={navigateToNode}
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            cancelPendingNavigation();
             startRename();
           }}
-          className="min-w-0 flex-1 truncate font-medium"
+          onMouseEnter={updateTooltip}
+          onFocus={updateTooltip}
+          onMouseLeave={() => setShowTooltip(false)}
+          onBlur={() => setShowTooltip(false)}
+          className="min-w-0 flex-1 truncate text-left font-medium"
         >
           {node.title}
-        </Link>
+        </button>
       )}
 
       {!isRenaming && (
@@ -786,11 +878,11 @@ function ProjectTreeNodeRow({
         </div>
       )}
 
-      {!isRenaming && (
+      {!isRenaming && showTooltip && (
         <div
           id={tooltipId}
           role="tooltip"
-          className="pointer-events-none absolute left-6 top-full z-50 mt-1 max-w-[320px] rounded border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary opacity-0 shadow-lg transition-opacity delay-500 group-hover:opacity-100 group-focus-within:opacity-100"
+          className="pointer-events-none absolute left-6 top-full z-50 mt-1 max-w-[320px] rounded border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary shadow-lg"
         >
           {node.title}
         </div>
