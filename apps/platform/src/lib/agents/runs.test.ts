@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { buildAgentRunInsert, type CreateAgentRunInput } from "./runs.ts";
+import {
+  buildAgentRunInsert,
+  selectConfirmableRunId,
+  type CreateAgentRunInput,
+} from "./runs.ts";
 
 const input: CreateAgentRunInput = {
   instanceId: "instance-1",
@@ -32,3 +36,7 @@ assert.deepEqual(buildAgentRunInsert(input).metadata, {
   aidex_status: "available",
   task: "Task 4",
 });
+
+assert.equal(selectConfirmableRunId([]), null);
+assert.equal(selectConfirmableRunId([{ id: "run-1" }]), "run-1");
+assert.equal(selectConfirmableRunId([{ id: "run-1" }, { id: "run-2" }]), null);

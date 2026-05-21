@@ -32,6 +32,10 @@ type AgentRunInsert = {
   metadata: Record<string, unknown>;
 };
 
+interface ConfirmableRunCandidate {
+  id: string;
+}
+
 export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert {
   return {
     instance_id: input.instanceId,
@@ -45,6 +49,13 @@ export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert 
     plan_body: input.planBody,
     metadata: input.metadata ?? {},
   };
+}
+
+export function selectConfirmableRunId(
+  rows: ConfirmableRunCandidate[]
+): string | null {
+  if (rows.length !== 1) return null;
+  return rows[0]?.id ?? null;
 }
 
 async function loadAgentRunRuntime() {
@@ -77,9 +88,13 @@ export async function createPlanningAgentRun(
   if (error) throw error;
 
   const run = data as AgentRun;
-  await appendAgentRunEvent(run.id, "plan_posted", "Agent posted a plan.", {
-    trigger_post_id: input.triggerPostId,
-  });
+  try {
+    await appendAgentRunEvent(run.id, "plan_posted", "Agent posted a plan.", {
+      trigger_post_id: input.triggerPostId,
+    });
+  } catch (err) {
+    console.error("[agent-runtime] failed to append plan event", err);
+  }
 
   revalidateAgentRuns(input.targetNodeId);
   revalidatePath(`/n/${input.workspaceId}`);
@@ -118,31 +133,38 @@ export async function queueAwaitingRunsForConfirmation({
     supabase,
   } = await loadAgentRunRuntime();
 
-  const { data: run, error: findError } = await supabase
+  const { data: runs, error: findError } = await supabase
     .from("agent_runs")
-    .select("*")
+    .select("id")
     .eq("target_node_id", nodeId)
     .eq("workspace_id", workspaceId)
     .eq("requester_actor_id", requesterActorId)
     .eq("status", "awaiting_confirmation")
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(2);
   if (findError) throw findError;
-  if (!run) return 0;
 
-  const { error: updateError } = await supabase
+  const runId = selectConfirmableRunId((runs ?? []) as ConfirmableRunCandidate[]);
+  if (!runId) return 0;
+
+  const { data: queuedRun, error: updateError } = await supabase
     .from("agent_runs")
     .update({
       status: "queued",
       confirmation_post_id: confirmationPostId,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", (run as AgentRun).id)
-    .eq("status", "awaiting_confirmation");
+    .eq("id", runId)
+    .eq("target_node_id", nodeId)
+    .eq("workspace_id", workspaceId)
+    .eq("requester_actor_id", requesterActorId)
+    .eq("status", "awaiting_confirmation")
+    .select("id")
+    .maybeSingle();
   if (updateError) throw updateError;
+  if (!queuedRun) return 0;
 
-  await appendAgentRunEvent((run as AgentRun).id, "confirmed", "Run confirmed.", {
+  await appendAgentRunEvent(queuedRun.id as string, "confirmed", "Run confirmed.", {
     confirmation_post_id: confirmationPostId,
   });
 
