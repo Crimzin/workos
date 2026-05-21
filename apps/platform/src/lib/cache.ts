@@ -8,6 +8,7 @@ import { revalidateTag } from "next/cache";
 export const cacheTags = {
   rootNodes: () => "root-nodes",
   node: (id: string) => `node:${id}`,
+  nodePath: (id: string) => `node-path:${id}`,
   children: (parentId: string) => `node-children:${parentId}`,
   workspaceBoard: (workspaceId: string) => `workspace-board:${workspaceId}`,
   instanceFields: (instanceId: string) => `instance-fields:${instanceId}`,
@@ -29,6 +30,10 @@ const IMMEDIATE = { expire: 0 } as const;
 export function revalidateNode(id: string, parentId: string | null) {
   revalidateTag(cacheTags.node(id), PROFILE);
   if (parentId) revalidateTag(cacheTags.children(parentId), PROFILE);
+}
+
+export function revalidateNodePath(id: string) {
+  revalidateTag(cacheTags.nodePath(id), PROFILE);
 }
 
 export function revalidateWorkspaceBoard(workspaceId: string) {
