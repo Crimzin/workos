@@ -6,10 +6,16 @@ import { getCurrentActor } from "../actor";
 import {
   revalidateRootNodes,
   revalidateNode,
+  revalidateNodePath,
+  revalidateThreadSurface,
   revalidateWorkspaceBoard,
   revalidateNodePosts,
   revalidateWorkspaceFeed,
 } from "../cache";
+import {
+  buildSubThreadResolvedMetadata,
+  normalizeResolutionSummary,
+} from "../thread-status";
 import type { StackLifecycleStatus } from "../types";
 
 export async function archiveNode(
@@ -669,4 +675,136 @@ export async function createCard(
   revalidateWorkspaceFeed(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
   return { id: card.id };
+}
+
+export interface CreateSubThreadResult {
+  id: string;
+}
+
+export async function createSubThread(
+  parentThreadId: string,
+  workspaceId: string,
+  title: string,
+  sourcePostId?: string | null
+): Promise<CreateSubThreadResult> {
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("Sub-thread title is required");
+  const actor = await getCurrentActor();
+  await ensureDefaultPlanningFields(actor.instance_id);
+
+  const position = await nextPositionForSibling(parentThreadId);
+
+  const { data: subThread, error } = await supabase
+    .from("nodes")
+    .insert({
+      instance_id: actor.instance_id,
+      parent_id: parentThreadId,
+      type: "card",
+      title: trimmed,
+      owner_id: actor.id,
+      position,
+      thread_resolution_status: "active",
+      resolution_source_post_id: sourcePostId ?? null,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  await supabase.from("posts").insert({
+    node_id: parentThreadId,
+    actor_id: actor.id,
+    post_type: "sub_thread_created",
+    metadata: {
+      sub_thread_id: subThread.id,
+      sub_thread_title: trimmed,
+      source_post_id: sourcePostId ?? null,
+    },
+  });
+
+  revalidateNode(parentThreadId, null);
+  revalidateNodePath(subThread.id);
+  revalidateThreadSurface(parentThreadId);
+  revalidateThreadSurface(subThread.id);
+  revalidateNodePosts(parentThreadId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidateWorkspaceFeed(workspaceId);
+  revalidatePath(`/n/${parentThreadId}`);
+  revalidatePath(`/n/${workspaceId}`);
+  return { id: subThread.id };
+}
+
+export async function resolveSubThread(
+  subThreadId: string,
+  parentThreadId: string,
+  workspaceId: string,
+  summary: string
+): Promise<void> {
+  const normalizedSummary = normalizeResolutionSummary(summary);
+  const actor = await getCurrentActor();
+
+  const { data: subThread, error: fetchErr } = await supabase
+    .from("nodes")
+    .select("id, title, parent_id")
+    .eq("id", subThreadId)
+    .maybeSingle();
+  if (fetchErr) throw fetchErr;
+  if (!subThread) throw new Error("Sub-thread not found");
+  if (subThread.parent_id !== parentThreadId) {
+    throw new Error("Sub-thread does not belong to this parent thread");
+  }
+
+  const { error: updateErr } = await supabase
+    .from("nodes")
+    .update({
+      thread_resolution_status: "resolved",
+      resolved_at: new Date().toISOString(),
+      resolved_by_actor_id: actor.id,
+      resolution_summary: normalizedSummary,
+    })
+    .eq("id", subThreadId);
+  if (updateErr) throw updateErr;
+
+  await supabase.from("posts").insert({
+    node_id: parentThreadId,
+    actor_id: actor.id,
+    post_type: "sub_thread_resolved",
+    metadata: buildSubThreadResolvedMetadata({
+      subThreadId,
+      subThreadTitle: subThread.title,
+      summary: normalizedSummary,
+    }),
+  });
+
+  revalidateNode(subThreadId, parentThreadId);
+  revalidateThreadSurface(parentThreadId);
+  revalidateThreadSurface(subThreadId);
+  revalidateNodePosts(parentThreadId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidateWorkspaceFeed(workspaceId);
+  revalidatePath(`/n/${parentThreadId}`);
+  revalidatePath(`/n/${workspaceId}`);
+}
+
+export async function reopenSubThread(
+  subThreadId: string,
+  parentThreadId: string,
+  workspaceId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("nodes")
+    .update({
+      thread_resolution_status: "reopened",
+      resolved_at: null,
+    })
+    .eq("id", subThreadId)
+    .eq("parent_id", parentThreadId);
+  if (error) throw error;
+
+  revalidateNode(subThreadId, parentThreadId);
+  revalidateThreadSurface(parentThreadId);
+  revalidateThreadSurface(subThreadId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidateWorkspaceFeed(workspaceId);
+  revalidatePath(`/n/${parentThreadId}`);
+  revalidatePath(`/n/${workspaceId}`);
 }

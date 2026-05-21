@@ -9,6 +9,7 @@ export const cacheTags = {
   rootNodes: () => "root-nodes",
   node: (id: string) => `node:${id}`,
   nodePath: (id: string) => `node-path:${id}`,
+  threadSurface: (id: string) => `thread-surface:${id}`,
   children: (parentId: string) => `node-children:${parentId}`,
   workspaceBoard: (workspaceId: string) => `workspace-board:${workspaceId}`,
   instanceFields: (instanceId: string) => `instance-fields:${instanceId}`,
@@ -34,6 +35,10 @@ export function revalidateNode(id: string, parentId: string | null) {
 
 export function revalidateNodePath(id: string) {
   revalidateTag(cacheTags.nodePath(id), PROFILE);
+}
+
+export function revalidateThreadSurface(nodeId: string) {
+  revalidateTag(cacheTags.threadSurface(nodeId), PROFILE);
 }
 
 export function revalidateWorkspaceBoard(workspaceId: string) {
