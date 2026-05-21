@@ -52,11 +52,13 @@ export async function getNodePath(nodeId: string): Promise<NodePathItem[]> {
         }
         seen.add(cursor);
 
-        const { data, error } = await supabase
+        const result = await supabase
           .from("nodes")
           .select("id, title, type, parent_id")
           .eq("id", cursor)
           .maybeSingle();
+        const { error } = result;
+        const data = result.data as NodePathRow | null;
         if (error) throw error;
         if (!data) return [];
 
