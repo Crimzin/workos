@@ -9,6 +9,7 @@ import { getEffectiveAIStandards } from "../ai-standards-server";
 import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
 import { getNodePosts, type PostRecord } from "../posts";
 import { findAgentMentions, type MentionedAgent } from "../agents/mention-detection";
+import { buildRequestedAgentMentions } from "../agents/response-selection";
 import {
   plainTextFromBody,
   type NodeContext,
@@ -43,7 +44,11 @@ const STREAM_FLUSH_INTERVAL_MS = 400;
 export async function createPost(
   nodeId: string,
   workspaceId: string,
-  body: string
+  body: string,
+  options: {
+    requestAgentResponse?: boolean;
+    selectedAgent?: MentionedAgent | null;
+  } = {}
 ): Promise<void> {
   console.log(
     `[1.11] createPost ENTER nodeId=${nodeId.slice(0, 8)} bodyChars=${body.length}`
@@ -95,7 +100,11 @@ export async function createPost(
     }
   }
 
-  const mentions = findAgentMentions(trimmed);
+  const mentions = buildRequestedAgentMentions({
+    requestAgentResponse: options.requestAgentResponse ?? false,
+    mentionedAgents: findAgentMentions(trimmed),
+    selectedAgent: options.selectedAgent ?? null,
+  });
   console.log(
     `[1.11] createPost: detected ${mentions.length} agent mention(s)`,
     mentions.map((m) => `${m.name}(${m.id.slice(0, 8)})`)

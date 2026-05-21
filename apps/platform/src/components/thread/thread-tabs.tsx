@@ -3,11 +3,10 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { useId, useRef, useState } from "react";
 
-type TabId = "posts" | "subthreads" | "fields" | "memory" | "tree";
+type TabId = "posts" | "fields" | "memory" | "tree";
 
 export interface ThreadTabsProps {
   postsContent: ReactNode;
-  subThreadsContent: ReactNode;
   fieldsContent: ReactNode;
   memoryContent: ReactNode;
   treeContent: ReactNode;
@@ -15,14 +14,12 @@ export interface ThreadTabsProps {
 
 export function ThreadTabs({
   postsContent,
-  subThreadsContent,
   fieldsContent,
   memoryContent,
   treeContent,
 }: ThreadTabsProps) {
   const tabs: { id: TabId; label: string; content: ReactNode }[] = [
-    { id: "posts", label: "Thread", content: postsContent },
-    { id: "subthreads", label: "Sub-threads", content: subThreadsContent },
+    { id: "posts", label: "Chat", content: postsContent },
     { id: "fields", label: "Fields", content: fieldsContent },
     { id: "memory", label: "Memory", content: memoryContent },
     { id: "tree", label: "Tree", content: treeContent },
@@ -31,7 +28,6 @@ export function ThreadTabs({
   const tabBaseId = useId();
   const tabRefs = useRef<Record<TabId, HTMLButtonElement | null>>({
     posts: null,
-    subthreads: null,
     fields: null,
     memory: null,
     tree: null,

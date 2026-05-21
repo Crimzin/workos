@@ -2,12 +2,13 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pin } from "lucide-react";
+import { ArrowUp, Pin } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
 import { createPost, pollNodePosts } from "@/lib/actions/posts";
 import { findAgentMentions } from "@/lib/agents/mention-detection";
+import { buildRequestedAgentMentions } from "@/lib/agents/response-selection";
 import { orderPostsForThread } from "@/lib/post-order";
 import { PostEditor, serializePostBody } from "./post-editor";
 import { PostItem } from "./post-item";
@@ -103,6 +104,34 @@ export function PostsTabContent({
   const feedRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
   const router = useRouter();
+  const agentActors = useMemo(
+    () => actors.filter((actor) => actor.kind === "agent"),
+    [actors]
+  );
+  const workosBackingAgent =
+    agentActors.find((actor) => actor.name.toLowerCase() === "workos") ??
+    agentActors.find((actor) => actor.name.toLowerCase().startsWith("claude")) ??
+    agentActors[0] ??
+    null;
+  const responderOptions = [
+    ...(workosBackingAgent
+      ? [{ id: "workos", label: "WorkOS", agent: workosBackingAgent }]
+      : []),
+    ...agentActors.map((agent) => ({
+      id: agent.id,
+      label: agent.name,
+      agent,
+    })),
+  ];
+  const [selectedResponderId, setSelectedResponderId] = useState(
+    responderOptions[0]?.id ?? ""
+  );
+  const selectedResponder =
+    responderOptions.find((option) => option.id === selectedResponderId) ??
+    responderOptions[0] ??
+    null;
+  const selectedAgent = selectedResponder?.agent ?? null;
+  const selectedResponderLabel = selectedResponder?.label ?? selectedAgent?.name;
 
   // Keep local posts in sync when server passes fresh data (after router.refresh()).
   useEffect(() => {
@@ -232,15 +261,23 @@ export function PostsTabContent({
     shouldStickToBottomRef.current = distanceFromBottom < 48;
   };
 
-  const handleSubmit = (blocks: Block[]) => {
+  const handleSubmit = (
+    blocks: Block[],
+    options: { requestAgentResponse: boolean }
+  ) => {
     if (isEditorEmpty(blocks)) return;
     const body = serializePostBody(blocks);
+    const requestedAgents = buildRequestedAgentMentions({
+      requestAgentResponse: options.requestAgentResponse,
+      mentionedAgents: findAgentMentions(body),
+      selectedAgent,
+    });
 
     // 1.11 Inline AI: show the thinking indicator only for the actual inline
     // Claude provider. Claude Code is routed separately by the server and
     // disabled inline Claude should not create a false waiting state.
     const claudeMentions = inlineClaudeEnabled
-      ? findAgentMentions(body).filter((m) => {
+      ? requestedAgents.filter((m) => {
           const name = m.name.toLowerCase();
           return name.startsWith("claude") && !name.includes("code");
         })
@@ -251,7 +288,10 @@ export function PostsTabContent({
     const knownPostIds = new Set(posts.map((p) => p.id));
 
     startTransition(async () => {
-      await createPost(nodeId, workspaceId, body);
+      await createPost(nodeId, workspaceId, body, {
+        requestAgentResponse: options.requestAgentResponse,
+        selectedAgent,
+      });
       setComposerKey((k) => k + 1); // remounts editor → clean slate
       setHasContent(false);
       if (claudeMentions.length > 0) {
@@ -281,13 +321,31 @@ export function PostsTabContent({
   };
 
   const handleDelete = (postId: string) => {
+    const deletedPost = posts.find((p) => p.id === postId);
     setPosts((prev) => prev.filter((p) => p.id !== postId));
+    if (!deletedPost || deletedPost.post_type !== "post" || thinkingClaudes.length === 0) {
+      return;
+    }
+    setThinkingClaudes((prev) =>
+      prev.filter(
+        (c) =>
+          deletedPost.actor_id !== c.id || c.knownPostIds.has(deletedPost.id)
+      )
+    );
   };
 
   const handleUpdate = (postId: string, newBody: string) => {
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, body: newBody } : p))
     );
+  };
+
+  const submitWithAiResponse = () => {
+    handleSubmit(currentBlocksRef.current, { requestAgentResponse: true });
+  };
+
+  const submitWithoutAiResponse = () => {
+    handleSubmit(currentBlocksRef.current, { requestAgentResponse: false });
   };
 
   return (
@@ -371,7 +429,20 @@ export function PostsTabContent({
           pending ? "opacity-60 pointer-events-none" : "",
         ].join(" ")}
       >
-        <div className="post-composer-editor rounded-md border border-border bg-bg-card overflow-hidden focus-within:ring-1 focus-within:ring-accent">
+        <div
+          className="post-composer-editor rounded-xl border border-border bg-bg-card overflow-hidden focus-within:ring-1 focus-within:ring-accent"
+          onKeyDownCapture={(event) => {
+            if (
+              (event.metaKey || event.ctrlKey) &&
+              event.shiftKey &&
+              event.key === "Enter"
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              submitWithoutAiResponse();
+            }
+          }}
+        >
           <PostEditor
             key={composerKey}
             editable
@@ -380,21 +451,58 @@ export function PostsTabContent({
               currentBlocksRef.current = blocks;
               setHasContent(!isEditorEmpty(blocks));
             }}
-            onSubmit={handleSubmit}
+            onSubmit={() => submitWithAiResponse()}
           />
         </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="text-[11px] text-text-tertiary">
-            / for blocks · ⌘↵ to post
+            / for blocks · ⌘↵ to send · ⇧⌘↵ without AI
           </span>
-          <button
-            type="button"
-            disabled={pending || !hasContent}
-            onClick={() => handleSubmit(currentBlocksRef.current)}
-            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {pending ? "Posting…" : "Post"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={pending || !hasContent}
+              onClick={submitWithoutAiResponse}
+              className="rounded px-2 py-1 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40"
+            >
+              Post without AI response
+            </button>
+            {agentActors.length > 0 && (
+              <label className="relative">
+                <span className="sr-only">AI responder</span>
+                <select
+                  value={selectedResponder?.id ?? ""}
+                  onChange={(event) => setSelectedResponderId(event.target.value)}
+                  disabled={pending}
+                  className="h-7 rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus:border-border-strong focus:bg-bg-card focus:outline-none"
+                >
+                  {responderOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <button
+              type="button"
+              disabled={pending || !hasContent}
+              onClick={submitWithAiResponse}
+              aria-label={
+                selectedResponderLabel
+                  ? `Send and ask ${selectedResponderLabel}`
+                  : "Send"
+              }
+              title={
+                selectedResponderLabel
+                  ? `Send and ask ${selectedResponderLabel}`
+                  : "Send"
+              }
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-accent text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              <ArrowUp size={16} strokeWidth={2.4} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
