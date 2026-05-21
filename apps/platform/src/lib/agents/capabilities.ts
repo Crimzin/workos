@@ -44,9 +44,17 @@ export function resolveRouteForMention(
   const providerEnabled =
     !isCodingProvider(providerKey) ||
     enabledProviderKeys.includes(providerKey);
-  const capabilities = providerEnabled
-    ? configuredCapabilities ?? fallbackCapabilities(providerKey)
-    : CHAT_ONLY;
+  if (!providerEnabled) {
+    return {
+      mention,
+      providerKey,
+      capabilities: [],
+      kind: "disabled",
+    };
+  }
+
+  const capabilities =
+    configuredCapabilities ?? fallbackCapabilities(providerKey);
 
   return {
     mention,

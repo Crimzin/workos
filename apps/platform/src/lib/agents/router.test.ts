@@ -14,8 +14,8 @@ const disabledCodexRoute = resolveRouteForMention(
 );
 
 assert.equal(disabledCodexRoute.providerKey, "codex");
-assert.deepEqual(disabledCodexRoute.capabilities, ["chat"]);
-assert.equal(disabledCodexRoute.kind, "inline_chat");
+assert.deepEqual(disabledCodexRoute.capabilities, []);
+assert.equal(disabledCodexRoute.kind, "disabled");
 
 const enabledCodexRoute = resolveRouteForMention(
   { id: "codex-actor", name: "Codex" },

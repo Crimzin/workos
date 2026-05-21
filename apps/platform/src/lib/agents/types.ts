@@ -8,7 +8,7 @@ import type { MentionedAgent } from "./mention-detection";
 import type { NodeContext } from "./node-context";
 import type { PostRecord } from "../posts";
 
-export type AgentRouteKind = "inline_chat" | "coding_plan";
+export type AgentRouteKind = "inline_chat" | "coding_plan" | "disabled";
 
 export interface ResolvedAgentRoute {
   mention: MentionedAgent;

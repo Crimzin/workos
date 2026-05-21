@@ -45,6 +45,12 @@ export async function routeAgentMentions(
     "missing";
 
   for (const route of routes) {
+    if (route.kind === "disabled") {
+      // Disabled coding providers fail closed; never stream inline Claude
+      // under a Codex/Claude Code actor identity.
+      continue;
+    }
+
     if (route.kind === "inline_chat") {
       input.scheduleInlineClaude(
         route.mention,
