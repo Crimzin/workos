@@ -34,9 +34,13 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
   const router = useRouter();
 
   useEffect(() => {
-    const stored = localStorage.getItem(COLLAPSED_KEY);
-    setCollapsed(stored === "1");
-    setHydrated(true);
+    const frameId = requestAnimationFrame(() => {
+      const stored = localStorage.getItem(COLLAPSED_KEY);
+      setCollapsed(stored === "1");
+      setHydrated(true);
+    });
+
+    return () => cancelAnimationFrame(frameId);
   }, []);
 
   const toggle = () => {
@@ -296,8 +300,8 @@ function WorkspaceNameRow({
   // Focus input when rename starts.
   useEffect(() => {
     if (isRenaming) {
-      setTitle(node.title);
-      requestAnimationFrame(() => inputRef.current?.select());
+      const frameId = requestAnimationFrame(() => inputRef.current?.select());
+      return () => cancelAnimationFrame(frameId);
     }
   }, [isRenaming, node.title]);
 
@@ -324,6 +328,11 @@ function WorkspaceNameRow({
       setRenamingId(null);
       router.refresh();
     });
+  };
+
+  const startRename = () => {
+    setTitle(node.title);
+    setRenamingId(node.id);
   };
 
   return (
@@ -367,7 +376,7 @@ function WorkspaceNameRow({
           <button
             type="button"
             title="Rename"
-            onClick={() => setRenamingId(node.id)}
+            onClick={startRename}
             className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors"
           >
             <Pencil size={11} />
@@ -388,7 +397,10 @@ function WorkspaceNameRow({
               <div className="absolute left-0 top-full mt-1 z-50 min-w-[140px] rounded-md border border-border bg-bg-primary shadow-lg py-1">
                 <button
                   type="button"
-                  onClick={() => { setQuamOpen(false); setRenamingId(node.id); }}
+                  onClick={() => {
+                    setQuamOpen(false);
+                    startRename();
+                  }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
                 >
                   <Pencil size={11} />
