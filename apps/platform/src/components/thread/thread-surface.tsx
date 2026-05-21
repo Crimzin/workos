@@ -29,6 +29,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     memoryPrimitives,
     actor,
     actors,
+    inlineClaudeEnabled,
   } = data;
   const {
     node,
@@ -70,6 +71,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
       currentActorId={actor.id}
       currentActorName={actor.name}
       actors={actors}
+      inlineClaudeEnabled={inlineClaudeEnabled}
     />
   );
 
