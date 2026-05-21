@@ -2,6 +2,8 @@ import { AgentSettings } from "@/components/agent-settings";
 import { getAgentSettings } from "@/lib/agent-settings";
 import { getCurrentActor } from "@/lib/actor";
 
+export const dynamic = "force-dynamic";
+
 export default async function AgentsSettingsPage() {
   const actor = await getCurrentActor();
   const settings = await getAgentSettings(actor.instance_id);
