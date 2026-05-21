@@ -1,4 +1,4 @@
-import { getSidebarTree } from "@/lib/nodes";
+import { getSidebarPins, getSidebarTree } from "@/lib/nodes";
 import { Sidebar } from "./sidebar";
 import { AIPanelPlaceholder } from "./ai-panel-placeholder";
 
@@ -11,10 +11,11 @@ import { AIPanelPlaceholder } from "./ai-panel-placeholder";
  */
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const projectTree = await getSidebarTree();
+  const pinnedNodes = await getSidebarPins(projectTree);
 
   return (
     <div className="flex h-dvh w-full">
-      <Sidebar projectTree={projectTree} />
+      <Sidebar projectTree={projectTree} pinnedNodes={pinnedNodes} />
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="flex-1 overflow-auto">{children}</main>
         <AIPanelPlaceholder />

@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { cacheTags } from "./cache";
 import type { WorkNode } from "./types";
 import { buildSidebarTree, type SidebarTreeNode } from "./sidebar-tree";
+import type { PinnedSidebarNode } from "./sidebar-tree-dnd";
 
 export async function getRootNodes(): Promise<WorkNode[]> {
   return cachedGetRootNodes();
@@ -75,4 +76,48 @@ export async function getSidebarTree(): Promise<SidebarTreeNode[]> {
     .order("position", { ascending: true });
   if (error) throw error;
   return buildSidebarTree((data ?? []) as WorkNode[]);
+}
+
+interface PinRow {
+  position: number;
+  node: WorkNode | null;
+}
+
+export async function getSidebarPins(
+  projectTree: SidebarTreeNode[]
+): Promise<PinnedSidebarNode[]> {
+  const cached = unstable_cache(
+    async (): Promise<PinRow[]> => {
+      const { data, error } = await supabase
+        .from("node_pins")
+        .select("position,node:nodes(*)")
+        .order("position", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as unknown as PinRow[];
+    },
+    ["sidebar-pins"],
+    {
+      tags: [cacheTags.sidebarPins()],
+      revalidate: 300,
+    }
+  );
+
+  const nodeById = flattenTree(projectTree);
+  const rows = await cached();
+  return rows
+    .map((row) => {
+      const node = row.node ? nodeById.get(row.node.id) : null;
+      return node ? { node, position: row.position } : null;
+    })
+    .filter((pin): pin is PinnedSidebarNode => pin !== null);
+}
+
+function flattenTree(tree: SidebarTreeNode[]): Map<string, SidebarTreeNode> {
+  const nodes = new Map<string, SidebarTreeNode>();
+  function visit(node: SidebarTreeNode) {
+    nodes.set(node.id, node);
+    for (const child of node.children) visit(child);
+  }
+  for (const node of tree) visit(node);
+  return nodes;
 }

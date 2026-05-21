@@ -5,6 +5,7 @@ import { supabase } from "../supabase";
 import { getCurrentActor } from "../actor";
 import {
   revalidateRootNodes,
+  revalidateSidebarPins,
   revalidateNode,
   revalidateNodeChildren,
   revalidateNodePath,
@@ -13,6 +14,7 @@ import {
   revalidateNodePosts,
   revalidateWorkspaceFeed,
 } from "../cache";
+import { nextSidebarPosition } from "../sidebar-tree-dnd";
 import {
   buildSubThreadResolvedMetadata,
   normalizeResolutionSummary,
@@ -109,6 +111,108 @@ export async function moveStackUpDown(
   revalidatePath(`/n/${workspaceId}`);
 }
 
+export async function moveSidebarNode(
+  nodeId: string,
+  targetParentId: string | null,
+  previousSiblingId: string | null,
+  nextSiblingId: string | null
+): Promise<void> {
+  if (targetParentId === nodeId) return;
+
+  const { data: node, error: nodeErr } = await supabase
+    .from("nodes")
+    .select("id,parent_id")
+    .eq("id", nodeId)
+    .maybeSingle();
+  if (nodeErr) throw nodeErr;
+  if (!node) return;
+
+  if (targetParentId) {
+    const targetAncestors = await getAncestorNodeIds(targetParentId);
+    if (targetParentId === nodeId || targetAncestors.includes(nodeId)) return;
+  }
+
+  const [previousPosition, nextPosition] = await Promise.all([
+    getNodePosition(previousSiblingId),
+    getNodePosition(nextSiblingId),
+  ]);
+  const position = nextSidebarPosition(previousPosition, nextPosition);
+
+  const { error } = await supabase
+    .from("nodes")
+    .update({ parent_id: targetParentId, position })
+    .eq("id", nodeId);
+  if (error) throw error;
+
+  const oldRootId = await getRootNodeId(node.parent_id ?? node.id);
+  const newRootId = targetParentId ? await getRootNodeId(targetParentId) : nodeId;
+
+  revalidateNode(nodeId, node.parent_id);
+  if (targetParentId) revalidateNodeChildren(targetParentId);
+  revalidateRootNodes();
+  revalidatePath("/", "layout");
+  revalidatePath(`/n/${nodeId}`);
+  if (oldRootId) {
+    revalidateWorkspaceBoard(oldRootId);
+    revalidatePath(`/n/${oldRootId}`);
+  }
+  if (newRootId && newRootId !== oldRootId) {
+    revalidateWorkspaceBoard(newRootId);
+    revalidatePath(`/n/${newRootId}`);
+  }
+}
+
+export async function pinNode(nodeId: string): Promise<void> {
+  const { data: node, error: nodeErr } = await supabase
+    .from("nodes")
+    .select("instance_id")
+    .eq("id", nodeId)
+    .maybeSingle();
+  if (nodeErr) throw nodeErr;
+  if (!node) return;
+
+  const position = await nextPinPosition();
+  const { error } = await supabase
+    .from("node_pins")
+    .upsert(
+      { node_id: nodeId, instance_id: node.instance_id, position },
+      { onConflict: "node_id" }
+    );
+  if (error) throw error;
+
+  revalidateSidebarPins();
+  revalidatePath("/", "layout");
+}
+
+export async function unpinNode(nodeId: string): Promise<void> {
+  const { error } = await supabase.from("node_pins").delete().eq("node_id", nodeId);
+  if (error) throw error;
+
+  revalidateSidebarPins();
+  revalidatePath("/", "layout");
+}
+
+export async function reorderPinnedNode(
+  nodeId: string,
+  previousPinnedNodeId: string | null,
+  nextPinnedNodeId: string | null
+): Promise<void> {
+  const [previousPosition, nextPosition] = await Promise.all([
+    getPinPosition(previousPinnedNodeId),
+    getPinPosition(nextPinnedNodeId),
+  ]);
+  const position = nextSidebarPosition(previousPosition, nextPosition);
+
+  const { error } = await supabase
+    .from("node_pins")
+    .update({ position })
+    .eq("node_id", nodeId);
+  if (error) throw error;
+
+  revalidateSidebarPins();
+  revalidatePath("/", "layout");
+}
+
 export async function updateNodeTitle(
   nodeId: string,
   title: string,
@@ -156,6 +260,80 @@ async function getDescendantNodeIds(nodeId: string): Promise<string[]> {
   }
 
   return descendantIds;
+}
+
+async function getAncestorNodeIds(nodeId: string): Promise<string[]> {
+  const ancestorIds: string[] = [];
+  let cursor: string | null = nodeId;
+
+  while (cursor) {
+    const result = await supabase
+      .from("nodes")
+      .select("parent_id")
+      .eq("id", cursor)
+      .maybeSingle();
+    const data = result.data as { parent_id: string | null } | null;
+    const error = result.error;
+    if (error) throw error;
+    cursor = data?.parent_id ?? null;
+    if (cursor) ancestorIds.push(cursor);
+  }
+
+  return ancestorIds;
+}
+
+async function getRootNodeId(nodeId: string): Promise<string | null> {
+  let rootId: string | null = nodeId;
+  let cursor: string | null = nodeId;
+
+  while (cursor) {
+    const result = await supabase
+      .from("nodes")
+      .select("parent_id")
+      .eq("id", cursor)
+      .maybeSingle();
+    const data = result.data as { parent_id: string | null } | null;
+    const error = result.error;
+    if (error) throw error;
+    if (!data) return rootId;
+    if (!data.parent_id) return cursor;
+    rootId = data.parent_id;
+    cursor = data.parent_id;
+  }
+
+  return rootId;
+}
+
+async function getNodePosition(nodeId: string | null): Promise<number | null> {
+  if (!nodeId) return null;
+  const { data, error } = await supabase
+    .from("nodes")
+    .select("position")
+    .eq("id", nodeId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.position ?? null;
+}
+
+async function nextPinPosition(): Promise<number> {
+  const { data, error } = await supabase
+    .from("node_pins")
+    .select("position")
+    .order("position", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data?.[0]?.position ?? -1) + 1;
+}
+
+async function getPinPosition(nodeId: string | null): Promise<number | null> {
+  if (!nodeId) return null;
+  const { data, error } = await supabase
+    .from("node_pins")
+    .select("position")
+    .eq("node_id", nodeId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.position ?? null;
 }
 
 export interface CreateWorkspaceResult {

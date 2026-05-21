@@ -7,6 +7,7 @@ import { revalidateTag } from "next/cache";
 
 export const cacheTags = {
   rootNodes: () => "root-nodes",
+  sidebarPins: () => "sidebar-pins",
   node: (id: string) => `node:${id}`,
   nodePath: (id: string) => `node-path:${id}`,
   threadSurface: (id: string) => `thread-surface:${id}`,
@@ -53,6 +54,10 @@ export function revalidateWorkspaceBoard(workspaceId: string) {
 
 export function revalidateRootNodes() {
   revalidateTag(cacheTags.rootNodes(), PROFILE);
+}
+
+export function revalidateSidebarPins() {
+  revalidateTag(cacheTags.sidebarPins(), PROFILE);
 }
 
 export function revalidateInstanceFields(instanceId: string) {

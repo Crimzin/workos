@@ -66,6 +66,14 @@ export interface WorkNode {
   updated_at: string;
 }
 
+export interface NodePin {
+  node_id: string;
+  instance_id: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DataField {
   id: string;
   instance_id: string;

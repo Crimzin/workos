@@ -2,15 +2,33 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Archive,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
+  GripVertical,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Rss,
   Search,
@@ -25,40 +43,71 @@ import {
   createWorkspace,
   archiveNode,
   deleteNode,
+  moveSidebarNode,
+  pinNode,
+  reorderPinnedNode,
+  unpinNode,
   updateNodeTitle,
 } from "@/lib/actions/nodes";
+import {
+  flattenSidebarTree,
+  getPinnedNodes,
+  getSidebarDropPlan,
+  type PinnedSidebarNode,
+} from "@/lib/sidebar-tree-dnd";
 import { ThemeToggle } from "./theme-toggle";
 import { InlineCreate } from "./inline-create";
 import { ConfirmModal } from "./confirm-modal";
 
 interface SidebarProps {
   projectTree: SidebarTreeNode[];
+  pinnedNodes: PinnedSidebarNode[];
 }
 
 const COLLAPSED_KEY = "workos-sidebar-collapsed";
 const EXPANDED_KEY = "workos-sidebar-expanded-nodes";
+const WIDTH_KEY = "workos-sidebar-width";
+const MIN_WIDTH = 240;
+const MAX_WIDTH = 520;
+const COLLAPSED_WIDTH = 56;
 
-export function Sidebar({ projectTree }: SidebarProps) {
+export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [width, setWidth] = useState(288);
+  const [resizing, setResizing] = useState(false);
   const [creatingRoot, setCreatingRoot] = useState(false);
   const [creatingChildOf, setCreatingChildOf] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [dragStartX, setDragStartX] = useState<number | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(projectTree.map((node) => node.id))
   );
+  const [, startTransition] = useTransition();
   const pathname = usePathname();
   const router = useRouter();
-  const activeNodeId = pathname.startsWith("/n/") ? pathname.split("/")[2] : null;
-  const activeAncestorIds = activeNodeId
-    ? findAncestorIds(projectTree, activeNodeId)
-    : [];
-  const visibleExpandedIds = new Set([...expandedIds, ...activeAncestorIds]);
+  const visibleExpandedIds = expandedIds;
+  const flatRows = useMemo(
+    () => flattenSidebarTree(projectTree, visibleExpandedIds),
+    [projectTree, visibleExpandedIds]
+  );
+  const sortedPins = useMemo(() => getPinnedNodes(pinnedNodes), [pinnedNodes]);
+  const pinnedIds = useMemo(
+    () => new Set(sortedPins.map((pin) => pin.node.id)),
+    [sortedPins]
+  );
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
 
   useEffect(() => {
     const frameId = requestAnimationFrame(() => {
       const storedCollapsed = localStorage.getItem(COLLAPSED_KEY);
       setCollapsed(storedCollapsed === "1");
+      const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
+      if (Number.isFinite(storedWidth) && storedWidth >= MIN_WIDTH) {
+        setWidth(clamp(storedWidth, MIN_WIDTH, MAX_WIDTH));
+      }
 
       const storedExpanded = localStorage.getItem(EXPANDED_KEY);
       if (storedExpanded) {
@@ -76,6 +125,27 @@ export function Sidebar({ projectTree }: SidebarProps) {
     localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
   };
 
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setResizing(true);
+    const startX = event.clientX;
+    const startWidth = width;
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const next = clamp(startWidth + moveEvent.clientX - startX, MIN_WIDTH, MAX_WIDTH);
+      setWidth(next);
+      localStorage.setItem(WIDTH_KEY, String(next));
+    };
+    const handleUp = () => {
+      setResizing(false);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
+
   const setExpanded = (id: string, expanded: boolean) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -86,14 +156,66 @@ export function Sidebar({ projectTree }: SidebarProps) {
     });
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setDragStartX(event.activatorEvent instanceof MouseEvent ? event.activatorEvent.clientX : null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const activeId = String(event.active.id);
+    const overId = event.over ? String(event.over.id) : null;
+    setDragStartX(null);
+    if (!overId || activeId === overId) return;
+
+    if (activeId.startsWith("pin:") && overId.startsWith("pin:")) {
+      const pinId = activeId.slice(4);
+      const overPinId = overId.slice(4);
+      const reorderedIds = moveId(
+        sortedPins.map((pin) => pin.node.id),
+        pinId,
+        overPinId
+      );
+      const index = reorderedIds.indexOf(pinId);
+      startTransition(async () => {
+        await reorderPinnedNode(
+          pinId,
+          reorderedIds[index - 1] ?? null,
+          reorderedIds[index + 1] ?? null
+        );
+        router.refresh();
+      });
+      return;
+    }
+
+    if (activeId.startsWith("node:") && overId.startsWith("node:")) {
+      const nodeId = activeId.slice(5);
+      const overNodeId = overId.slice(5);
+      const indentationDelta = dragStartX === null
+        ? 0
+        : Math.round(event.delta.x / 28);
+      const plan = getSidebarDropPlan({
+        activeId: nodeId,
+        overId: overNodeId,
+        flattened: flatRows,
+        indentationDelta,
+      });
+      if (!plan) return;
+
+      startTransition(async () => {
+        await moveSidebarNode(nodeId, plan.parentId, plan.previousId, plan.nextId);
+        if (plan.parentId) setExpanded(plan.parentId, true);
+        router.refresh();
+      });
+    }
+  };
+
   return (
     <aside
       className={[
-        "shrink-0 bg-bg-secondary border-r border-border flex flex-col",
-        "transition-[width] duration-200 ease-out",
-        collapsed ? "w-14" : "w-72",
+        "relative shrink-0 bg-bg-secondary border-r border-border flex flex-col",
+        resizing ? "" : "transition-[width] duration-200 ease-out",
         hydrated ? "" : "invisible",
       ].join(" ")}
+      style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
     >
       <div className="flex h-12 items-center justify-between px-3">
         {!collapsed && (
@@ -141,23 +263,52 @@ export function Sidebar({ projectTree }: SidebarProps) {
         </button>
       </SidebarSection>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <SidebarSection
-          label="Projects"
-          collapsed={collapsed}
-          action={
-            !collapsed && !creatingRoot ? (
-              <button
-                type="button"
-                onClick={() => setCreatingRoot(true)}
-                title="New project"
-                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {sortedPins.length > 0 && (
+            <SidebarSection label="Pinned" collapsed={collapsed}>
+              <SortableContext
+                items={sortedPins.map((pin) => `pin:${pin.node.id}`)}
+                strategy={verticalListSortingStrategy}
               >
-                <Plus size={13} />
-              </button>
-            ) : null
-          }
-        >
+                {sortedPins.map((pin) => (
+                  <PinnedNodeRow
+                    key={pin.node.id}
+                    node={pin.node}
+                    collapsed={collapsed}
+                    isActive={pathname === `/n/${pin.node.id}`}
+                    router={router}
+                  />
+                ))}
+              </SortableContext>
+            </SidebarSection>
+          )}
+
+          <SidebarSection
+            label="Projects"
+            collapsed={collapsed}
+            action={
+              !collapsed && !creatingRoot ? (
+                <button
+                  type="button"
+                  onClick={() => setCreatingRoot(true)}
+                  title="New project"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+                >
+                  <Plus size={13} />
+                </button>
+              ) : null
+            }
+          >
+            <SortableContext
+              items={flatRows.map((row) => `node:${row.id}`)}
+              strategy={verticalListSortingStrategy}
+            >
           {projectTree.length === 0 && !collapsed && !creatingRoot && (
             <div className="px-2 py-1 text-xs text-text-tertiary">
               No projects yet.
@@ -177,8 +328,10 @@ export function Sidebar({ projectTree }: SidebarProps) {
               renamingId={renamingId}
               setRenamingId={setRenamingId}
               router={router}
+              pinnedIds={pinnedIds}
             />
           ))}
+            </SortableContext>
 
           {!collapsed && creatingRoot && (
             <div className="px-2 py-1">
@@ -200,8 +353,9 @@ export function Sidebar({ projectTree }: SidebarProps) {
               />
             </div>
           )}
-        </SidebarSection>
-      </div>
+          </SidebarSection>
+        </div>
+      </DndContext>
 
       <div className="border-t border-border px-2 py-2">
         <NavLink
@@ -221,7 +375,109 @@ export function Sidebar({ projectTree }: SidebarProps) {
       >
         <ThemeToggle />
       </div>
+      {!collapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          title="Resize sidebar"
+          onPointerDown={startResize}
+          className="absolute right-[-3px] top-0 z-50 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-accent/30"
+        />
+      )}
     </aside>
+  );
+}
+
+function PinnedNodeRow({
+  node,
+  collapsed,
+  isActive,
+  router,
+}: {
+  node: SidebarTreeNode;
+  collapsed: boolean;
+  isActive: boolean;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [, startTransition] = useTransition();
+  const initial = node.title.charAt(0).toUpperCase();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `pin:${node.id}` });
+  const sortableStyle: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.55 : undefined,
+  };
+
+  const handleUnpin = () => {
+    startTransition(async () => {
+      await unpinNode(node.id);
+      router.refresh();
+    });
+  };
+
+  if (collapsed) {
+    return (
+      <Link
+        ref={setNodeRef}
+        href={`/n/${node.id}`}
+        title={node.title}
+        style={sortableStyle}
+        className={[
+          "flex items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors",
+          isActive
+            ? "bg-bg-selected text-text-primary"
+            : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
+        ].join(" ")}
+      >
+        <Pin size={14} />
+      </Link>
+    );
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={sortableStyle}
+      title={node.title}
+      className={[
+        "group flex items-center gap-1 rounded-md px-1 py-1.5 text-sm transition-colors",
+        isActive
+          ? "bg-bg-selected text-text-primary"
+          : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
+      ].join(" ")}
+    >
+      <button
+        type="button"
+        title={`Move ${node.title}`}
+        aria-label={`Move ${node.title}`}
+        className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={12} />
+      </button>
+      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold bg-bg-card border border-border text-text-secondary">
+        {initial}
+      </span>
+      <Link href={`/n/${node.id}`} title={node.title} className="min-w-0 flex-1 truncate font-medium">
+        {node.title}
+      </Link>
+      <button
+        type="button"
+        title={`Unpin ${node.title}`}
+        onClick={handleUnpin}
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        <PinOff size={11} />
+      </button>
+    </div>
   );
 }
 
@@ -236,6 +492,7 @@ function ProjectTreeRow({
   renamingId,
   setRenamingId,
   router,
+  pinnedIds,
 }: {
   node: SidebarTreeNode;
   collapsed: boolean;
@@ -247,6 +504,7 @@ function ProjectTreeRow({
   renamingId: string | null;
   setRenamingId: (id: string | null) => void;
   router: ReturnType<typeof useRouter>;
+  pinnedIds: Set<string>;
 }) {
   const isExpanded = expandedIds.has(node.id);
   const isActive = pathname === `/n/${node.id}`;
@@ -271,6 +529,7 @@ function ProjectTreeRow({
           setCreatingChildOf(node.id);
         }}
         router={router}
+        isPinned={pinnedIds.has(node.id)}
       />
 
       {!collapsed && isCreatingChild && (
@@ -307,6 +566,7 @@ function ProjectTreeRow({
               renamingId={renamingId}
               setRenamingId={setRenamingId}
               router={router}
+              pinnedIds={pinnedIds}
             />
           ))}
         </div>
@@ -326,6 +586,7 @@ function ProjectTreeNodeRow({
   onToggle,
   onCreateChild,
   router,
+  isPinned,
 }: {
   node: SidebarTreeNode;
   collapsed: boolean;
@@ -337,6 +598,7 @@ function ProjectTreeNodeRow({
   onToggle: () => void;
   onCreateChild: () => void;
   router: ReturnType<typeof useRouter>;
+  isPinned: boolean;
 }) {
   const [title, setTitle] = useState(node.title);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -345,6 +607,19 @@ function ProjectTreeNodeRow({
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const initial = node.title.charAt(0).toUpperCase();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `node:${node.id}` });
+  const sortableStyle: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.55 : undefined,
+  };
 
   useEffect(() => {
     if (isRenaming) {
@@ -404,11 +679,22 @@ function ProjectTreeNodeRow({
     });
   };
 
+  const handlePinToggle = () => {
+    setMenuOpen(false);
+    startTransition(async () => {
+      if (isPinned) await unpinNode(node.id);
+      else await pinNode(node.id);
+      router.refresh();
+    });
+  };
+
   if (collapsed) {
     return (
       <Link
+        ref={setNodeRef}
         href={`/n/${node.id}`}
         title={node.title}
+        style={sortableStyle}
         className={[
           "flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
@@ -425,14 +711,26 @@ function ProjectTreeNodeRow({
 
   return (
     <div
+      ref={setNodeRef}
       className={[
         "group relative flex items-center gap-1 rounded-md py-1.5 pr-1 text-sm transition-colors",
         isActive
           ? "bg-bg-selected text-text-primary"
           : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
       ].join(" ")}
-      style={{ paddingLeft: 6 + node.depth * 14 }}
+      style={{ ...sortableStyle, paddingLeft: 6 + node.depth * 14 }}
+      title={node.title}
     >
+      <button
+        type="button"
+        title={`Move ${node.title}`}
+        aria-label={`Move ${node.title}`}
+        className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={12} />
+      </button>
       <button
         type="button"
         onClick={hasChildren ? onToggle : undefined}
@@ -463,7 +761,7 @@ function ProjectTreeNodeRow({
           className="min-w-0 flex-1 rounded border border-accent bg-bg-card px-1 py-0 text-sm text-text-primary outline-none"
         />
       ) : (
-        <Link href={`/n/${node.id}`} className="min-w-0 flex-1 truncate font-medium">
+        <Link href={`/n/${node.id}`} title={node.title} className="min-w-0 flex-1 truncate font-medium">
           {node.title}
         </Link>
       )}
@@ -516,6 +814,14 @@ function ProjectTreeNodeRow({
                 >
                   <Archive size={11} />
                   Archive
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePinToggle}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+                >
+                  {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+                  {isPinned ? "Unpin" : "Pin"}
                 </button>
                 <button
                   type="button"
@@ -609,16 +915,16 @@ function NavLink({
   );
 }
 
-function findAncestorIds(
-  nodes: SidebarTreeNode[],
-  targetId: string
-): string[] {
-  for (const node of nodes) {
-    if (node.id === targetId) return [];
-    const childPath = findAncestorIds(node.children, targetId);
-    if (childPath.length > 0 || node.children.some((child) => child.id === targetId)) {
-      return [node.id, ...childPath];
-    }
-  }
-  return [];
+function moveId(ids: string[], activeId: string, overId: string): string[] {
+  const activeIndex = ids.indexOf(activeId);
+  const overIndex = ids.indexOf(overId);
+  if (activeIndex === -1 || overIndex === -1) return ids;
+  const next = [...ids];
+  const [item] = next.splice(activeIndex, 1);
+  next.splice(overIndex, 0, item);
+  return next;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
