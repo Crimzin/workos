@@ -1,3 +1,5 @@
+// Focused assertions for the platform TypeScript harness. These files are
+// typechecked with `npx tsc --noEmit --project apps/platform/tsconfig.json`.
 import assert from "node:assert/strict";
 import { renderCodingAgentPlan } from "./planning";
 import type { NodeContext } from "./node-context";
@@ -72,3 +74,15 @@ const missingPlan = renderCodingAgentPlan(input({ aidexStatus: "missing" }));
 assert.match(missingPlan.planBody, /strongly recommended/);
 assert.match(missingPlan.planBody, /install and configure/);
 assert.equal(missingPlan.metadata.aidex_status, "missing");
+
+const stalePlan = renderCodingAgentPlan(input({ aidexStatus: "stale" }));
+
+assert.match(stalePlan.planBody, /index looks stale/);
+assert.match(stalePlan.planBody, /refreshed before coding-agent work/);
+assert.equal(stalePlan.metadata.aidex_status, "stale");
+
+const disabledPlan = renderCodingAgentPlan(input({ aidexStatus: "disabled" }));
+
+assert.match(disabledPlan.planBody, /AiDex is disabled/);
+assert.match(disabledPlan.planBody, /enable it for this repo/);
+assert.equal(disabledPlan.metadata.aidex_status, "disabled");

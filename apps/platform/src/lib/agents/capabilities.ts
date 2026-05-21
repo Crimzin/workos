@@ -6,6 +6,10 @@ import type { ResolvedAgentRoute } from "./types";
 const CHAT_ONLY: AgentCapability[] = ["chat"];
 const CODING: AgentCapability[] = ["chat", "code", "shell", "git"];
 
+export interface ResolveAgentRoutesOptions {
+  enabledProviderKeys?: AgentProviderKey[];
+}
+
 function providerFromName(name: string): AgentProviderKey {
   const normalized = name.toLowerCase();
   if (normalized.includes("codex")) return "codex";
@@ -24,8 +28,30 @@ export function routeKindForCapabilities(
   return capabilities.includes("code") ? "coding_plan" : "inline_chat";
 }
 
+export function resolveRouteForMention(
+  mention: MentionedAgent,
+  configuredCapabilities?: AgentCapability[],
+  options?: ResolveAgentRoutesOptions
+): ResolvedAgentRoute {
+  const providerKey = providerFromName(mention.name);
+  const providerEnabled =
+    !options?.enabledProviderKeys ||
+    options.enabledProviderKeys.includes(providerKey);
+  const capabilities = providerEnabled
+    ? configuredCapabilities ?? fallbackCapabilities(providerKey)
+    : CHAT_ONLY;
+
+  return {
+    mention,
+    providerKey,
+    capabilities,
+    kind: routeKindForCapabilities(capabilities),
+  };
+}
+
 export async function resolveAgentRoutes(
-  mentions: MentionedAgent[]
+  mentions: MentionedAgent[],
+  options?: ResolveAgentRoutesOptions
 ): Promise<ResolvedAgentRoute[]> {
   if (mentions.length === 0) return [];
 
@@ -47,14 +73,6 @@ export async function resolveAgentRoutes(
   }
 
   return mentions.map((mention) => {
-    const providerKey = providerFromName(mention.name);
-    const capabilities =
-      byActor.get(mention.id) ?? fallbackCapabilities(providerKey);
-    return {
-      mention,
-      providerKey,
-      capabilities,
-      kind: routeKindForCapabilities(capabilities),
-    };
+    return resolveRouteForMention(mention, byActor.get(mention.id), options);
   });
 }
