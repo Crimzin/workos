@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import {
+  Archive,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   Rss,
   Search,
   Settings,
+  Trash2,
 } from "lucide-react";
 import type { SidebarTreeNode } from "@/lib/sidebar-tree";
 import {
@@ -21,10 +23,13 @@ import {
   createStack,
   createSubThread,
   createWorkspace,
+  archiveNode,
+  deleteNode,
   updateNodeTitle,
 } from "@/lib/actions/nodes";
 import { ThemeToggle } from "./theme-toggle";
 import { InlineCreate } from "./inline-create";
+import { ConfirmModal } from "./confirm-modal";
 
 interface SidebarProps {
   projectTree: SidebarTreeNode[];
@@ -136,65 +141,67 @@ export function Sidebar({ projectTree }: SidebarProps) {
         </button>
       </SidebarSection>
 
-      <SidebarSection
-        label="Projects"
-        collapsed={collapsed}
-        action={
-          !collapsed && !creatingRoot ? (
-            <button
-              type="button"
-              onClick={() => setCreatingRoot(true)}
-              title="New project"
-              className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
-            >
-              <Plus size={13} />
-            </button>
-          ) : null
-        }
-      >
-        {projectTree.length === 0 && !collapsed && !creatingRoot && (
-          <div className="px-2 py-1 text-xs text-text-tertiary">
-            No projects yet.
-          </div>
-        )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <SidebarSection
+          label="Projects"
+          collapsed={collapsed}
+          action={
+            !collapsed && !creatingRoot ? (
+              <button
+                type="button"
+                onClick={() => setCreatingRoot(true)}
+                title="New project"
+                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+              >
+                <Plus size={13} />
+              </button>
+            ) : null
+          }
+        >
+          {projectTree.length === 0 && !collapsed && !creatingRoot && (
+            <div className="px-2 py-1 text-xs text-text-tertiary">
+              No projects yet.
+            </div>
+          )}
 
-        {projectTree.map((node) => (
-          <ProjectTreeRow
-            key={node.id}
-            node={node}
-            collapsed={collapsed}
-            pathname={pathname}
-            expandedIds={visibleExpandedIds}
-            setExpanded={setExpanded}
-            creatingChildOf={creatingChildOf}
-            setCreatingChildOf={setCreatingChildOf}
-            renamingId={renamingId}
-            setRenamingId={setRenamingId}
-            router={router}
-          />
-        ))}
-
-        {!collapsed && creatingRoot && (
-          <div className="px-2 py-1">
-            <InlineCreate
-              label="New project"
-              placeholder="Project name"
-              onSubmit={async (title) => {
-                const res = await createWorkspace(title);
-                setCreatingRoot(false);
-                return res;
-              }}
-              onCreated={(id) => {
-                router.push(`/n/${id}`);
-                router.refresh();
-              }}
-              inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+          {projectTree.map((node) => (
+            <ProjectTreeRow
+              key={node.id}
+              node={node}
+              collapsed={collapsed}
+              pathname={pathname}
+              expandedIds={visibleExpandedIds}
+              setExpanded={setExpanded}
+              creatingChildOf={creatingChildOf}
+              setCreatingChildOf={setCreatingChildOf}
+              renamingId={renamingId}
+              setRenamingId={setRenamingId}
+              router={router}
             />
-          </div>
-        )}
-      </SidebarSection>
+          ))}
 
-      <div className="flex-1" />
+          {!collapsed && creatingRoot && (
+            <div className="px-2 py-1">
+              <InlineCreate
+                label="New project"
+                placeholder="Project name"
+                onSubmit={async (title) => {
+                  const res = await createWorkspace(title);
+                  setCreatingRoot(false);
+                  return res;
+                }}
+                onCreated={(id) => {
+                  router.push(`/n/${id}`);
+                  router.refresh();
+                }}
+                onCancel={() => setCreatingRoot(false)}
+                initialExpanded
+                inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+          )}
+        </SidebarSection>
+      </div>
 
       <div className="border-t border-border px-2 py-2">
         <NavLink
@@ -269,8 +276,8 @@ function ProjectTreeRow({
       {!collapsed && isCreatingChild && (
         <div className="py-1" style={{ paddingLeft: 18 + (node.depth + 1) * 14 }}>
           <InlineCreate
-            label="New child"
-            placeholder="Name"
+            label="New chat"
+            placeholder="New chat"
             onSubmit={async (title) => createChildNode(node, title)}
             onCreated={(id) => {
               setCreatingChildOf(null);
@@ -278,6 +285,8 @@ function ProjectTreeRow({
               router.push(`/n/${id}`);
               router.refresh();
             }}
+            onCancel={() => setCreatingChildOf(null)}
+            initialExpanded
             inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
@@ -331,6 +340,7 @@ function ProjectTreeNodeRow({
 }) {
   const [title, setTitle] = useState(node.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -370,6 +380,28 @@ function ProjectTreeNodeRow({
   const startRename = () => {
     setTitle(node.title);
     setRenamingId(node.id);
+  };
+
+  const label = node.type === "workspace" ? "project" : "chat";
+  const closeHref = "/feed";
+
+  const handleArchive = () => {
+    setMenuOpen(false);
+    startTransition(async () => {
+      await archiveNode(node.id, node.rootId, node.parent_id);
+      if (isActive) router.push(closeHref);
+      router.refresh();
+    });
+  };
+
+  const handleDelete = () => {
+    setConfirmDelete(false);
+    setMenuOpen(false);
+    startTransition(async () => {
+      await deleteNode(node.id, node.rootId, node.parent_id);
+      if (isActive) router.push(closeHref);
+      router.refresh();
+    });
   };
 
   if (collapsed) {
@@ -477,10 +509,39 @@ function ProjectTreeNodeRow({
                   <Pencil size={11} />
                   Rename
                 </button>
+                <button
+                  type="button"
+                  onClick={handleArchive}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+                >
+                  <Archive size={11} />
+                  Archive
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setConfirmDelete(true);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-500 hover:bg-bg-hover transition-colors"
+                >
+                  <Trash2 size={11} />
+                  Delete
+                </button>
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title={`Delete ${label}?`}
+          body={`This deletes the ${label}${node.children.length > 0 ? " and everything nested inside it" : ""}. This cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
       )}
     </div>
   );

@@ -11,6 +11,8 @@ interface InlineCreateProps {
   onSubmit: (title: string) => Promise<{ id: string } | void>;
   /** Called after a successful submit. */
   onCreated?: (id: string) => void;
+  /** Called when the input is cancelled with Escape or blur-empty. */
+  onCancel?: () => void;
   /** Optional icon for the collapsed state. */
   icon?: React.ReactNode;
   /** Tailwind override for the collapsed button. */
@@ -19,6 +21,8 @@ interface InlineCreateProps {
   inputClassName?: string;
   /** Auto-focus the input on mount. Defaults to true. */
   autoFocus?: boolean;
+  /** Start expanded immediately instead of rendering the collapsed button first. */
+  initialExpanded?: boolean;
 }
 
 /**
@@ -31,12 +35,14 @@ export function InlineCreate({
   placeholder,
   onSubmit,
   onCreated,
+  onCancel,
   icon,
   buttonClassName,
   inputClassName,
   autoFocus = true,
+  initialExpanded = false,
 }: InlineCreateProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialExpanded);
   const [value, setValue] = useState("");
   const [pending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,6 +54,7 @@ export function InlineCreate({
   const cancel = () => {
     setExpanded(false);
     setValue("");
+    onCancel?.();
   };
 
   const submit = () => {
