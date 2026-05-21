@@ -101,15 +101,12 @@ export async function getNodeDetail(
             .from("node_members")
             .select("actor_id")
             .eq("node_id", nodeId),
-          // Only fetch children for stack nodes (for Cards tab).
-          // Include archived cards so the Cards tab can show/unarchive them.
-          node.type === "stack"
-            ? supabase
-                .from("nodes")
-                .select("*")
-                .eq("parent_id", nodeId)
-                .order("position", { ascending: true })
-            : Promise.resolve({ data: [] as WorkNode[], error: null }),
+          // Include archived children so the Cards tab can show/unarchive them.
+          supabase
+            .from("nodes")
+            .select("*")
+            .eq("parent_id", nodeId)
+            .order("position", { ascending: true }),
           // Fetch mirror placements for the "Appears in" section.
           supabase
             .from("node_mirrors")
