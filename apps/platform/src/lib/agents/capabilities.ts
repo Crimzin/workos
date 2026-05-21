@@ -9,8 +9,6 @@ export interface ResolveAgentRoutesOptions {
   enabledProviderKeys: AgentProviderKey[];
 }
 
-type CodingProviderKey = Extract<AgentProviderKey, "codex" | "claude_code">;
-
 function providerFromName(name: string): AgentProviderKey {
   const normalized = name.toLowerCase();
   if (normalized.includes("codex")) return "codex";
@@ -21,12 +19,6 @@ function providerFromName(name: string): AgentProviderKey {
 function fallbackCapabilities(providerKey: AgentProviderKey): AgentCapability[] {
   if (providerKey === "codex" || providerKey === "claude_code") return CODING;
   return CHAT_ONLY;
-}
-
-function isCodingProvider(
-  providerKey: AgentProviderKey
-): providerKey is CodingProviderKey {
-  return providerKey === "codex" || providerKey === "claude_code";
 }
 
 export function routeKindForCapabilities(
@@ -41,9 +33,7 @@ export function resolveRouteForMention(
   enabledProviderKeys: AgentProviderKey[] = []
 ): ResolvedAgentRoute {
   const providerKey = providerFromName(mention.name);
-  const providerEnabled =
-    !isCodingProvider(providerKey) ||
-    enabledProviderKeys.includes(providerKey);
+  const providerEnabled = enabledProviderKeys.includes(providerKey);
   if (!providerEnabled) {
     return {
       mention,

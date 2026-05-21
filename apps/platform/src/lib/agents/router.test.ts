@@ -24,3 +24,20 @@ const enabledCodexRoute = resolveRouteForMention(
 );
 
 assert.equal(enabledCodexRoute.kind, "coding_plan");
+
+const disabledClaudeRoute = resolveRouteForMention(
+  { id: "claude-actor", name: "Claude" },
+  ["chat"],
+  []
+);
+
+assert.equal(disabledClaudeRoute.providerKey, "inline_claude");
+assert.equal(disabledClaudeRoute.kind, "disabled");
+
+const enabledClaudeRoute = resolveRouteForMention(
+  { id: "claude-actor", name: "Claude" },
+  ["chat"],
+  ["inline_claude"]
+);
+
+assert.equal(enabledClaudeRoute.kind, "inline_chat");

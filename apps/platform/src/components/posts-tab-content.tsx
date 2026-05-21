@@ -60,6 +60,7 @@ interface PostsTabContentProps {
   currentActorId: string;
   currentActorName: string;
   actors: ActorForMention[];
+  inlineClaudeEnabled: boolean;
 }
 
 /** True when the document has only a single empty paragraph (nothing typed). */
@@ -79,6 +80,7 @@ export function PostsTabContent({
   initialPosts,
   currentActorId,
   actors,
+  inlineClaudeEnabled,
 }: PostsTabContentProps) {
   const [posts, setPosts] = useState<PostRecord[]>(initialPosts);
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
@@ -234,12 +236,15 @@ export function PostsTabContent({
     if (isEditorEmpty(blocks)) return;
     const body = serializePostBody(blocks);
 
-    // 1.11 Inline AI: detect Claude @-mentions in the body so we can show the
-    // "Claude is thinking…" indicator immediately on submit. Mirrors the
-    // server-side filter in posts.ts (name starts with "claude", case-insensitive).
-    const claudeMentions = findAgentMentions(body).filter((m) =>
-      m.name.toLowerCase().startsWith("claude")
-    );
+    // 1.11 Inline AI: show the thinking indicator only for the actual inline
+    // Claude provider. Claude Code is routed separately by the server and
+    // disabled inline Claude should not create a false waiting state.
+    const claudeMentions = inlineClaudeEnabled
+      ? findAgentMentions(body).filter((m) => {
+          const name = m.name.toLowerCase();
+          return name.startsWith("claude") && !name.includes("code");
+        })
+      : [];
 
     // Snapshot the post IDs visible right now — used by the auto-hide effect
     // to decide whether a freshly-arrived Claude post is the awaited reply.
