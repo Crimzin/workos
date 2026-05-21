@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildRequestedAgentMentions } from "./response-selection";
+import { buildRequestedAgentMentions } from "./response-selection.ts";
 
 const claude = { id: "claude-1", name: "Claude" };
 const codex = { id: "codex-1", name: "Codex" };

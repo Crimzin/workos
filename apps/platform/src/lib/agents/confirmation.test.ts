@@ -11,6 +11,11 @@ for (const text of [
   "do it",
   "Proceed.",
   "start!",
+  "great. go!",
+  "great, go",
+  "@Codex go!",
+  "@Claude Code proceed",
+  "@Codex great. go!",
 ]) {
   assert.equal(isAgentRunConfirmation(text), true, text);
 }
@@ -24,6 +29,9 @@ for (const text of [
   "start when ready",
   "proceed with caution",
   "yep yep",
+  "@Codex ^",
+  "@Codex can you make this change?",
+  "go look at settings later",
 ]) {
   assert.equal(isAgentRunConfirmation(text), false, text);
 }

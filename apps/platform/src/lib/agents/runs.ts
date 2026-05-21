@@ -17,6 +17,7 @@ export interface QueueAwaitingRunsForConfirmationInput {
   workspaceId: string;
   requesterActorId: string;
   confirmationPostId: string;
+  agentActorIds?: string[];
 }
 
 type AgentRunInsert = {
@@ -34,6 +35,7 @@ type AgentRunInsert = {
 
 interface ConfirmableRunCandidate {
   id: string;
+  agent_actor_id: string;
 }
 
 export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert {
@@ -52,10 +54,19 @@ export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert 
 }
 
 export function selectConfirmableRunId(
-  rows: ConfirmableRunCandidate[]
+  rows: ConfirmableRunCandidate[],
+  agentActorIds: string[] = []
 ): string | null {
-  if (rows.length !== 1) return null;
-  return rows[0]?.id ?? null;
+  if (rows.length === 0) return null;
+
+  const uniqueAgentIds = new Set(rows.map((row) => row.agent_actor_id));
+  if (agentActorIds.length > 0) {
+    const allowed = new Set(agentActorIds);
+    return rows.find((row) => allowed.has(row.agent_actor_id))?.id ?? null;
+  }
+
+  if (uniqueAgentIds.size === 1) return rows[0]?.id ?? null;
+  return rows.length === 1 ? rows[0]?.id ?? null : null;
 }
 
 async function loadAgentRunRuntime() {
@@ -124,6 +135,7 @@ export async function queueAwaitingRunsForConfirmation({
   workspaceId,
   requesterActorId,
   confirmationPostId,
+  agentActorIds = [],
 }: QueueAwaitingRunsForConfirmationInput): Promise<0 | 1> {
   const {
     revalidatePath,
@@ -135,16 +147,19 @@ export async function queueAwaitingRunsForConfirmation({
 
   const { data: runs, error: findError } = await supabase
     .from("agent_runs")
-    .select("id")
+    .select("id, agent_actor_id")
     .eq("target_node_id", nodeId)
     .eq("workspace_id", workspaceId)
     .eq("requester_actor_id", requesterActorId)
     .eq("status", "awaiting_confirmation")
     .order("created_at", { ascending: false })
-    .limit(2);
+    .limit(10);
   if (findError) throw findError;
 
-  const runId = selectConfirmableRunId((runs ?? []) as ConfirmableRunCandidate[]);
+  const runId = selectConfirmableRunId(
+    (runs ?? []) as ConfirmableRunCandidate[],
+    agentActorIds
+  );
   if (!runId) return 0;
 
   const { data: queuedRun, error: updateError } = await supabase

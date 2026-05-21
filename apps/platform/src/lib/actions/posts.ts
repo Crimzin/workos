@@ -81,6 +81,14 @@ export async function createPost(
   revalidatePath(`/n/${workspaceId}`);
 
   const plainText = plainTextFromBody(trimmed);
+  const mentionedAgents = findAgentMentions(trimmed);
+  const confirmationAgentIds =
+    mentionedAgents.length > 0
+      ? mentionedAgents.map((agent) => agent.id)
+      : options.selectedAgent
+        ? [options.selectedAgent.id]
+        : [];
+
   if (isAgentRunConfirmation(plainText)) {
     try {
       const queued = await queueAwaitingRunsForConfirmation({
@@ -88,6 +96,7 @@ export async function createPost(
         workspaceId,
         requesterActorId: actor.id,
         confirmationPostId: targetPost.id,
+        agentActorIds: confirmationAgentIds,
       });
       if (queued > 0) {
         after(async () => {
@@ -98,11 +107,12 @@ export async function createPost(
     } catch (err) {
       console.error("[agent-runtime] confirmation failed:", err);
     }
+    return;
   }
 
   const mentions = buildRequestedAgentMentions({
     requestAgentResponse: options.requestAgentResponse ?? false,
-    mentionedAgents: findAgentMentions(trimmed),
+    mentionedAgents,
     selectedAgent: options.selectedAgent ?? null,
   });
   console.log(

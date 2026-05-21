@@ -38,5 +38,28 @@ assert.deepEqual(buildAgentRunInsert(input).metadata, {
 });
 
 assert.equal(selectConfirmableRunId([]), null);
-assert.equal(selectConfirmableRunId([{ id: "run-1" }]), "run-1");
-assert.equal(selectConfirmableRunId([{ id: "run-1" }, { id: "run-2" }]), null);
+assert.equal(selectConfirmableRunId([{ id: "run-1", agent_actor_id: "agent-1" }]), "run-1");
+assert.equal(
+  selectConfirmableRunId([
+    { id: "run-1", agent_actor_id: "agent-1" },
+    { id: "run-2", agent_actor_id: "agent-2" },
+  ]),
+  null
+);
+assert.equal(
+  selectConfirmableRunId([
+    { id: "newer", agent_actor_id: "agent-1" },
+    { id: "older", agent_actor_id: "agent-1" },
+  ]),
+  "newer"
+);
+assert.equal(
+  selectConfirmableRunId(
+    [
+      { id: "codex-newer", agent_actor_id: "codex" },
+      { id: "claude-newer", agent_actor_id: "claude" },
+    ],
+    ["codex"]
+  ),
+  "codex-newer"
+);
