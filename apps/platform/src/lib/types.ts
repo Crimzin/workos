@@ -1,7 +1,12 @@
 export type NodeType = "workspace" | "stack" | "card";
 
 export type ActorKind = "human" | "agent";
-export type AgentType = "claude" | "claude_code" | "swarm" | "brainshare";
+export type AgentType =
+  | "claude"
+  | "claude_code"
+  | "codex"
+  | "swarm"
+  | "brainshare";
 
 export type FieldType = "single_select" | "multi_select" | "text" | "date";
 
@@ -103,7 +108,7 @@ export interface MemoryPrimitive {
   created_by_actor?: Pick<Actor, "id" | "name" | "kind"> | null;
 }
 
-export type AIStandardCategory = "interaction" | "output";
+export type AIStandardCategory = "interaction" | "output" | "execution";
 export type AIStandardMode = "latent" | "visible_when_useful";
 export type AIStandardSource = "default" | "override" | "custom";
 
@@ -120,4 +125,83 @@ export interface AIStandard {
   source: AIStandardSource;
   created_at?: string;
   updated_at?: string;
+}
+
+export type AgentCapability =
+  | "chat"
+  | "code"
+  | "shell"
+  | "git"
+  | "browser"
+  | "github"
+  | "database"
+  | "web";
+
+export type AgentRunStatus =
+  | "mentioned"
+  | "planning"
+  | "awaiting_confirmation"
+  | "queued"
+  | "running"
+  | "needs_input"
+  | "verifying"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type AgentProviderKey = "inline_claude" | "codex" | "claude_code";
+export type AgentToolKey = "aidex";
+export type AgentToolStatus = "available" | "missing" | "stale" | "disabled";
+
+export interface AgentActorCapabilityRecord {
+  id: string;
+  actor_id: string;
+  capability: AgentCapability;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentRun {
+  id: string;
+  instance_id: string;
+  workspace_id: string;
+  target_node_id: string;
+  trigger_post_id: string;
+  requester_actor_id: string;
+  agent_actor_id: string;
+  provider_key: AgentProviderKey;
+  status: AgentRunStatus;
+  branch_name: string | null;
+  worktree_path: string | null;
+  summary: string | null;
+  error: string | null;
+  plan_body: string | null;
+  confirmation_post_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentProviderSetting {
+  id: string;
+  instance_id: string;
+  provider_key: AgentProviderKey;
+  label: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentToolSetting {
+  id: string;
+  instance_id: string;
+  tool_key: AgentToolKey;
+  label: string;
+  status: AgentToolStatus;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
