@@ -341,7 +341,7 @@ function CloseButton({ href }: { href: string }) {
 // Fields tab
 // ---------------------------------------------------------------------------
 
-function FieldsTabContent({
+export function FieldsTabContent({
   node,
   owner,
   fields,
