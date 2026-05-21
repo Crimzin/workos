@@ -1,10 +1,8 @@
-// Focused assertions for the platform TypeScript harness. These files are
-// typechecked with `npx tsc --noEmit --project apps/platform/tsconfig.json`.
 import assert from "node:assert/strict";
-import { renderCodingAgentPlan } from "./planning";
-import type { NodeContext } from "./node-context";
-import type { AgentPlanningInput } from "./types";
-import type { PostRecord } from "../posts";
+import { renderCodingAgentPlan } from "./planning.ts";
+import type { NodeContext } from "./node-context.ts";
+import type { AgentPlanningInput } from "./types.ts";
+import type { PostRecord } from "../posts.ts";
 
 function body(text: string): string {
   return JSON.stringify([

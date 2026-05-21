@@ -1,4 +1,3 @@
-import { supabase } from "../supabase";
 import type { AgentCapability, AgentProviderKey } from "../types";
 import type { MentionedAgent } from "./mention-detection";
 import type { ResolvedAgentRoute } from "./types";
@@ -7,8 +6,10 @@ const CHAT_ONLY: AgentCapability[] = ["chat"];
 const CODING: AgentCapability[] = ["chat", "code", "shell", "git"];
 
 export interface ResolveAgentRoutesOptions {
-  enabledProviderKeys?: AgentProviderKey[];
+  enabledProviderKeys: AgentProviderKey[];
 }
+
+type CodingProviderKey = Extract<AgentProviderKey, "codex" | "claude_code">;
 
 function providerFromName(name: string): AgentProviderKey {
   const normalized = name.toLowerCase();
@@ -22,6 +23,12 @@ function fallbackCapabilities(providerKey: AgentProviderKey): AgentCapability[] 
   return CHAT_ONLY;
 }
 
+function isCodingProvider(
+  providerKey: AgentProviderKey
+): providerKey is CodingProviderKey {
+  return providerKey === "codex" || providerKey === "claude_code";
+}
+
 export function routeKindForCapabilities(
   capabilities: AgentCapability[]
 ): ResolvedAgentRoute["kind"] {
@@ -31,12 +38,12 @@ export function routeKindForCapabilities(
 export function resolveRouteForMention(
   mention: MentionedAgent,
   configuredCapabilities?: AgentCapability[],
-  options?: ResolveAgentRoutesOptions
+  enabledProviderKeys: AgentProviderKey[] = []
 ): ResolvedAgentRoute {
   const providerKey = providerFromName(mention.name);
   const providerEnabled =
-    !options?.enabledProviderKeys ||
-    options.enabledProviderKeys.includes(providerKey);
+    !isCodingProvider(providerKey) ||
+    enabledProviderKeys.includes(providerKey);
   const capabilities = providerEnabled
     ? configuredCapabilities ?? fallbackCapabilities(providerKey)
     : CHAT_ONLY;
@@ -51,10 +58,11 @@ export function resolveRouteForMention(
 
 export async function resolveAgentRoutes(
   mentions: MentionedAgent[],
-  options?: ResolveAgentRoutesOptions
+  options: ResolveAgentRoutesOptions
 ): Promise<ResolvedAgentRoute[]> {
   if (mentions.length === 0) return [];
 
+  const { supabase } = await import("../supabase");
   const { data, error } = await supabase
     .from("agent_actor_capabilities")
     .select("actor_id,capability,enabled")
@@ -73,6 +81,10 @@ export async function resolveAgentRoutes(
   }
 
   return mentions.map((mention) => {
-    return resolveRouteForMention(mention, byActor.get(mention.id), options);
+    return resolveRouteForMention(
+      mention,
+      byActor.get(mention.id),
+      options?.enabledProviderKeys ?? []
+    );
   });
 }
