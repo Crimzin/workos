@@ -1,26 +1,26 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { getNode, getChildren } from "@/lib/nodes";
+import { ThreadSurface } from "@/components/thread/thread-surface";
 import { getWorkspaceBoard } from "@/lib/board";
 import { getWorkspaceViews } from "@/lib/views";
 import { Board } from "@/components/board/board";
 import { DetailPanel } from "@/components/detail-panel";
 import { ResizablePanelGroup } from "@/components/resizable-panel-group";
+import { getNode } from "@/lib/nodes";
 
 export default async function NodePage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ d?: string }>;
+  searchParams: Promise<{ d?: string; view?: string }>;
 }) {
   const { id } = await params;
-  const { d: detailId } = await searchParams;
+  const { d: detailId, view } = await searchParams;
   const node = await getNode(id);
   if (!node) notFound();
 
-  if (node.type === "workspace") {
+  if (node.type === "workspace" && view === "board") {
     const [board, views] = await Promise.all([
       getWorkspaceBoard(id),
       getWorkspaceViews(id),
@@ -40,7 +40,11 @@ export default async function NodePage({
           detail={
             detailId ? (
               <Suspense key={detailId} fallback={<DetailPanelSkeleton />}>
-                <DetailPanel nodeId={detailId} workspaceId={id} closeHref={`/n/${id}`} />
+                <DetailPanel
+                  nodeId={detailId}
+                  workspaceId={id}
+                  closeHref={`/n/${id}?view=board`}
+                />
               </Suspense>
             ) : null
           }
@@ -49,62 +53,7 @@ export default async function NodePage({
     );
   }
 
-  // Non-workspace nodes: simple children list.
-  const children = await getChildren(id);
-  return (
-    <main className="mx-auto max-w-3xl w-full px-8 py-10">
-      <nav className="mb-6 text-xs text-text-tertiary">
-        <Link href="/" className="transition-colors hover:text-text-primary">
-          Home
-        </Link>
-        {node.parent_id && (
-          <>
-            {" / "}
-            <Link href={`/n/${node.parent_id}`} className="transition-colors hover:text-text-primary">
-              Parent
-            </Link>
-          </>
-        )}
-      </nav>
-
-      <header className="mb-8">
-        <div className="section-label">{node.type}</div>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-text-primary">
-          {node.title}
-        </h1>
-        {node.description && (
-          <p className="mt-2 text-sm text-text-secondary">{node.description}</p>
-        )}
-      </header>
-
-      <section>
-        <h2 className="section-label">Children</h2>
-        <ul className="mt-3 divide-y divide-border rounded-md border border-border bg-bg-card">
-          {children.length === 0 && (
-            <li className="px-4 py-6 text-sm text-text-secondary">No children yet.</li>
-          )}
-          {children.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/n/${c.id}`}
-                className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-bg-hover"
-              >
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{c.title}</div>
-                  {c.description && (
-                    <div className="text-xs text-text-secondary">{c.description}</div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 text-xs text-text-tertiary">
-                  <span>{c.type}</span>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </main>
-  );
+  return <ThreadSurface nodeId={id} />;
 }
 
 function DetailPanelSkeleton() {
