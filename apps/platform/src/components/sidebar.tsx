@@ -115,14 +115,14 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
 
       {/* Workspaces */}
       <SidebarSection
-        label="Workspaces"
+        label="Threads"
         collapsed={collapsed}
         action={
           !collapsed && !creating ? (
             <button
               type="button"
               onClick={() => setCreating(true)}
-              title="New workspace"
+              title="New thread"
               className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
             >
               <Plus size={13} />
@@ -132,7 +132,7 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
       >
         {workspaces.length === 0 && !collapsed && !creating && (
           <div className="px-2 py-1 text-xs text-text-tertiary">
-            No workspaces yet.
+            No threads yet.
           </div>
         )}
         {workspaces.map((w) => (
@@ -149,9 +149,10 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
         {!collapsed && creating && (
           <div className="px-2 py-1">
             <InlineCreate
-              label="New workspace"
-              placeholder="Workspace name"
+              label="New thread"
+              placeholder="Thread name"
               onSubmit={async (title) => {
+                // Root threads are still stored as workspace-type nodes for compatibility.
                 const res = await createWorkspace(title);
                 setCreating(false);
                 return res;
