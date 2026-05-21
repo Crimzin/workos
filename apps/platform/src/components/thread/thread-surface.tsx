@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { LayoutGrid } from "lucide-react";
 import { getThreadSurface } from "@/lib/thread-surface";
 import { FieldsTabContent } from "../detail-panel";
 import { MemoryPrimitivesTabContent } from "../memory-primitives-tab-content";
@@ -48,18 +46,6 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
   const isMirrored = mirrorPlacements.length > 1;
   const mirrorParentId = !isHomeContext ? workspaceId : undefined;
 
-  const viewSwitcher =
-    path.length === 1 ? (
-      <Link
-        href={`/n/${node.id}?view=board`}
-        scroll={false}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <LayoutGrid size={15} />
-        Board
-      </Link>
-    ) : null;
-
   const actions =
     node.type === "workspace" ? null : (
       <NodeActions
@@ -95,19 +81,24 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     />
   );
 
-  const fieldsContent = (
-    <FieldsTabContent
-      node={node}
-      owner={owner}
-      fields={fields}
-      values={values}
-      workspaceId={workspaceId}
-      mirrorPlacements={mirrorPlacements}
-      mirrorTargets={mirrorTargets}
-      homeWorkspaceId={homeWorkspaceId}
-      links={links}
-    />
-  );
+  const fieldsContent =
+    node.type === "workspace" ? (
+      <div className="px-5 py-10 text-center text-sm text-text-tertiary">
+        Fields are available on nested threads.
+      </div>
+    ) : (
+      <FieldsTabContent
+        node={node}
+        owner={owner}
+        fields={fields}
+        values={values}
+        workspaceId={workspaceId}
+        mirrorPlacements={mirrorPlacements}
+        mirrorTargets={mirrorTargets}
+        homeWorkspaceId={homeWorkspaceId}
+        links={links}
+      />
+    );
 
   const memoryContent = (
     <MemoryPrimitivesTabContent
@@ -117,7 +108,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     />
   );
 
-  const treeContent = <ThreadTree children={children} />;
+  const treeContent = <ThreadTree threads={children} />;
 
   return (
     <main className="flex h-full min-h-0 flex-col bg-bg-primary">
@@ -130,7 +121,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
         members={members}
         workspaceId={workspaceId}
         actions={actions}
-        viewSwitcher={viewSwitcher}
+        viewSwitcher={null}
       />
 
       <ThreadTabs

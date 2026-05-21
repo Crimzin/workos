@@ -5,11 +5,11 @@ import type { WorkNode } from "@/lib/types";
 import { ThreadSearch } from "./thread-search";
 
 export interface ThreadTreeProps {
-  children: WorkNode[];
+  threads: WorkNode[];
 }
 
-export function ThreadTree({ children }: ThreadTreeProps) {
-  const visibleChildren = children.filter((child) => !child.archived_at);
+export function ThreadTree({ threads }: ThreadTreeProps) {
+  const visibleChildren = threads.filter((child) => !child.archived_at);
 
   return (
     <div className="space-y-6 px-5 py-5">
