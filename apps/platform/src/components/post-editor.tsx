@@ -1,7 +1,7 @@
 "use client";
 
 import "@blocknote/mantine/style.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCreateBlockNote, createReactInlineContentSpec, SuggestionMenuController } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { BlockNoteSchema, defaultInlineContentSpecs } from "@blocknote/core";
@@ -57,6 +57,10 @@ const schema = BlockNoteSchema.create({
   },
 });
 
+const subscribeToClientMount = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
+
 // ---------------------------------------------------------------------------
 // PostEditor component
 // ---------------------------------------------------------------------------
@@ -72,6 +76,41 @@ export interface PostEditorProps {
 }
 
 export function PostEditor({
+  initialContent,
+  editable = true,
+  actors,
+  onChange,
+  onSubmit,
+  onCancel,
+}: PostEditorProps) {
+  const mounted = useSyncExternalStore(
+    subscribeToClientMount,
+    getClientSnapshot,
+    getServerSnapshot
+  );
+
+  if (!mounted) {
+    return (
+      <div
+        className="bn-post-editor min-h-[2.5rem]"
+        aria-hidden="true"
+      />
+    );
+  }
+
+  return (
+    <PostEditorInner
+      initialContent={initialContent}
+      editable={editable}
+      actors={actors}
+      onChange={onChange}
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+    />
+  );
+}
+
+function PostEditorInner({
   initialContent,
   editable = true,
   actors,
