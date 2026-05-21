@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import {
   ChevronLeft,
@@ -31,7 +31,9 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
   const [creating, setCreating] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
+  const activeView = searchParams.get("view");
 
   useEffect(() => {
     const frameId = requestAnimationFrame(() => {
@@ -106,6 +108,7 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
             node={personal}
             collapsed={collapsed}
             pathname={pathname}
+            activeView={activeView}
             renamingId={renamingId}
             setRenamingId={setRenamingId}
             router={router}
@@ -141,6 +144,7 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
             node={w}
             collapsed={collapsed}
             pathname={pathname}
+            activeView={activeView}
             renamingId={renamingId}
             setRenamingId={setRenamingId}
             router={router}
@@ -207,6 +211,7 @@ function WorkspaceRow({
   node,
   collapsed,
   pathname,
+  activeView,
   renamingId,
   setRenamingId,
   router,
@@ -214,14 +219,16 @@ function WorkspaceRow({
   node: WorkNode;
   collapsed: boolean;
   pathname: string;
+  activeView: string | null;
   renamingId: string | null;
   setRenamingId: (id: string | null) => void;
   router: ReturnType<typeof useRouter>;
 }) {
   const isRenaming = renamingId === node.id;
-  const isOnBoard = pathname === `/n/${node.id}`;
+  const isOnBoard = pathname === `/n/${node.id}` && activeView === "board";
+  const isOnThread = pathname === `/n/${node.id}` && activeView !== "board";
   const isOnFeed = pathname === `/n/${node.id}/feed`;
-  const isAnyActive = isOnBoard || isOnFeed;
+  const isAnyActive = isOnThread || isOnBoard || isOnFeed;
 
   const initial = node.title.charAt(0).toUpperCase();
 
@@ -261,7 +268,7 @@ function WorkspaceRow({
         <SubItem
           icon={<LayoutGrid size={13} />}
           label="Board"
-          href={`/n/${node.id}`}
+          href={`/n/${node.id}?view=board`}
           active={isOnBoard}
         />
         <SubItem
