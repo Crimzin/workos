@@ -457,7 +457,7 @@ function StackHeader({
           </div>
         ) : (
           <Link
-            href={`/n/${workspaceId}?d=${stack.id}`}
+            href={`/n/${workspaceId}?view=board&d=${stack.id}`}
             scroll={false}
             className="min-w-0 flex-1 group"
           >

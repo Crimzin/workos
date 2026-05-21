@@ -66,7 +66,7 @@ export function CardsTabContent({
             return (
               <li key={card.id} className="group flex items-stretch">
                 <Link
-                  href={`/n/${workspaceId}?d=${card.id}`}
+                  href={`/n/${workspaceId}?view=board&d=${card.id}`}
                   scroll={false}
                   className={[
                     "flex min-w-0 flex-1 flex-col gap-1 px-3 py-2.5 transition-colors hover:bg-bg-hover",
@@ -103,7 +103,7 @@ export function CardsTabContent({
                     parentId={stackId}
                     nodeType="card"
                     isArchived={!!card.archived_at}
-                    closeHref={`/n/${workspaceId}?d=${stackId}`}
+                    closeHref={`/n/${workspaceId}?view=board&d=${stackId}`}
                     isHomeContext={true}
                     isMirrored={false}
                     homeWorkspaceId={workspaceId}

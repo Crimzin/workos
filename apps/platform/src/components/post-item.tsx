@@ -105,7 +105,7 @@ export function PostItem({
 
       {/* Body */}
       {isActivity ? (
-        <ActivityBody post={post} workspaceId={workspaceId} />
+        <ActivityBody post={post} />
       ) : editing ? (
         <div className="rounded-md border border-accent bg-bg-card overflow-hidden">
           <PostEditor
@@ -226,14 +226,14 @@ function copyTextForPost(post: PostRecord): string {
   return post.post_type;
 }
 
-function ActivityBody({ post, workspaceId }: { post: PostRecord; workspaceId: string }) {
+function ActivityBody({ post }: { post: PostRecord }) {
   if (post.post_type === "card_created" && post.metadata) {
     const { card_id, card_title } = post.metadata;
     return (
       <p className="text-sm text-text-secondary">
         Created card ·{" "}
         <Link
-          href={`/n/${workspaceId}?d=${card_id}`}
+          href={`/n/${card_id}`}
           scroll={false}
           className="text-text-primary font-medium hover:underline"
         >

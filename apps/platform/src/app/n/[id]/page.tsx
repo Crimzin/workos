@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { ThreadSurface } from "@/components/thread/thread-surface";
 import { getWorkspaceBoard } from "@/lib/board";
@@ -19,6 +19,10 @@ export default async function NodePage({
   const { d: detailId, view } = await searchParams;
   const node = await getNode(id);
   if (!node) notFound();
+
+  if (detailId && view !== "board") {
+    redirect(`/n/${detailId}`);
+  }
 
   if (node.type === "workspace" && view === "board") {
     const [board, views] = await Promise.all([

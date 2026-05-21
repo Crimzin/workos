@@ -148,9 +148,7 @@ function LinkChip({
   const { other_node } = link;
   const Icon = other_node.type === "stack" ? Layers : CreditCard;
 
-  // Always link to the node's own workspace; chip remains a Link to that target.
-  const targetWorkspaceId = other_node.workspace?.id ?? workspaceId;
-  const href = `/n/${targetWorkspaceId}?d=${other_node.id}`;
+  const href = `/n/${other_node.id}`;
   const isCrossWorkspace =
     other_node.workspace && other_node.workspace.id !== workspaceId;
 
@@ -203,12 +201,14 @@ function AddLinkPicker({
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
-      setResults([]);
-      setLoading(false);
-      return;
+      const frameId = requestAnimationFrame(() => {
+        setResults([]);
+        setLoading(false);
+      });
+      return () => cancelAnimationFrame(frameId);
     }
-    setLoading(true);
     const handle = setTimeout(async () => {
+      setLoading(true);
       try {
         const found = await searchLinkableNodes(trimmed, excludeNodeId);
         setResults(found);

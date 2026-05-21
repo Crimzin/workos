@@ -253,8 +253,8 @@ function Breadcrumb({
         // Workspace links go to the board; stacks open in the panel
         const href =
           a.type === "workspace"
-            ? `/n/${workspaceId}`
-            : `/n/${workspaceId}?d=${a.id}`;
+            ? `/n/${workspaceId}?view=board`
+            : `/n/${workspaceId}?view=board&d=${a.id}`;
         return (
           <span key={a.id} className="flex items-center gap-1">
             {i > 0 && <span className="text-text-tertiary">/</span>}

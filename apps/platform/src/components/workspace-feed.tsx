@@ -102,7 +102,7 @@ function FeedPostItem({
           {nodeType === "stack" ? <Layers size={12} /> : <CreditCard size={12} />}
         </span>
         <Link
-          href={`/n/${workspaceId}?d=${nodeId}`}
+          href={`/n/${nodeId}`}
           scroll={false}
           className="text-xs text-text-tertiary hover:text-text-secondary transition-colors font-medium"
         >
