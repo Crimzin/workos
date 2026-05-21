@@ -130,7 +130,7 @@ export function AIStandardsSettings({ standards }: AIStandardsSettingsProps) {
           </p>
         </div>
         {error && (
-          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-500">
+          <div className="rounded-md border border-border bg-bg-card px-2 py-1 text-xs text-text-secondary">
             {error}
           </div>
         )}
@@ -387,7 +387,7 @@ function IconButton({
       className={[
         "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors",
         danger
-          ? "text-text-tertiary hover:bg-red-500/10 hover:text-red-500"
+          ? "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
           : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary",
         "focus:outline-none focus:ring-1 focus:ring-accent disabled:pointer-events-none disabled:opacity-40",
       ].join(" ")}
