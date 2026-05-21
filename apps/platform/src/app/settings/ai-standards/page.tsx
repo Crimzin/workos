@@ -1,10 +1,10 @@
 import { AIStandardsSettings } from "@/components/ai-standards-settings";
-import { getEffectiveAIStandards } from "@/lib/ai-standards-server";
+import { getAIStandardsForSettings } from "@/lib/ai-standards-server";
 import { getCurrentActor } from "@/lib/actor";
 
 export default async function AIStandardsSettingsPage() {
   const actor = await getCurrentActor();
-  const standards = await getEffectiveAIStandards(actor.instance_id);
+  const standards = await getAIStandardsForSettings(actor.instance_id);
   const standardsKey = standards
     .map(
       (standard) =>

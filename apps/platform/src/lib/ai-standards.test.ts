@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_AI_STANDARDS,
   mergeAIStandards,
+  mergeAIStandardsForSettings,
   renderAIStandardsForPrompt,
 } from "./ai-standards";
 import type { AIStandardOverrideRow } from "./ai-standards";
@@ -69,3 +70,18 @@ assert.match(rendered, /## Interaction/);
 assert.match(rendered, /## Output/);
 assert.match(rendered, /Lead With The Answer/);
 assert.doesNotMatch(rendered, /Disabled override/);
+
+const settingsMerged = mergeAIStandardsForSettings(
+  DEFAULT_AI_STANDARDS,
+  overrideRows
+);
+const disabledDefault = settingsMerged.find(
+  (s) => s.standard_key === "standard.output.mece_structure"
+);
+
+assert.equal(disabledDefault?.enabled, false);
+assert.equal(disabledDefault?.source, "override");
+assert.equal(disabledDefault?.instruction, "Disabled override should remove this default.");
+assert.ok(
+  settingsMerged.some((s) => s.standard_key === "standard.custom.exec_memo")
+);

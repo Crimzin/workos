@@ -190,6 +190,37 @@ export function mergeAIStandards(
   );
 }
 
+export function mergeAIStandardsForSettings(
+  defaults: AIStandardDefinition[],
+  overrides: AIStandardOverrideRow[]
+): AIStandardDefinition[] {
+  const byKey = new Map<string, AIStandardDefinition>();
+
+  for (const standard of defaults) {
+    byKey.set(standard.standard_key, standard);
+  }
+
+  for (const override of overrides) {
+    if (override.source === "custom") {
+      byKey.set(override.standard_key, { ...override });
+      continue;
+    }
+
+    const defaultStandard = byKey.get(override.standard_key);
+    if (!defaultStandard) continue;
+
+    byKey.set(override.standard_key, {
+      ...defaultStandard,
+      ...override,
+      source: "override",
+    });
+  }
+
+  return [...byKey.values()].sort(
+    (a, b) => a.position - b.position || a.title.localeCompare(b.title)
+  );
+}
+
 export function renderAIStandardsForPrompt(
   standards: AIStandardDefinition[]
 ): string {
