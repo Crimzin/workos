@@ -19,6 +19,8 @@ export const cacheTags = {
   workspaceFeed: (workspaceId: string) => `workspace-feed:${workspaceId}`,
   nodeLinks: (nodeId: string) => `links:${nodeId}`,
   nodeMemoryPrimitives: (nodeId: string) => `memory-primitives:${nodeId}`,
+  agentSettings: (instanceId: string) => `agent-settings:${instanceId}`,
+  agentRuns: (nodeId: string) => `agent-runs:${nodeId}`,
 };
 
 // Next 16 `revalidateTag` requires a profile arg; "max" = stale-while-revalidate.
@@ -89,4 +91,12 @@ export function revalidateNodeLinksFor(nodeIds: string[]) {
 
 export function revalidateNodeMemoryPrimitives(nodeId: string) {
   revalidateTag(cacheTags.nodeMemoryPrimitives(nodeId), PROFILE);
+}
+
+export function revalidateAgentSettings(instanceId: string) {
+  revalidateTag(cacheTags.agentSettings(instanceId), IMMEDIATE);
+}
+
+export function revalidateAgentRuns(nodeId: string) {
+  revalidateTag(cacheTags.agentRuns(nodeId), IMMEDIATE);
 }

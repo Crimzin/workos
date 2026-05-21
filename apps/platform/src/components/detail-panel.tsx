@@ -9,6 +9,7 @@ import { getNodeMemoryPrimitives } from "@/lib/memory-primitives";
 import { getNodeLinks } from "@/lib/links";
 import type { NodeLinks } from "@/lib/links";
 import { getCurrentActor, getActors } from "@/lib/actor";
+import { getAgentSettings } from "@/lib/agent-settings";
 import { FieldBadge } from "./field-badge";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
@@ -39,7 +40,7 @@ export async function DetailPanel({
   ]);
 
   // Fetch mirror targets + posts + links + memory in parallel with detail panel render.
-  const [mirrorTargets, posts, links, memoryPrimitives] = await Promise.all([
+  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
@@ -50,12 +51,13 @@ export async function DetailPanel({
     detail
       ? getNodeMemoryPrimitives(nodeId)
       : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
+    getAgentSettings(actor.instance_id),
   ]);
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -80,6 +82,7 @@ function DetailBody({
   memoryPrimitives,
   actor,
   actors,
+  inlineClaudeEnabled,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
@@ -90,6 +93,7 @@ function DetailBody({
   memoryPrimitives: import("@/lib/memory-primitives").NodeMemoryPrimitives;
   actor: import("@/lib/actor").CurrentActor;
   actors: import("@/lib/actor").ActorForMention[];
+  inlineClaudeEnabled: boolean;
 }) {
   const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
 
@@ -127,6 +131,7 @@ function DetailBody({
       currentActorId={actor.id}
       currentActorName={actor.name}
       actors={actors}
+      inlineClaudeEnabled={inlineClaudeEnabled}
     />
   );
 
