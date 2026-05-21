@@ -59,7 +59,15 @@ export async function getThreadSurface(
     },
     ["thread-surface", nodeId],
     {
-      tags: [cacheTags.threadSurface(nodeId)],
+      tags: [
+        cacheTags.threadSurface(nodeId),
+        cacheTags.node(nodeId),
+        cacheTags.nodePath(nodeId),
+        cacheTags.children(nodeId),
+        cacheTags.nodePosts(nodeId),
+        cacheTags.nodeLinks(nodeId),
+        cacheTags.nodeMemoryPrimitives(nodeId),
+      ],
       revalidate: 300,
     }
   );
