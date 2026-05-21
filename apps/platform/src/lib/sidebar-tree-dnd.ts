@@ -87,6 +87,28 @@ export function getSidebarDropPlan({
   };
 }
 
+export function getSidebarPointerDropPlan({
+  activeId,
+  overId,
+  flattened,
+  horizontalDelta,
+  indentWidth,
+}: {
+  activeId: string;
+  overId: string | null;
+  flattened: FlatSidebarTreeNode[];
+  horizontalDelta: number;
+  indentWidth: number;
+}): SidebarDropPlan | null {
+  if (!overId || activeId === overId) return null;
+  return getSidebarDropPlan({
+    activeId,
+    overId,
+    flattened,
+    indentationDelta: Math.round(horizontalDelta / indentWidth),
+  });
+}
+
 export function nextSidebarPosition(
   previousPosition: number | null,
   nextPosition: number | null

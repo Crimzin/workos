@@ -3,6 +3,7 @@ import {
   flattenSidebarTree,
   getPinnedNodes,
   getSidebarDropPlan,
+  getSidebarPointerDropPlan,
   moveSidebarTreeNode,
   nextSidebarPosition,
 } from "./sidebar-tree-dnd";
@@ -78,6 +79,28 @@ assert.deepEqual(
     indentationDelta: -2,
   }),
   { parentId: null, previousId: "project-a", nextId: "project-b" }
+);
+
+assert.deepEqual(
+  getSidebarPointerDropPlan({
+    activeId: "pricing",
+    overId: "ops",
+    flattened: flattenSidebarTree(tree, expanded),
+    horizontalDelta: 13,
+    indentWidth: 28,
+  }),
+  { parentId: "project-b", previousId: "ops", nextId: null }
+);
+
+assert.equal(
+  getSidebarPointerDropPlan({
+    activeId: "pricing",
+    overId: null,
+    flattened: flattenSidebarTree(tree, expanded),
+    horizontalDelta: 13,
+    indentWidth: 28,
+  }),
+  null
 );
 
 assert.equal(nextSidebarPosition(null, 1), 0);
