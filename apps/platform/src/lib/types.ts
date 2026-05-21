@@ -17,6 +17,11 @@ export type StackLifecycleStatus =
   | "deprioritized"
   | "completed"
   | "archived";
+export type ThreadResolutionStatus =
+  | "active"
+  | "resolved"
+  | "reopened"
+  | "superseded";
 
 export interface Instance {
   id: string;
@@ -46,6 +51,11 @@ export interface WorkNode {
   owner_id: string | null;
   position: number;
   stack_lifecycle_status: StackLifecycleStatus;
+  thread_resolution_status: ThreadResolutionStatus;
+  resolved_at: string | null;
+  resolved_by_actor_id: string | null;
+  resolution_summary: string | null;
+  resolution_source_post_id: string | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
