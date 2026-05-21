@@ -24,7 +24,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
-  GripVertical,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -53,6 +52,7 @@ import {
   flattenSidebarTree,
   getPinnedNodes,
   getSidebarDropPlan,
+  type FlatSidebarTreeNode,
   type PinnedSidebarNode,
 } from "@/lib/sidebar-tree-dnd";
 import { ThemeToggle } from "./theme-toggle";
@@ -90,6 +90,10 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
   const flatRows = useMemo(
     () => flattenSidebarTree(projectTree, visibleExpandedIds),
     [projectTree, visibleExpandedIds]
+  );
+  const visibleProjectRows = useMemo(
+    () => collapsed ? flatRows.filter((row) => row.depth === 0) : flatRows,
+    [collapsed, flatRows]
   );
   const sortedPins = useMemo(() => getPinnedNodes(pinnedNodes), [pinnedNodes]);
   const pinnedIds = useMemo(
@@ -306,31 +310,54 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
             }
           >
             <SortableContext
-              items={flatRows.map((row) => `node:${row.id}`)}
+              items={visibleProjectRows.map((row) => `node:${row.id}`)}
               strategy={verticalListSortingStrategy}
             >
-          {projectTree.length === 0 && !collapsed && !creatingRoot && (
-            <div className="px-2 py-1 text-xs text-text-tertiary">
-              No projects yet.
-            </div>
-          )}
+              {projectTree.length === 0 && !collapsed && !creatingRoot && (
+                <div className="px-1 py-1 text-xs text-text-tertiary">
+                  No projects yet.
+                </div>
+              )}
 
-          {projectTree.map((node) => (
-            <ProjectTreeRow
-              key={node.id}
-              node={node}
-              collapsed={collapsed}
-              pathname={pathname}
-              expandedIds={visibleExpandedIds}
-              setExpanded={setExpanded}
-              creatingChildOf={creatingChildOf}
-              setCreatingChildOf={setCreatingChildOf}
-              renamingId={renamingId}
-              setRenamingId={setRenamingId}
-              router={router}
-              pinnedIds={pinnedIds}
-            />
-          ))}
+              {visibleProjectRows.map((node) => (
+                <div key={node.id}>
+                  <ProjectTreeNodeRow
+                    node={node}
+                    collapsed={collapsed}
+                    isActive={pathname === `/n/${node.id}`}
+                    isExpanded={visibleExpandedIds.has(node.id)}
+                    hasChildren={node.children.length > 0}
+                    isRenaming={renamingId === node.id}
+                    setRenamingId={setRenamingId}
+                    onToggle={() => setExpanded(node.id, !visibleExpandedIds.has(node.id))}
+                    onCreateChild={() => {
+                      setExpanded(node.id, true);
+                      setCreatingChildOf(node.id);
+                    }}
+                    router={router}
+                    isPinned={pinnedIds.has(node.id)}
+                  />
+
+                  {!collapsed && creatingChildOf === node.id && (
+                    <div className="py-1" style={{ paddingLeft: 18 + (node.depth + 1) * 12 }}>
+                      <InlineCreate
+                        label="New chat"
+                        placeholder="New chat"
+                        onSubmit={async (title) => createChildNode(node, title)}
+                        onCreated={(id) => {
+                          setCreatingChildOf(null);
+                          setExpanded(node.id, true);
+                          router.push(`/n/${id}`);
+                          router.refresh();
+                        }}
+                        onCancel={() => setCreatingChildOf(null)}
+                        initialExpanded
+                        inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
             </SortableContext>
 
           {!collapsed && creatingRoot && (
@@ -414,6 +441,7 @@ function PinnedNodeRow({
     transition,
     opacity: isDragging ? 0.55 : undefined,
   };
+  const tooltipId = `sidebar-pin-tooltip-${node.id}`;
 
   const handleUnpin = () => {
     startTransition(async () => {
@@ -445,132 +473,41 @@ function PinnedNodeRow({
     <div
       ref={setNodeRef}
       style={sortableStyle}
-      title={node.title}
       className={[
-        "group flex items-center gap-1 rounded-md px-1 py-1.5 text-sm transition-colors",
+        "group relative flex cursor-grab items-center gap-1 rounded-md px-1 py-1.5 text-sm transition-colors active:cursor-grabbing",
         isActive
           ? "bg-bg-selected text-text-primary"
           : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
       ].join(" ")}
+      {...attributes}
+      aria-describedby={tooltipId}
+      {...listeners}
     >
-      <button
-        type="button"
-        title={`Move ${node.title}`}
-        aria-label={`Move ${node.title}`}
-        className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical size={12} />
-      </button>
       <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold bg-bg-card border border-border text-text-secondary">
         {initial}
       </span>
-      <Link href={`/n/${node.id}`} title={node.title} className="min-w-0 flex-1 truncate font-medium">
+      <Link href={`/n/${node.id}`} className="min-w-0 flex-1 truncate font-medium">
         {node.title}
       </Link>
       <button
         type="button"
         title={`Unpin ${node.title}`}
-        onClick={handleUnpin}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          handleUnpin();
+        }}
         className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
       >
         <PinOff size={11} />
       </button>
-    </div>
-  );
-}
-
-function ProjectTreeRow({
-  node,
-  collapsed,
-  pathname,
-  expandedIds,
-  setExpanded,
-  creatingChildOf,
-  setCreatingChildOf,
-  renamingId,
-  setRenamingId,
-  router,
-  pinnedIds,
-}: {
-  node: SidebarTreeNode;
-  collapsed: boolean;
-  pathname: string;
-  expandedIds: Set<string>;
-  setExpanded: (id: string, expanded: boolean) => void;
-  creatingChildOf: string | null;
-  setCreatingChildOf: (id: string | null) => void;
-  renamingId: string | null;
-  setRenamingId: (id: string | null) => void;
-  router: ReturnType<typeof useRouter>;
-  pinnedIds: Set<string>;
-}) {
-  const isExpanded = expandedIds.has(node.id);
-  const isActive = pathname === `/n/${node.id}`;
-  const hasChildren = node.children.length > 0;
-  const isCreatingChild = creatingChildOf === node.id;
-
-  if (collapsed && node.depth > 0) return null;
-
-  return (
-    <div>
-      <ProjectTreeNodeRow
-        node={node}
-        collapsed={collapsed}
-        isActive={isActive}
-        isExpanded={isExpanded}
-        hasChildren={hasChildren}
-        isRenaming={renamingId === node.id}
-        setRenamingId={setRenamingId}
-        onToggle={() => setExpanded(node.id, !isExpanded)}
-        onCreateChild={() => {
-          setExpanded(node.id, true);
-          setCreatingChildOf(node.id);
-        }}
-        router={router}
-        isPinned={pinnedIds.has(node.id)}
-      />
-
-      {!collapsed && isCreatingChild && (
-        <div className="py-1" style={{ paddingLeft: 18 + (node.depth + 1) * 14 }}>
-          <InlineCreate
-            label="New chat"
-            placeholder="New chat"
-            onSubmit={async (title) => createChildNode(node, title)}
-            onCreated={(id) => {
-              setCreatingChildOf(null);
-              setExpanded(node.id, true);
-              router.push(`/n/${id}`);
-              router.refresh();
-            }}
-            onCancel={() => setCreatingChildOf(null)}
-            initialExpanded
-            inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        </div>
-      )}
-
-      {!collapsed && isExpanded && node.children.length > 0 && (
-        <div>
-          {node.children.map((child) => (
-            <ProjectTreeRow
-              key={child.id}
-              node={child}
-              collapsed={collapsed}
-              pathname={pathname}
-              expandedIds={expandedIds}
-              setExpanded={setExpanded}
-              creatingChildOf={creatingChildOf}
-              setCreatingChildOf={setCreatingChildOf}
-              renamingId={renamingId}
-              setRenamingId={setRenamingId}
-              router={router}
-              pinnedIds={pinnedIds}
-            />
-          ))}
-        </div>
-      )}
+      <div
+        id={tooltipId}
+        role="tooltip"
+        className="pointer-events-none absolute left-6 top-full z-50 mt-1 max-w-[320px] rounded border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary opacity-0 shadow-lg transition-opacity delay-500 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {node.title}
+      </div>
     </div>
   );
 }
@@ -588,7 +525,7 @@ function ProjectTreeNodeRow({
   router,
   isPinned,
 }: {
-  node: SidebarTreeNode;
+  node: FlatSidebarTreeNode;
   collapsed: boolean;
   isActive: boolean;
   isExpanded: boolean;
@@ -615,6 +552,7 @@ function ProjectTreeNodeRow({
     transition,
     isDragging,
   } = useSortable({ id: `node:${node.id}` });
+  const tooltipId = `sidebar-tooltip-${node.id}`;
   const sortableStyle: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -713,30 +651,26 @@ function ProjectTreeNodeRow({
     <div
       ref={setNodeRef}
       className={[
-        "group relative flex items-center gap-1 rounded-md py-1.5 pr-1 text-sm transition-colors",
+        "group relative flex cursor-grab items-center gap-0.5 rounded-md py-1.5 pr-0.5 text-sm transition-colors active:cursor-grabbing",
         isActive
           ? "bg-bg-selected text-text-primary"
           : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
       ].join(" ")}
-      style={{ ...sortableStyle, paddingLeft: 6 + node.depth * 14 }}
-      title={node.title}
+      style={{ ...sortableStyle, paddingLeft: 2 + node.depth * 12 }}
+      {...attributes}
+      aria-describedby={tooltipId}
+      {...listeners}
     >
       <button
         type="button"
-        title={`Move ${node.title}`}
-        aria-label={`Move ${node.title}`}
-        className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical size={12} />
-      </button>
-      <button
-        type="button"
-        onClick={hasChildren ? onToggle : undefined}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (hasChildren) onToggle();
+        }}
         disabled={!hasChildren}
         aria-label={isExpanded ? `Collapse ${node.title}` : `Expand ${node.title}`}
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors enabled:hover:bg-bg-hover enabled:hover:text-text-primary disabled:opacity-40"
+        className="inline-flex h-5 w-4 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors enabled:hover:bg-bg-hover enabled:hover:text-text-primary disabled:opacity-40"
       >
         {hasChildren ? (
           isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />
@@ -761,7 +695,15 @@ function ProjectTreeNodeRow({
           className="min-w-0 flex-1 rounded border border-accent bg-bg-card px-1 py-0 text-sm text-text-primary outline-none"
         />
       ) : (
-        <Link href={`/n/${node.id}`} title={node.title} className="min-w-0 flex-1 truncate font-medium">
+        <Link
+          href={`/n/${node.id}`}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            startRename();
+          }}
+          className="min-w-0 flex-1 truncate font-medium"
+        >
           {node.title}
         </Link>
       )}
@@ -771,31 +713,35 @@ function ProjectTreeNodeRow({
           <button
             type="button"
             title={`Add inside ${node.title}`}
-            onClick={onCreateChild}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCreateChild();
+            }}
             className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors"
           >
             <Plus size={11} />
-          </button>
-          <button
-            type="button"
-            title="Rename"
-            onClick={startRename}
-            className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors"
-          >
-            <Pencil size={11} />
           </button>
           <div className="relative" ref={menuRef}>
             <button
               type="button"
               title="More options"
-              onClick={() => setMenuOpen((value) => !value)}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenuOpen((value) => !value);
+              }}
               className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors"
             >
               <MoreHorizontal size={11} />
             </button>
 
             {menuOpen && (
-              <div className="absolute left-0 top-full z-50 mt-1 min-w-[140px] rounded-md border border-border bg-bg-primary py-1 shadow-lg">
+              <div
+                className="absolute left-0 top-full z-50 mt-1 min-w-[140px] rounded-md border border-border bg-bg-primary py-1 shadow-lg"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <button
                   type="button"
                   onClick={() => {
@@ -840,6 +786,16 @@ function ProjectTreeNodeRow({
         </div>
       )}
 
+      {!isRenaming && (
+        <div
+          id={tooltipId}
+          role="tooltip"
+          className="pointer-events-none absolute left-6 top-full z-50 mt-1 max-w-[320px] rounded border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary opacity-0 shadow-lg transition-opacity delay-500 group-hover:opacity-100 group-focus-within:opacity-100"
+        >
+          {node.title}
+        </div>
+      )}
+
       {confirmDelete && (
         <ConfirmModal
           title={`Delete ${label}?`}
@@ -871,9 +827,9 @@ function SidebarSection({
   children: ReactNode;
 }) {
   return (
-    <div className="mt-4 px-2">
+    <div className="mt-4 px-1">
       {!collapsed && label && (
-        <div className="mb-1 flex items-center justify-between px-2">
+        <div className="mb-1 flex items-center justify-between px-1">
           <div className="section-label">{label}</div>
           {action}
         </div>
