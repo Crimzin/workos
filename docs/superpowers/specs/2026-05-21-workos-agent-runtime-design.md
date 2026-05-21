@@ -169,7 +169,7 @@ interface AgentProvider {
 }
 ```
 
-Codex and Claude Code receive the same WorkOS brief: goal, target card/thread, relevant linked context, standards, repo instructions, run policy, confirmation state, and allowed actions.
+Every coding-capable provider receives the same WorkOS brief: goal, target card/thread, relevant linked context, standards, repo instructions, run policy, confirmation state, and allowed actions. Codex and Claude Code are the first expected adapters, not special cases in the product model.
 
 ## Standards And Policy Layers
 
@@ -223,10 +223,10 @@ repo_tools
   last_checked_at
 ```
 
-If AiDex is unavailable, the agent should say so and continue with a fallback when safe:
+If AiDex is unavailable, the agent should strongly recommend installing it before coding work continues. The user should be able to approve installation in-thread, after which WorkOS either installs/configures AiDex directly or delegates the setup to the user's configured coding agent. Fallback to `rg` and direct file reads remains available for urgent or low-risk work, but it should be presented as a degraded path:
 
 ```text
-I can work from files directly, but this repo’s AiDex index is not available. Want me to set it up as a standard tool for future coding runs?
+This repo's AiDex index is not available. I can fall back to direct file search, but AiDex is strongly recommended for coding agents because it gives better repo search and session continuity. Want me to install and configure it for this repo?
 ```
 
 ## Codex Hooks And Provider Hooks
@@ -266,7 +266,7 @@ Principles:
 - Include summaries for old threads and prior runs, not raw logs.
 - Include only triggered skills, not every available skill.
 - Cache rendered standards and repo instructions by version/hash.
-- Let BrainShare decide relevance instead of blindly including memories.
+- In v0, use explicit WorkOS context heuristics for relevance; over time, move relevance decisions into BrainShare's attention scoping and adaptive retrieval once that capability is production-ready.
 
 Suggested context layers:
 
@@ -321,7 +321,7 @@ standard_recommendations
 
 A future Standards Scout can propose:
 
-- useful new Codex or Claude Code features;
+- useful new provider features across Codex, Claude Code, and other connected agents;
 - MCP servers or tools such as AiDex;
 - repeated workflow pain;
 - repeated user corrections;
@@ -342,13 +342,15 @@ Add this?
 2. Add actor capability metadata.
 3. Add `agent_runs`, `agent_run_events`, and `agent_run_artifacts`.
 4. Implement coding-agent planning flow without execution.
-5. Add confirmation detection and queued runs.
-6. Build local worker with fake provider for end-to-end testing.
-7. Add Codex provider adapter.
-8. Add AiDex startup/search/summary behavior.
-9. Add standards and runtime policy enforcement.
-10. Add artifact capture: changed files, verification output, branch, commit, PR URL.
-11. Add Claude Code provider adapter.
+5. Add minimal admin settings for connecting/configuring agent providers and required tools.
+6. Add confirmation detection and queued runs.
+7. Build local worker with fake provider for end-to-end testing.
+8. Add Codex provider adapter.
+9. Add AiDex availability detection plus install/configure flow.
+10. Add AiDex startup/search/summary behavior.
+11. Add standards and runtime policy enforcement.
+12. Add artifact capture: changed files, verification output, branch, commit, PR URL.
+13. Add Claude Code provider adapter.
 
 Deferred:
 
@@ -356,6 +358,7 @@ Deferred:
 - full logs viewer;
 - automatic PR creation;
 - Standards Scout;
+- advanced agent marketplace/provider management;
 - multi-agent delegation;
 - remote/cloud workers;
 - full BrainShare adaptive retrieval.
@@ -366,4 +369,3 @@ Deferred:
 - Should `go` authorize all safe local edits for the whole run, or only until the next meaningful plan change?
 - Should WorkOS store provider hook/config projections as generated artifacts, or regenerate them for every run?
 - What is the minimal fake provider contract needed to test the full WorkOS flow before invoking real Codex?
-
