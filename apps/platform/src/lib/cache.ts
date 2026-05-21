@@ -11,6 +11,7 @@ export const cacheTags = {
   children: (parentId: string) => `node-children:${parentId}`,
   workspaceBoard: (workspaceId: string) => `workspace-board:${workspaceId}`,
   instanceFields: (instanceId: string) => `instance-fields:${instanceId}`,
+  aiStandards: (instanceId: string) => `ai-standards:${instanceId}`,
   workspaceViews: (workspaceId: string) => `workspace-views:${workspaceId}`,
   nodePosts: (nodeId: string) => `posts:${nodeId}`,
   workspaceFeed: (workspaceId: string) => `workspace-feed:${workspaceId}`,
@@ -20,6 +21,10 @@ export const cacheTags = {
 
 // Next 16 `revalidateTag` requires a profile arg; "max" = stale-while-revalidate.
 const PROFILE = "max";
+
+// `{ expire: 0 }` forces the tag to expire NOW so the next read fetches fresh
+// data instead of a stale-while-revalidate snapshot.
+const IMMEDIATE = { expire: 0 } as const;
 
 export function revalidateNode(id: string, parentId: string | null) {
   revalidateTag(cacheTags.node(id), PROFILE);
@@ -38,6 +43,10 @@ export function revalidateInstanceFields(instanceId: string) {
   revalidateTag(cacheTags.instanceFields(instanceId), PROFILE);
 }
 
+export function revalidateAIStandards(instanceId: string) {
+  revalidateTag(cacheTags.aiStandards(instanceId), IMMEDIATE);
+}
+
 export function revalidateWorkspaceViews(workspaceId: string) {
   revalidateTag(cacheTags.workspaceViews(workspaceId), PROFILE);
 }
@@ -47,10 +56,8 @@ export function revalidateWorkspaceViews(workspaceId: string) {
 // stale-while-revalidate snapshot. Using the "max" SWR profile here caused a
 // "whiplash" bug where Claude's reply only appeared after the *next* user
 // @-mention (because every poll was being served the stale snapshot while a
-// background refresh ran). `{ expire: 0 }` forces the tag to expire NOW so
-// the next read fetches fresh from Supabase. Other tags keep "max" because
-// their reads are read-heavy and tolerate brief staleness.
-const IMMEDIATE = { expire: 0 } as const;
+// background refresh ran). Other tags keep "max" because their reads are
+// read-heavy and tolerate brief staleness.
 
 export function revalidateNodePosts(nodeId: string) {
   revalidateTag(cacheTags.nodePosts(nodeId), IMMEDIATE);

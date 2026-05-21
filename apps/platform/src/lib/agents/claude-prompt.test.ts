@@ -108,3 +108,29 @@ assert.match(
   prompt.userMessage,
   /Respond only to the post marked "TARGET @MENTION TO ANSWER"\.$/
 );
+
+const promptWithStandards = renderClaudePrompt(ctx, {
+  targetPostId: "target",
+  standards: [
+    {
+      standard_key: "standard.output.pyramid_principle",
+      category: "output",
+      title: "Pyramid principle",
+      instruction: "Lead with the answer, then support it.",
+      mode: "visible_when_useful",
+      enabled: true,
+      position: 10,
+      source: "default",
+    },
+  ],
+});
+
+assert.match(
+  promptWithStandards.systemPrompt,
+  /# BrainShare Inborn AI Standards/
+);
+assert.match(promptWithStandards.systemPrompt, /Pyramid principle/);
+assert.match(
+  promptWithStandards.systemPrompt,
+  /Only respond to the post explicitly marked/
+);

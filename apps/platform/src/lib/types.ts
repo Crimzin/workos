@@ -102,3 +102,22 @@ export interface MemoryPrimitive {
   updated_at: string;
   created_by_actor?: Pick<Actor, "id" | "name" | "kind"> | null;
 }
+
+export type AIStandardCategory = "interaction" | "output";
+export type AIStandardMode = "latent" | "visible_when_useful";
+export type AIStandardSource = "default" | "override" | "custom";
+
+export interface AIStandard {
+  id?: string;
+  instance_id?: string;
+  standard_key: string;
+  category: AIStandardCategory;
+  title: string;
+  instruction: string;
+  mode: AIStandardMode;
+  enabled: boolean;
+  position: number;
+  source: AIStandardSource;
+  created_at?: string;
+  updated_at?: string;
+}
