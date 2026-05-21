@@ -1,4 +1,4 @@
--- 0021_agent_runtime.sql
+-- 0022_agent_runtime.sql
 -- Provider-neutral agent capabilities, durable planning runs, run events,
 -- run artifacts, and minimal provider/tool settings.
 
