@@ -68,6 +68,8 @@ const rendered = renderAIStandardsForPrompt(merged);
 assert.match(rendered, /# BrainShare Inborn AI Standards/);
 assert.match(rendered, /## Interaction/);
 assert.match(rendered, /## Output/);
+assert.match(rendered, /Latent standards/);
+assert.match(rendered, /Visible-when-useful standards/);
 assert.match(rendered, /Lead With The Answer/);
 assert.doesNotMatch(rendered, /Disabled override/);
 

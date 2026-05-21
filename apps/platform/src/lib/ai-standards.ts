@@ -228,15 +228,29 @@ export function renderAIStandardsForPrompt(
   const output = standards.filter((s) => s.category === "output");
   const renderRows = (rows: AIStandardDefinition[]) =>
     rows.map((s) => `- ${s.title}: ${s.instruction}`).join("\n");
+  const renderCategory = (rows: AIStandardDefinition[]) => {
+    const latent = rows.filter((s) => s.mode === "latent");
+    const visibleWhenUseful = rows.filter(
+      (s) => s.mode === "visible_when_useful"
+    );
+
+    return [
+      "Latent standards: apply quietly as judgment defaults; do not force visible structure solely because of these standards.",
+      renderRows(latent),
+      "",
+      "Visible-when-useful standards: make these visible in the answer when they improve comprehension, especially for analysis, research, planning, decisions, synthesis, and critique.",
+      renderRows(visibleWhenUseful),
+    ].join("\n");
+  };
 
   return [
     "# BrainShare Inborn AI Standards",
     "These are universal WorkOS standards for AI teammates. Apply them quietly to almost every request. Use visible structure when it improves comprehension.",
     "",
     "## Interaction",
-    renderRows(interaction),
+    renderCategory(interaction),
     "",
     "## Output",
-    renderRows(output),
+    renderCategory(output),
   ].join("\n");
 }
