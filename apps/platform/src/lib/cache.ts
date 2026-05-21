@@ -33,6 +33,10 @@ export function revalidateNode(id: string, parentId: string | null) {
   if (parentId) revalidateTag(cacheTags.children(parentId), PROFILE);
 }
 
+export function revalidateNodeChildren(parentId: string) {
+  revalidateTag(cacheTags.children(parentId), PROFILE);
+}
+
 export function revalidateNodePath(id: string) {
   revalidateTag(cacheTags.nodePath(id), PROFILE);
 }

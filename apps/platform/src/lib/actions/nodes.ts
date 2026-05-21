@@ -6,6 +6,7 @@ import { getCurrentActor } from "../actor";
 import {
   revalidateRootNodes,
   revalidateNode,
+  revalidateNodeChildren,
   revalidateNodePath,
   revalidateThreadSurface,
   revalidateWorkspaceBoard,
@@ -710,7 +711,7 @@ export async function createSubThread(
     .single();
   if (error) throw error;
 
-  await supabase.from("posts").insert({
+  const { error: postErr } = await supabase.from("posts").insert({
     node_id: parentThreadId,
     actor_id: actor.id,
     post_type: "sub_thread_created",
@@ -720,8 +721,10 @@ export async function createSubThread(
       source_post_id: sourcePostId ?? null,
     },
   });
+  if (postErr) throw postErr;
 
   revalidateNode(parentThreadId, null);
+  revalidateNodeChildren(parentThreadId);
   revalidateNodePath(subThread.id);
   revalidateThreadSurface(parentThreadId);
   revalidateThreadSurface(subThread.id);
@@ -764,7 +767,7 @@ export async function resolveSubThread(
     .eq("id", subThreadId);
   if (updateErr) throw updateErr;
 
-  await supabase.from("posts").insert({
+  const { error: postErr } = await supabase.from("posts").insert({
     node_id: parentThreadId,
     actor_id: actor.id,
     post_type: "sub_thread_resolved",
@@ -774,6 +777,7 @@ export async function resolveSubThread(
       summary: normalizedSummary,
     }),
   });
+  if (postErr) throw postErr;
 
   revalidateNode(subThreadId, parentThreadId);
   revalidateThreadSurface(parentThreadId);
