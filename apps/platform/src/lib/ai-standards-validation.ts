@@ -36,7 +36,7 @@ export function normalizeAIStandardInput(
   if (!standardKey) throw new Error("standard_key_required");
   if (!title) throw new Error("title_required");
   if (!instruction) throw new Error("instruction_required");
-  if (!["interaction", "output"].includes(input.category)) {
+  if (!["interaction", "output", "execution"].includes(input.category)) {
     throw new Error("invalid_category");
   }
   if (!["latent", "visible_when_useful"].includes(input.mode)) {

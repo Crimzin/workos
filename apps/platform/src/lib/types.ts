@@ -184,6 +184,25 @@ export interface AgentRun {
   updated_at: string;
 }
 
+export interface AgentRunEvent {
+  id: string;
+  run_id: string;
+  event_type: string;
+  message: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AgentRunArtifact {
+  id: string;
+  run_id: string;
+  artifact_type: string;
+  title: string;
+  uri: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface AgentProviderSetting {
   id: string;
   instance_id: string;

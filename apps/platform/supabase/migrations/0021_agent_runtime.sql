@@ -2,6 +2,13 @@
 -- Provider-neutral agent capabilities, durable planning runs, run events,
 -- run artifacts, and minimal provider/tool settings.
 
+alter table if exists ai_standards
+  drop constraint if exists ai_standards_category_check;
+
+alter table if exists ai_standards
+  add constraint ai_standards_category_check
+  check (category in ('interaction', 'output', 'execution'));
+
 create table if not exists agent_actor_capabilities (
   id          uuid primary key default gen_random_uuid(),
   actor_id    uuid not null references actors(id) on delete cascade,
@@ -33,6 +40,7 @@ create table if not exists agent_runs (
   metadata             jsonb not null default '{}'::jsonb,
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now(),
+  check (provider_key in ('inline_claude', 'codex', 'claude_code')),
   check (status in ('mentioned', 'planning', 'awaiting_confirmation', 'queued', 'running', 'needs_input', 'verifying', 'completed', 'failed', 'cancelled'))
 );
 
