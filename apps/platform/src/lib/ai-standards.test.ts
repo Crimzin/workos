@@ -5,7 +5,10 @@ import {
   mergeAIStandardsForSettings,
   renderAIStandardsForPrompt,
 } from "./ai-standards";
-import type { AIStandardOverrideRow } from "./ai-standards";
+import type {
+  AIStandardDefinition,
+  AIStandardOverrideRow,
+} from "./ai-standards";
 
 assert.ok(
   DEFAULT_AI_STANDARDS.some(
@@ -72,6 +75,77 @@ assert.match(rendered, /Latent standards/);
 assert.match(rendered, /Visible-when-useful standards/);
 assert.match(rendered, /Lead With The Answer/);
 assert.doesNotMatch(rendered, /Disabled override/);
+
+function assertAppearsAfter(
+  renderedPrompt: string,
+  earlierText: string,
+  laterText: string
+) {
+  const earlierIndex = renderedPrompt.indexOf(earlierText);
+  const laterIndex = renderedPrompt.indexOf(laterText);
+
+  assert.notEqual(earlierIndex, -1, `Missing expected text: ${earlierText}`);
+  assert.notEqual(laterIndex, -1, `Missing expected text: ${laterText}`);
+  assert.ok(
+    laterIndex > earlierIndex,
+    `Expected "${laterText}" to appear after "${earlierText}"`
+  );
+}
+
+const modePlacementFixture: AIStandardDefinition[] = [
+  {
+    standard_key: "standard.test.latent",
+    category: "interaction",
+    title: "Quiet Judgment Fixture",
+    instruction: "Apply this quietly.",
+    mode: "latent",
+    enabled: true,
+    position: 10,
+    source: "custom",
+  },
+  {
+    standard_key: "standard.test.visible",
+    category: "interaction",
+    title: "Visible Structure Fixture",
+    instruction: "Make this visible when useful.",
+    mode: "visible_when_useful",
+    enabled: true,
+    position: 20,
+    source: "custom",
+  },
+];
+
+const modePlacementRendered = renderAIStandardsForPrompt(modePlacementFixture);
+assertAppearsAfter(
+  modePlacementRendered,
+  "Latent standards",
+  "Quiet Judgment Fixture"
+);
+assertAppearsAfter(
+  modePlacementRendered,
+  "Quiet Judgment Fixture",
+  "Visible-when-useful standards"
+);
+assertAppearsAfter(
+  modePlacementRendered,
+  "Visible-when-useful standards",
+  "Visible Structure Fixture"
+);
+
+const flippedModePlacementRendered = renderAIStandardsForPrompt([
+  { ...modePlacementFixture[0], mode: "visible_when_useful" },
+  modePlacementFixture[1],
+]);
+assertAppearsAfter(
+  flippedModePlacementRendered,
+  "Visible-when-useful standards",
+  "Quiet Judgment Fixture"
+);
+assertAppearsAfter(
+  flippedModePlacementRendered,
+  "Visible-when-useful standards",
+  "Visible Structure Fixture"
+);
 
 const settingsMerged = mergeAIStandardsForSettings(
   DEFAULT_AI_STANDARDS,
