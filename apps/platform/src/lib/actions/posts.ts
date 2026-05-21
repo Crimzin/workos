@@ -23,6 +23,7 @@ import {
 import { routeAgentMentions } from "../agents/router";
 import { isAgentRunConfirmation } from "../agents/confirmation";
 import { queueAwaitingRunsForConfirmation } from "../agents/runs";
+import { processNextQueuedAgentRun } from "../agents/worker";
 
 /**
  * Server action used by the 1.11 streaming-agent polling effect. Returns the
@@ -83,7 +84,12 @@ export async function createPost(
         requesterActorId: actor.id,
         confirmationPostId: targetPost.id,
       });
-      if (queued > 0) return;
+      if (queued > 0) {
+        after(async () => {
+          await processNextQueuedAgentRun();
+        });
+        return;
+      }
     } catch (err) {
       console.error("[agent-runtime] confirmation failed:", err);
     }
