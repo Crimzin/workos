@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { supabase } from "./supabase";
 import { cacheTags } from "./cache";
 import type { WorkNode } from "./types";
+import { buildSidebarTree, type SidebarTreeNode } from "./sidebar-tree";
 
 export async function getRootNodes(): Promise<WorkNode[]> {
   return cachedGetRootNodes();
@@ -64,4 +65,14 @@ export async function getChildren(parentId: string): Promise<WorkNode[]> {
     }
   );
   return cached();
+}
+
+export async function getSidebarTree(): Promise<SidebarTreeNode[]> {
+  const { data, error } = await supabase
+    .from("nodes")
+    .select("*")
+    .is("archived_at", null)
+    .order("position", { ascending: true });
+  if (error) throw error;
+  return buildSidebarTree((data ?? []) as WorkNode[]);
 }

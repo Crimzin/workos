@@ -14,6 +14,7 @@ interface WorkspaceFeedProps {
   actorId: string;
   actors: ActorForMention[];
   isPersonal: boolean;
+  global?: boolean;
 }
 
 type FeedTab = "my" | "workspace" | "all";
@@ -25,18 +26,21 @@ export function WorkspaceFeed({
   actorId,
   actors,
   isPersonal,
+  global = false,
 }: WorkspaceFeedProps) {
-  const [tab, setTab] = useState<FeedTab>("workspace");
+  const [tab, setTab] = useState<FeedTab>(global ? "all" : "workspace");
 
-  const tabs: { id: FeedTab; label: string }[] = [
-    { id: "my", label: "My Feed" },
-    { id: "workspace", label: "Workspace" },
-    ...(isPersonal ? [{ id: "all" as FeedTab, label: "All" }] : []),
-  ];
+  const tabs: { id: FeedTab; label: string }[] = global
+    ? [{ id: "all", label: "All" }]
+    : [
+        { id: "my", label: "My Feed" },
+        { id: "workspace", label: "Workspace" },
+        ...(isPersonal ? [{ id: "all" as FeedTab, label: "All" }] : []),
+      ];
 
   // In solo mode, My Feed = Workspace Feed
   const posts: FeedPost[] =
-    tab === "all" ? allFeed : tab === "my" ? workspaceFeed : workspaceFeed;
+    global || tab === "all" ? allFeed : tab === "my" ? workspaceFeed : workspaceFeed;
 
   return (
     <div className="mx-auto max-w-2xl w-full">

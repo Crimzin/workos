@@ -1,6 +1,4 @@
-import { unstable_cache } from "next/cache";
 import { supabase } from "./supabase";
-import { cacheTags } from "./cache";
 
 export interface PostRecord {
   id: string;
@@ -64,7 +62,7 @@ export async function getWorkspaceFeed(
 
     const { data, error } = await supabase
       .from("posts")
-      .select("*, actor:actors(id,name,kind), node:nodes(id,title,type)")
+      .select("*, actor:actors(id,name,kind), node:nodes!posts_node_id_fkey(id,title,type)")
       .in("node_id", nodeIds)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -75,7 +73,7 @@ export async function getWorkspaceFeed(
   // scope === "all"
   const { data, error } = await supabase
     .from("posts")
-    .select("*, actor:actors(id,name,kind), node:nodes(id,title,type)")
+    .select("*, actor:actors(id,name,kind), node:nodes!posts_node_id_fkey(id,title,type)")
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) throw error;
