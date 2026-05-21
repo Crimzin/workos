@@ -125,6 +125,11 @@ export async function updateNodeTitle(
   if (error) throw error;
 
   revalidateNode(nodeId, parentId);
+  revalidateNodePath(nodeId);
+  const descendantIds = await getDescendantNodeIds(nodeId);
+  for (const descendantId of descendantIds) {
+    revalidateNodePath(descendantId);
+  }
   revalidateWorkspaceBoard(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
   // If the renamed node is a workspace, refresh the sidebar tree too.
@@ -132,6 +137,25 @@ export async function updateNodeTitle(
     revalidateRootNodes();
     revalidatePath("/", "layout");
   }
+}
+
+async function getDescendantNodeIds(nodeId: string): Promise<string[]> {
+  const descendantIds: string[] = [];
+  let frontier = [nodeId];
+
+  while (frontier.length > 0) {
+    const { data, error } = await supabase
+      .from("nodes")
+      .select("id")
+      .in("parent_id", frontier);
+    if (error) throw error;
+
+    const next = (data ?? []).map((node) => node.id);
+    descendantIds.push(...next);
+    frontier = next;
+  }
+
+  return descendantIds;
 }
 
 export interface CreateWorkspaceResult {

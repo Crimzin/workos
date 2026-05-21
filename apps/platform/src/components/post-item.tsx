@@ -215,6 +215,14 @@ function copyTextForPost(post: PostRecord): string {
   if (post.post_type === "link_created" && post.metadata) {
     return `Linked: ${post.metadata.target_title ?? "Untitled"}`;
   }
+  if (post.post_type === "sub_thread_created" && post.metadata) {
+    return `Opened sub-thread: ${post.metadata.sub_thread_title ?? "Untitled"}`;
+  }
+  if (post.post_type === "sub_thread_resolved" && post.metadata) {
+    const title = post.metadata.sub_thread_title ?? "Untitled";
+    const summary = post.metadata.summary;
+    return summary ? `Resolved sub-thread: ${title} - ${summary}` : `Resolved sub-thread: ${title}`;
+  }
   return post.post_type;
 }
 
@@ -240,6 +248,41 @@ function ActivityBody({ post, workspaceId }: { post: PostRecord; workspaceId: st
       <p className="text-sm text-text-secondary">
         Linked · <span className="text-text-primary font-medium">{target_title}</span>
       </p>
+    );
+  }
+  if (post.post_type === "sub_thread_created" && post.metadata) {
+    const { sub_thread_id, sub_thread_title } = post.metadata;
+    return (
+      <p className="text-sm text-text-secondary">
+        Opened sub-thread ·{" "}
+        <Link
+          href={`/n/${sub_thread_id}`}
+          className="text-text-primary font-medium hover:underline"
+        >
+          {sub_thread_title ?? "Untitled"}
+        </Link>
+      </p>
+    );
+  }
+  if (post.post_type === "sub_thread_resolved" && post.metadata) {
+    const { sub_thread_id, sub_thread_title, summary } = post.metadata;
+    return (
+      <div className="space-y-1 text-sm text-text-secondary">
+        <p>
+          Resolved sub-thread ·{" "}
+          <Link
+            href={`/n/${sub_thread_id}`}
+            className="text-text-primary font-medium hover:underline"
+          >
+            {sub_thread_title ?? "Untitled"}
+          </Link>
+        </p>
+        {summary ? (
+          <p className="border-l-2 border-border-subtle pl-3 text-text-primary">
+            {summary}
+          </p>
+        ) : null}
+      </div>
     );
   }
   return <p className="text-sm text-text-tertiary italic">{post.post_type}</p>;

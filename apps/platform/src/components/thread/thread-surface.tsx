@@ -40,11 +40,11 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     mirrorPlacements,
   } = detail;
 
-  const homePlacement = mirrorPlacements.find((placement) => placement.is_home);
-  const homeWorkspaceId = homePlacement?.parent.id ?? workspaceId;
-  const isHomeContext = homeWorkspaceId === workspaceId;
+  const homeWorkspaceId =
+    path.find((item) => item.type === "workspace")?.id ?? workspaceId;
+  const isHomeContext = true;
   const isMirrored = mirrorPlacements.length > 1;
-  const mirrorParentId = !isHomeContext ? workspaceId : undefined;
+  const mirrorParentId = undefined;
 
   const actions =
     node.type === "workspace" ? null : (
