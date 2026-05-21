@@ -22,27 +22,28 @@ export interface ThreadSurfaceData {
 export async function getThreadSurface(
   nodeId: string
 ): Promise<ThreadSurfaceData | null> {
-  const [detail, path, actor, actors] = await Promise.all([
+  const [detail, path, actor] = await Promise.all([
     getNodeDetail(nodeId),
     getNodePath(nodeId),
     getCurrentActor(),
-    getActors(),
   ]);
   if (!detail) return null;
 
+  const actorsPromise = getActors(actor.instance_id);
   const workspaceId = path[0]?.id ?? detail.node.id;
   const mirrorTargetsPromise =
     detail.node.type === "stack" || detail.node.type === "card"
       ? getMirrorTargets(detail.node.instance_id, detail.node.type)
       : Promise.resolve([]);
 
-  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings] =
+  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors] =
     await Promise.all([
     mirrorTargetsPromise,
     getNodePosts(nodeId),
     getNodeLinks(nodeId),
     getNodeMemoryPrimitives(nodeId),
     getAgentSettings(actor.instance_id),
+    actorsPromise,
   ]);
 
   return {

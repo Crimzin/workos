@@ -33,14 +33,13 @@ export async function DetailPanel({
   workspaceId,
   closeHref,
 }: DetailPanelProps) {
-  const [detail, actor, actors] = await Promise.all([
+  const [detail, actor] = await Promise.all([
     getNodeDetail(nodeId),
     getCurrentActor(),
-    getActors(),
   ]);
 
   // Fetch mirror targets + posts + links + memory in parallel with detail panel render.
-  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings] = await Promise.all([
+  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
@@ -52,6 +51,7 @@ export async function DetailPanel({
       ? getNodeMemoryPrimitives(nodeId)
       : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
     getAgentSettings(actor.instance_id),
+    getActors(actor.instance_id),
   ]);
 
   return (

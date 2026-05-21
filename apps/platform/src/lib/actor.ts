@@ -11,18 +11,29 @@ export interface ActorForMention {
   kind: "human" | "agent";
 }
 
+function orderActorsForMentions(actors: ActorForMention[]): ActorForMention[] {
+  const humans = actors.filter((a) => a.kind === "human");
+  const agents = actors.filter((a) => a.kind === "agent");
+  return [...humans, ...agents];
+}
+
 /** Returns all actors in the instance, humans first then agents, alphabetical. */
-export async function getActors(): Promise<ActorForMention[]> {
-  const { data, error } = await supabase
+export async function getActors(instanceId?: string): Promise<ActorForMention[]> {
+  let query = supabase
     .from("actors")
     .select("id, name, kind")
     .order("kind", { ascending: true }) // "agent" < "human" alphabetically → humans first
     .order("name", { ascending: true });
+
+  if (instanceId) {
+    query = query.eq("instance_id", instanceId);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
-  // Swap so humans come before agents
-  const humans = (data ?? []).filter((a) => a.kind === "human");
-  const agents = (data ?? []).filter((a) => a.kind === "agent");
-  return [...humans, ...agents] as ActorForMention[];
+
+  // Swap so humans come before agents.
+  return orderActorsForMentions((data ?? []) as ActorForMention[]);
 }
 
 export interface CurrentActor {
