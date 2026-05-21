@@ -127,7 +127,7 @@ export function PostItem({
           </div>
         </div>
       ) : (
-        <div className="prose-post">
+        <div className="prose-post [&_.bn-post-editor_img]:max-h-[360px] [&_.bn-post-editor_img]:max-w-full [&_.bn-post-editor_img]:rounded-lg [&_.bn-post-editor_img]:border [&_.bn-post-editor_img]:border-border [&_.bn-post-editor_img]:bg-bg-card [&_.bn-post-editor_img]:object-contain [&_.bn-post-editor_[data-content-type='image']]:max-w-[min(720px,100%)] [&_.bn-post-editor_[data-node-type='image']]:max-w-[min(720px,100%)]">
           <PostEditor initialContent={initialContent} editable={false} />
         </div>
       )}
