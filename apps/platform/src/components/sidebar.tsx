@@ -11,6 +11,7 @@ import {
   Plus,
   Rss,
   Search,
+  Settings,
 } from "lucide-react";
 import type { WorkNode } from "@/lib/types";
 import { createWorkspace, updateNodeTitle } from "@/lib/actions/nodes";
@@ -162,6 +163,23 @@ export function Sidebar({ personal, workspaces }: SidebarProps) {
       </SidebarSection>
 
       <div className="flex-1" />
+
+      <div className="border-t border-border px-2 py-2">
+        <Link
+          href="/settings/ai-standards"
+          title="AI Standards"
+          className={[
+            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+            pathname === "/settings/ai-standards"
+              ? "bg-bg-selected text-text-primary"
+              : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary",
+            collapsed ? "justify-center" : "",
+          ].join(" ")}
+        >
+          <Settings size={15} strokeWidth={2} />
+          {!collapsed && <span>AI Standards</span>}
+        </Link>
+      </div>
 
       {/* Footer: theme toggle */}
       <div
