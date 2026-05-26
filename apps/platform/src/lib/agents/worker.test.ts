@@ -26,6 +26,7 @@ assert.match(prompt, /User request:\n@Codex wire the worker/);
 assert.match(prompt, /Confirmed plan:\n1\. Inspect/);
 assert.match(prompt, /Use AiDex/);
 assert.match(prompt, /Follow AGENTS\.md/);
+assert.match(prompt, /Superpowers/);
 
 assert.deepEqual(buildCodexCommand("/repo", prompt), {
   command: "codex",

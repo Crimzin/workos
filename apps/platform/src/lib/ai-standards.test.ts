@@ -20,6 +20,23 @@ assert.ok(
     (s) => s.standard_key === "standard.output.pyramid_principle"
   )
 );
+assert.ok(
+  DEFAULT_AI_STANDARDS.some(
+    (s) => s.standard_key === "standard.ai_interaction.collaboration_mode"
+  )
+);
+assert.ok(
+  DEFAULT_AI_STANDARDS.some(
+    (s) => s.standard_key === "standard.ai_interaction.one_question_at_a_time"
+  )
+);
+assert.ok(
+  DEFAULT_AI_STANDARDS.some(
+    (s) =>
+      s.standard_key ===
+      "standard.ai_interaction.agentic_operating_discipline"
+  )
+);
 
 const overrideRows: AIStandardOverrideRow[] = [
   {
@@ -71,6 +88,8 @@ const rendered = renderAIStandardsForPrompt(merged);
 assert.match(rendered, /# BrainShare Inborn AI Standards/);
 assert.match(rendered, /## Interaction/);
 assert.match(rendered, /## Output/);
+assert.match(rendered, /## Response-mode protocol/);
+assert.match(rendered, /do not one-shot the artifact/);
 assert.match(rendered, /Latent standards/);
 assert.match(rendered, /Visible-when-useful standards/);
 assert.match(rendered, /Lead With The Answer/);

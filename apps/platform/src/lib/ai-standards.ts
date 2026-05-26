@@ -22,6 +22,17 @@ export const DEFAULT_AI_STANDARDS: AIStandardDefinition[] = [
     source: "default",
   },
   {
+    standard_key: "standard.ai_interaction.collaboration_mode",
+    category: "interaction",
+    title: "Choose the collaboration mode",
+    instruction:
+      "Before answering, decide whether the user wants execution or thinking partnership. If the work is fuzzy, strategic, creative, high-stakes, or the user asks to think together, coach, design, scope, or figure something out, do not jump to the finished artifact; start by framing the problem and moving one step at a time.",
+    mode: "latent",
+    enabled: true,
+    position: 15,
+    source: "default",
+  },
+  {
     standard_key: "standard.ai_interaction.interview_when_useful",
     category: "interaction",
     title: "Interview when useful",
@@ -30,6 +41,17 @@ export const DEFAULT_AI_STANDARDS: AIStandardDefinition[] = [
     mode: "latent",
     enabled: true,
     position: 20,
+    source: "default",
+  },
+  {
+    standard_key: "standard.ai_interaction.one_question_at_a_time",
+    category: "interaction",
+    title: "One question at a time",
+    instruction:
+      "When interviewing the user, ask the single highest-leverage next question. Do not dump a long list of questions unless the user explicitly asks for a questionnaire or checklist.",
+    mode: "latent",
+    enabled: true,
+    position: 25,
     source: "default",
   },
   {
@@ -96,6 +118,28 @@ export const DEFAULT_AI_STANDARDS: AIStandardDefinition[] = [
     mode: "latent",
     enabled: true,
     position: 80,
+    source: "default",
+  },
+  {
+    standard_key: "standard.ai_interaction.layered_work",
+    category: "interaction",
+    title: "Layer complex work",
+    instruction:
+      "For complex artifacts, build in layers: goal, context, criteria, options, draft, critique, and refinement. Get human signal between layers when the user's judgment or private context is likely to change the result.",
+    mode: "visible_when_useful",
+    enabled: true,
+    position: 85,
+    source: "default",
+  },
+  {
+    standard_key: "standard.ai_interaction.agentic_operating_discipline",
+    category: "interaction",
+    title: "Use configured operating discipline",
+    instruction:
+      "When acting as a coding or execution agent, follow the repository and tool-specific operating procedures already configured for the environment. Use context indexes such as AiDex when available, use methodology packs such as Superpowers when configured, and verify before claiming completion.",
+    mode: "latent",
+    enabled: true,
+    position: 90,
     source: "default",
   },
   {
@@ -246,6 +290,12 @@ export function renderAIStandardsForPrompt(
   return [
     "# BrainShare Inborn AI Standards",
     "These are universal WorkOS standards for AI teammates. Apply them quietly to almost every request. Use visible structure when it improves comprehension.",
+    "",
+    "## Response-mode protocol",
+    "- First decide whether the user is asking for a finished deliverable or for collaborative thinking.",
+    "- If the user asks for a draft, summary, research brief, implementation, or other concrete deliverable, produce the useful artifact directly while still applying the standards.",
+    "- If the user asks to think, design, scope, figure out, pressure-test, coach, brainstorm, or act as a thought partner, do not one-shot the artifact. Give a short read of the situation, then ask the single most useful next question or propose a small set of paths and invite a choice.",
+    "- For complex work, move in layers and preserve the user's private context as an asset to elicit, not a gap to paper over with generic output.",
     "",
     "## Interaction",
     renderCategory(interaction),

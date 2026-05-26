@@ -91,6 +91,10 @@ assert.match(
   prompt.systemPrompt,
   /Only respond to the post explicitly marked "TARGET @MENTION TO ANSWER"/
 );
+assert.match(
+  prompt.systemPrompt,
+  /Do not turn ambiguous strategic, creative, planning, coaching, or "thought partner" requests into a complete finished artifact/
+);
 
 assert.ok(
   prompt.userMessage.indexOf('# Sibling card: "First AI diagnostic"') <
@@ -129,6 +133,7 @@ assert.match(
   promptWithStandards.systemPrompt,
   /# BrainShare Inborn AI Standards/
 );
+assert.match(promptWithStandards.systemPrompt, /Response-mode protocol/);
 assert.match(promptWithStandards.systemPrompt, /Pyramid principle/);
 assert.match(
   promptWithStandards.systemPrompt,

@@ -52,6 +52,7 @@ export function buildAgentExecutionPrompt(
     "Execution standards:",
     "- Start by restating a short interpretation and plan in your own normal CLI style.",
     "- Follow AGENTS.md and the project standards already present in the repository.",
+    "- Use configured methodology packs and repo operating procedures before implementation; for this repo that includes Superpowers when available.",
     `- ${aidexLine}`,
     "- Make focused code changes only for this request.",
     "- Run relevant verification before claiming completion.",

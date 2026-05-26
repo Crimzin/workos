@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { getCurrentActor } from "../actor";
 import { DEFAULT_AI_STANDARDS } from "../ai-standards";
+import type { AIStandard } from "../types";
 import {
   normalizeAIStandardInput,
   standardKeyFromTitle,
@@ -57,7 +58,7 @@ export async function createCustomAIStandard(input: {
   instruction: string;
   mode: AIStandardInput["mode"];
   position?: number;
-}): Promise<void> {
+}): Promise<AIStandard> {
   const standardKey = `${standardKeyFromTitle(input.title)}.${randomUUID()}`;
   assertCustomStandardKey(standardKey);
 
@@ -77,6 +78,30 @@ export async function createCustomAIStandard(input: {
     instance_id: actor.instance_id,
     ...payload,
   });
+  if (error) throw error;
+
+  revalidateAIStandards(actor.instance_id);
+  revalidatePath("/settings/ai-standards");
+
+  return payload;
+}
+
+export async function saveCustomAIStandard(
+  input: AIStandardInput
+): Promise<void> {
+  const actor = await getCurrentActor();
+  assertCustomStandardKey(input.standardKey);
+  const payload = normalizeAIStandardInput({
+    ...input,
+    source: "custom",
+  });
+
+  const { error } = await supabase
+    .from("ai_standards")
+    .update(payload)
+    .eq("instance_id", actor.instance_id)
+    .eq("standard_key", payload.standard_key)
+    .eq("source", "custom");
   if (error) throw error;
 
   revalidateAIStandards(actor.instance_id);
