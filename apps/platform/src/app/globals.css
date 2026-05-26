@@ -4,19 +4,25 @@
    Design tokens — light mode (default)
    ============================================================================= */
 :root {
-  --bg-primary: #FAFAF8;
-  --bg-secondary: #F2F1EE;
-  --bg-card: #FFFFFF;
-  --bg-hover: #EEEDEA;
-  --bg-selected: #E8E6E1;
+  --bg-primary: #FAF8F3;
+  --bg-secondary: #F0ECE2;
+  --bg-card: #FFFDF8;
+  --bg-hover: #EDE7DC;
+  --bg-selected: #E5DDD0;
 
-  --text-primary: #1C1C1A;
-  --text-secondary: #6B6966;
-  --text-tertiary: #9C9A96;
+  --text-primary: #2A2A28;
+  --text-secondary: #6B6B63;
+  --text-tertiary: #8F9088;
 
-  --accent: #E85D3A;
-  --accent-hover: #D14E2D;
-  --accent-subtle: #FDF0EC;
+  --accent: #1F3A3D;
+  --accent-hover: #14292B;
+  --accent-subtle: #E3E9E6;
+  --accent-warm: #C4622D;
+  --accent-warm-hover: #A94F22;
+  --theme-toggle-bg: #14292B;
+  --theme-toggle-fg: #FAF8F3;
+  --theme-toggle-border: #3A4F51;
+  --theme-toggle-hover: #1F3A3D;
 
   --status-none: #9C9A96;
   --status-active: #4A90D9;
@@ -24,15 +30,15 @@
   --status-done: #5CB85C;
   --status-blocked: #D9534F;
 
-  --badge-1: #E8D5B7;
-  --badge-2: #B8D4E3;
-  --badge-3: #D4C5E8;
-  --badge-4: #C5E8D4;
-  --badge-5: #E8C5C5;
-  --badge-6: #E8E0C5;
+  --badge-1: #E6D2B0;
+  --badge-2: #B8C5C3;
+  --badge-3: #D1C4A8;
+  --badge-4: #C7D8CE;
+  --badge-5: #E0BCAB;
+  --badge-6: #D8C58F;
 
-  --border: #E2E0DC;
-  --border-strong: #D0CEC9;
+  --border: #D8D1C3;
+  --border-strong: #B8C5C3;
 
   --agent-accent: #8B6CEF;
 
@@ -44,19 +50,25 @@
 /* Dark mode via OS preference (only when user has not chosen explicitly) */
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --bg-primary: #151517;
-    --bg-secondary: #1C1C1F;
-    --bg-card: #222225;
-    --bg-hover: #2A2A2E;
-    --bg-selected: #32323A;
+    --bg-primary: #14292B;
+    --bg-secondary: #1F3A3D;
+    --bg-card: #183134;
+    --bg-hover: #244347;
+    --bg-selected: #2D4B4D;
 
-    --text-primary: #E8E6E1;
-    --text-secondary: #9C9A96;
-    --text-tertiary: #6B6966;
+    --text-primary: #FAF8F3;
+    --text-secondary: #C8C6BB;
+    --text-tertiary: #A8A89E;
 
-    --accent: #F07052;
-    --accent-hover: #E85D3A;
-    --accent-subtle: #2A1F1C;
+    --accent: #D4A574;
+    --accent-hover: #E8835A;
+    --accent-subtle: #263C35;
+    --accent-warm: #E8835A;
+    --accent-warm-hover: #F19A78;
+    --theme-toggle-bg: #FAF8F3;
+    --theme-toggle-fg: #14292B;
+    --theme-toggle-border: #B8C5C3;
+    --theme-toggle-hover: #F0ECE2;
 
     --status-none: #6B6966;
     --status-active: #5A9DE0;
@@ -64,15 +76,15 @@
     --status-done: #6BC96B;
     --status-blocked: #E06060;
 
-    --badge-1: #3D3528;
-    --badge-2: #283540;
-    --badge-3: #352840;
-    --badge-4: #283D28;
-    --badge-5: #3D2828;
-    --badge-6: #3D3828;
+    --badge-1: #4A3D2A;
+    --badge-2: #31464A;
+    --badge-3: #4B4330;
+    --badge-4: #30483A;
+    --badge-5: #4B342D;
+    --badge-6: #4B4228;
 
-    --border: #2E2E32;
-    --border-strong: #3A3A40;
+    --border: #3A4F51;
+    --border-strong: #536A6D;
 
     --agent-accent: #9B80F0;
   }
@@ -80,19 +92,25 @@
 
 /* Dark mode via explicit user choice */
 :root.dark {
-  --bg-primary: #151517;
-  --bg-secondary: #1C1C1F;
-  --bg-card: #222225;
-  --bg-hover: #2A2A2E;
-  --bg-selected: #32323A;
+  --bg-primary: #14292B;
+  --bg-secondary: #1F3A3D;
+  --bg-card: #183134;
+  --bg-hover: #244347;
+  --bg-selected: #2D4B4D;
 
-  --text-primary: #E8E6E1;
-  --text-secondary: #9C9A96;
-  --text-tertiary: #6B6966;
+  --text-primary: #FAF8F3;
+  --text-secondary: #C8C6BB;
+  --text-tertiary: #A8A89E;
 
-  --accent: #F07052;
-  --accent-hover: #E85D3A;
-  --accent-subtle: #2A1F1C;
+  --accent: #D4A574;
+  --accent-hover: #E8835A;
+  --accent-subtle: #263C35;
+  --accent-warm: #E8835A;
+  --accent-warm-hover: #F19A78;
+  --theme-toggle-bg: #FAF8F3;
+  --theme-toggle-fg: #14292B;
+  --theme-toggle-border: #B8C5C3;
+  --theme-toggle-hover: #F0ECE2;
 
   --status-none: #6B6966;
   --status-active: #5A9DE0;
@@ -100,15 +118,15 @@
   --status-done: #6BC96B;
   --status-blocked: #E06060;
 
-  --badge-1: #3D3528;
-  --badge-2: #283540;
-  --badge-3: #352840;
-  --badge-4: #283D28;
-  --badge-5: #3D2828;
-  --badge-6: #3D3828;
+  --badge-1: #4A3D2A;
+  --badge-2: #31464A;
+  --badge-3: #4B4330;
+  --badge-4: #30483A;
+  --badge-5: #4B342D;
+  --badge-6: #4B4228;
 
-  --border: #2E2E32;
-  --border-strong: #3A3A40;
+  --border: #3A4F51;
+  --border-strong: #536A6D;
 
   --agent-accent: #9B80F0;
 }
@@ -131,6 +149,8 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-subtle: var(--accent-subtle);
+  --color-accent-warm: var(--accent-warm);
+  --color-accent-warm-hover: var(--accent-warm-hover);
 
   --color-status-none: var(--status-none);
   --color-status-active: var(--status-active);
@@ -150,7 +170,8 @@
 
   --color-agent-accent: var(--agent-accent);
 
-  --font-sans: var(--font-dm-sans);
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-fraunces);
   --font-mono: var(--font-jetbrains-mono);
 
   --radius-sm: 4px;
@@ -168,7 +189,7 @@ body {
 }
 
 body {
-  font-family: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "ss01", "cv01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -214,7 +235,7 @@ samp {
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
   color: var(--text-tertiary);
 }
 
@@ -225,7 +246,7 @@ samp {
 /* Remove BlockNote's outer chrome — we provide our own border/bg wrapper */
 .bn-post-editor .bn-editor {
   padding: 8px 12px;
-  font-family: var(--font-dm-sans), sans-serif;
+  font-family: var(--font-inter), sans-serif;
   font-size: 0.875rem;
   line-height: 1.5;
   background: transparent;

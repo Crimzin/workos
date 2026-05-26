@@ -423,7 +423,7 @@ function StackHeader({
       className={[
         "w-60 shrink-0 border-r border-border px-4 py-3 transition-colors",
         isActive
-          ? "border-l-2 border-l-accent bg-bg-selected"
+          ? "border-l-2 border-l-accent-warm bg-accent-subtle"
           : "bg-bg-secondary/60",
       ].join(" ")}
     >
@@ -520,7 +520,7 @@ function StackHeader({
                   "mt-0.5 truncate text-base font-semibold transition-colors",
                   isActive
                     ? "text-accent"
-                    : "text-text-primary group-hover:text-accent",
+                    : "text-text-primary group-hover:text-accent-warm",
                 ].join(" ")}
               >
                 {stack.title}

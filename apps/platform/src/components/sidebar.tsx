@@ -337,17 +337,17 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
   return (
     <aside
       className={[
-        "relative shrink-0 bg-bg-secondary border-r border-border flex flex-col",
+        "relative shrink-0 bg-bg-secondary/95 border-r border-border flex flex-col shadow-sm",
         resizing ? "" : "transition-[width] duration-200 ease-out",
         hydrated ? "" : "invisible",
       ].join(" ")}
       style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
     >
-      <div className="flex h-12 items-center justify-between px-3">
+      <div className="flex h-14 items-center justify-between border-b border-border/70 px-3">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-sm bg-accent" />
-            <span className="text-sm font-semibold tracking-tight text-text-primary">
+            <div className="h-6 w-6 rounded-full bg-accent shadow-sm ring-1 ring-border" />
+            <span className="font-serif text-base font-semibold text-text-primary">
               WorkOS
             </span>
           </div>
@@ -356,7 +356,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
           type="button"
           onClick={toggleCollapsed}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="inline-flex h-7 w-7 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <ChevronLeft
             size={14}
@@ -380,7 +380,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
           title="Search (coming soon)"
           className={[
             "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-            "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors",
+            "text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             collapsed ? "justify-center" : "",
           ].join(" ")}
         >
@@ -418,7 +418,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
                 type="button"
                 onClick={() => setCreatingRoot(true)}
                 title="New project"
-                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <Plus size={13} />
               </button>
@@ -469,7 +469,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
                     }}
                     onCancel={() => setCreatingChildOf(null)}
                     initialExpanded
-                    inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+                    inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent-warm"
                   />
                 </div>
               )}
@@ -491,7 +491,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
                 }}
                 onCancel={() => setCreatingRoot(false)}
                 initialExpanded
-                inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+                inputClassName="w-full rounded-md border border-border-strong bg-bg-card px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent-warm"
               />
             </div>
           )}
@@ -591,7 +591,7 @@ function PinnedNodeRow({
         className={[
           "flex items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
-            ? "bg-bg-selected text-text-primary"
+            ? "bg-accent-subtle text-accent"
             : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
         ].join(" ")}
       >
@@ -607,7 +607,7 @@ function PinnedNodeRow({
       className={[
         "group relative flex cursor-grab items-center gap-1 rounded-md px-1 py-1.5 text-sm transition-colors active:cursor-grabbing",
         isActive
-          ? "bg-bg-selected text-text-primary"
+          ? "bg-accent-subtle text-accent"
           : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
       ].join(" ")}
       onPointerDown={onDragPointerDown}
@@ -798,7 +798,7 @@ function ProjectTreeNodeRow({
         className={[
           "flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
-            ? "bg-bg-selected text-text-primary"
+            ? "bg-accent-subtle text-accent"
             : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
         ].join(" ")}
       >
@@ -814,7 +814,7 @@ function ProjectTreeNodeRow({
       className={[
         "group relative flex cursor-grab items-center gap-0.5 rounded-md py-1.5 pr-0.5 text-sm transition-colors active:cursor-grabbing",
         isActive
-          ? "bg-bg-selected text-text-primary"
+          ? "bg-accent-subtle text-accent"
           : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
       ].join(" ")}
       style={{ ...dragStyle, paddingLeft: 2 + node.depth * 12 }}

@@ -148,7 +148,7 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
   if (editing) {
     return (
       <div ref={setNodeRef} style={style} className="touch-none">
-        <div className="rounded-md border border-accent bg-bg-card p-2.5">
+        <div className="rounded-md border border-accent-warm bg-bg-card p-2.5 shadow-sm">
           <input
             ref={editRef}
             type="text"
@@ -178,8 +178,8 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
             "group block rounded-md border p-2.5 transition-colors",
             isArchived ? "opacity-50 grayscale" : "",
             isActive
-              ? "border-accent bg-bg-selected"
-              : "border-border bg-bg-card hover:border-border-strong hover:bg-bg-hover",
+              ? "border-accent-warm bg-accent-subtle shadow-sm"
+              : "border-border bg-bg-card hover:border-border-strong hover:bg-bg-hover/70",
           ].join(" ")}
         >
           <div className="flex items-start justify-between gap-1">
@@ -370,7 +370,7 @@ export function CardTileOverlay({
 }) {
   const badges = getStaticBadges(card, fields, columnFieldId);
   return (
-    <div className="rounded-md border border-accent bg-bg-card p-2.5 shadow-lg ring-1 ring-accent/30">
+    <div className="rounded-md border border-accent-warm bg-bg-card p-2.5 shadow-lg ring-1 ring-accent-warm/30">
       <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
       {card.description && (
         <div className="mt-1 text-xs text-text-secondary line-clamp-2">{card.description}</div>

@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { DM_Sans, JetBrains_Mono } from "next/font/google";
+import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider, themeInitScript } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
   subsets: ["latin"],
   display: "swap",
 });
@@ -30,14 +36,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
         {/* Inline theme-init runs before paint to prevent FOUC. Raw <script>
             avoids next/script wrapper + React 19 client-render warning. */}
         <script
-          // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{ __html: themeInitScript }}
           suppressHydrationWarning
         />

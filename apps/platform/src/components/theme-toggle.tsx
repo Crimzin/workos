@@ -1,43 +1,45 @@
 "use client";
 
+import { Moon, Sun } from "lucide-react";
 import { useTheme } from "./theme-provider";
+
+export type ThemeToggleIcon = "moon" | "sun";
+
+export function getThemeTogglePresentation(resolvedTheme: "light" | "dark") {
+  if (resolvedTheme === "dark") {
+    return {
+      nextTheme: "light" as const,
+      icon: "sun" as ThemeToggleIcon,
+      ariaLabel: "Switch to light mode",
+      className:
+        "inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-toggle-border)] bg-[var(--theme-toggle-bg)] text-[var(--theme-toggle-fg)] shadow-sm transition-colors hover:bg-[var(--theme-toggle-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+    };
+  }
+
+  return {
+    nextTheme: "dark" as const,
+    icon: "moon" as ThemeToggleIcon,
+    ariaLabel: "Switch to dark mode",
+    className:
+      "inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-toggle-border)] bg-[var(--theme-toggle-bg)] text-[var(--theme-toggle-fg)] shadow-sm transition-colors hover:bg-[var(--theme-toggle-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+  };
+}
 
 export function ThemeToggle() {
   const { resolvedTheme, toggle } = useTheme();
+  const presentation = getThemeTogglePresentation(resolvedTheme);
+
   return (
     <button
       type="button"
       onClick={toggle}
-      aria-label={`Switch to ${resolvedTheme === "dark" ? "light" : "dark"} mode`}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+      aria-label={presentation.ariaLabel}
+      className={presentation.className}
     >
-      {resolvedTheme === "dark" ? (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-        </svg>
+      {presentation.icon === "sun" ? (
+        <Sun size={16} strokeWidth={1.8} aria-hidden="true" />
       ) : (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
+        <Moon size={16} strokeWidth={1.8} aria-hidden="true" />
       )}
     </button>
   );
