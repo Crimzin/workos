@@ -63,6 +63,7 @@ function input(overrides: Partial<AgentPlanningInput>): AgentPlanningInput {
 const availablePlan = renderCodingAgentPlan(input({ aidexStatus: "available" }));
 
 assert.equal(availablePlan.status, "awaiting_confirmation");
+assert.match(availablePlan.planBody, /@Codex implement Task 3/);
 assert.match(availablePlan.planBody, /wait for your "go"/);
 assert.match(availablePlan.planBody, /AiDex/);
 assert.equal(availablePlan.metadata.aidex_status, "available");

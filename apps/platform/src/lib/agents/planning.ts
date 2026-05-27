@@ -26,7 +26,10 @@ export function renderCodingAgentPlan(
   const aidexLine = aidexLineForStatus(input);
 
   const planBody = [
-    `I read this as a coding request on "${title}".`,
+    targetText
+      ? `I read this as: ${targetText}`
+      : `I read this as a coding request on "${title}".`,
+    `Context: "${title}".`,
     "",
     "My plan:",
     "- Confirm the goal from this thread and the card context.",

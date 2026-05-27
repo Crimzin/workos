@@ -36,8 +36,6 @@ assert.deepEqual(buildCodexCommand("/repo", prompt), {
     "/repo",
     "--sandbox",
     "danger-full-access",
-    "--ask-for-approval",
-    "never",
     "--dangerously-bypass-approvals-and-sandbox",
     "-",
   ],
