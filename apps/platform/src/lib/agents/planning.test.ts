@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { renderCodingAgentPlan } from "./planning.ts";
+import {
+  renderCodingAgentPlan,
+  renderDisabledAgentProviderReply,
+} from "./planning.ts";
 import type { NodeContext } from "./node-context.ts";
 import type { AgentPlanningInput } from "./types.ts";
 import type { PostRecord } from "../posts.ts";
@@ -85,3 +88,12 @@ const disabledPlan = renderCodingAgentPlan(input({ aidexStatus: "disabled" }));
 assert.match(disabledPlan.planBody, /AiDex is disabled/);
 assert.match(disabledPlan.planBody, /enable it for this repo/);
 assert.equal(disabledPlan.metadata.aidex_status, "disabled");
+
+assert.match(
+  renderDisabledAgentProviderReply("Codex", "codex"),
+  /Codex provider is disabled/
+);
+assert.match(
+  renderDisabledAgentProviderReply("Codex", "codex"),
+  /Settings/
+);

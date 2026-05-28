@@ -63,3 +63,38 @@ assert.equal(
   ),
   "codex-newer"
 );
+
+assert.equal(
+  selectConfirmableRunId(
+    [
+      {
+        id: "stale-codex",
+        agent_actor_id: "codex",
+        created_at: "2026-05-21T16:49:55.000Z",
+      },
+    ],
+    ["codex"],
+    new Date("2026-05-28T22:12:30.000Z")
+  ),
+  null
+);
+
+assert.equal(
+  selectConfirmableRunId(
+    [
+      {
+        id: "fresh-codex",
+        agent_actor_id: "codex",
+        created_at: "2026-05-28T22:10:00.000Z",
+      },
+      {
+        id: "stale-codex",
+        agent_actor_id: "codex",
+        created_at: "2026-05-21T16:49:55.000Z",
+      },
+    ],
+    ["codex"],
+    new Date("2026-05-28T22:12:30.000Z")
+  ),
+  "fresh-codex"
+);

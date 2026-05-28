@@ -1,4 +1,5 @@
 import type { AgentPlanningInput, AgentPlanningResult } from "./types";
+import type { AgentProviderKey } from "../types";
 
 const AIDEX_INSTALL_PROMPT =
   "This repo's AiDex index is not available. I can fall back to direct file search, but AiDex is strongly recommended for coding agents because it gives better repo search and session continuity. Want me to install and configure it for this repo?";
@@ -8,6 +9,12 @@ const AIDEX_STALE_PROMPT =
 
 const AIDEX_DISABLED_PROMPT =
   "AiDex is disabled for this repo. Want me to enable it for this repo before coding-agent work?";
+
+const PROVIDER_LABELS: Record<AgentProviderKey, string> = {
+  inline_claude: "Claude inline replies",
+  codex: "Codex",
+  claude_code: "Claude Code",
+};
 
 function aidexLineForStatus(input: AgentPlanningInput): string {
   if (input.aidexStatus === "available") {
@@ -51,6 +58,19 @@ export function renderCodingAgentPlan(
       provider_key: input.providerKey,
     },
   };
+}
+
+export function renderDisabledAgentProviderReply(
+  agentName: string,
+  providerKey: AgentProviderKey
+): string {
+  const providerLabel = PROVIDER_LABELS[providerKey] ?? agentName;
+
+  return [
+    `I can't respond as ${agentName} because the ${providerLabel} provider is disabled.`,
+    "",
+    "Enable it in Settings -> Agents, then send the request again.",
+  ].join("\n");
 }
 
 function plainTextFromBody(body: string): string {

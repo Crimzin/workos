@@ -36,7 +36,10 @@ type AgentRunInsert = {
 interface ConfirmableRunCandidate {
   id: string;
   agent_actor_id: string;
+  created_at?: string;
 }
+
+const CONFIRMABLE_RUN_MAX_AGE_MS = 30 * 60 * 1000;
 
 export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert {
   return {
@@ -55,18 +58,25 @@ export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert 
 
 export function selectConfirmableRunId(
   rows: ConfirmableRunCandidate[],
-  agentActorIds: string[] = []
+  agentActorIds: string[] = [],
+  now = new Date()
 ): string | null {
-  if (rows.length === 0) return null;
+  const recentRows = rows.filter((row) => {
+    if (!row.created_at) return true;
+    return now.getTime() - new Date(row.created_at).getTime() <=
+      CONFIRMABLE_RUN_MAX_AGE_MS;
+  });
 
-  const uniqueAgentIds = new Set(rows.map((row) => row.agent_actor_id));
+  if (recentRows.length === 0) return null;
+
+  const uniqueAgentIds = new Set(recentRows.map((row) => row.agent_actor_id));
   if (agentActorIds.length > 0) {
     const allowed = new Set(agentActorIds);
-    return rows.find((row) => allowed.has(row.agent_actor_id))?.id ?? null;
+    return recentRows.find((row) => allowed.has(row.agent_actor_id))?.id ?? null;
   }
 
-  if (uniqueAgentIds.size === 1) return rows[0]?.id ?? null;
-  return rows.length === 1 ? rows[0]?.id ?? null : null;
+  if (uniqueAgentIds.size === 1) return recentRows[0]?.id ?? null;
+  return recentRows.length === 1 ? recentRows[0]?.id ?? null : null;
 }
 
 async function loadAgentRunRuntime() {
@@ -147,7 +157,7 @@ export async function queueAwaitingRunsForConfirmation({
 
   const { data: runs, error: findError } = await supabase
     .from("agent_runs")
-    .select("id, agent_actor_id")
+    .select("id, agent_actor_id, created_at")
     .eq("target_node_id", nodeId)
     .eq("workspace_id", workspaceId)
     .eq("requester_actor_id", requesterActorId)
