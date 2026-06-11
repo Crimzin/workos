@@ -249,7 +249,15 @@ function TextEditor({ field, values, nodeId, parentId, workspaceId }: FieldRowEd
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  useEffect(() => setValue(initial), [initial]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setValue(initial);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initial]);
 
   const commit = () => {
     if (value === initial) {

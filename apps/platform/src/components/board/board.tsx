@@ -82,8 +82,24 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
   const workspaceId = data.workspace.id;
 
   // Sync local state when server data refreshes.
-  useEffect(() => { setLocalStacks(data.stacks); }, [data.stacks]);
-  useEffect(() => { setLocalViews(views); }, [views]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setLocalStacks(data.stacks);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.stacks]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setLocalViews(views);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [views]);
 
   const handleColumnFieldChange = (fieldId: string | null) => {
     setColumnFieldId(fieldId);

@@ -43,12 +43,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("light");
 
   useEffect(() => {
-    const stored = (typeof window !== "undefined"
-      ? localStorage.getItem(STORAGE_KEY)
-      : null) as ThemePreference | null;
-    const initial: ThemePreference = stored ?? "system";
-    setThemeState(initial);
-    setResolvedTheme(applyTheme(initial));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const stored = (typeof window !== "undefined"
+        ? localStorage.getItem(STORAGE_KEY)
+        : null) as ThemePreference | null;
+      const initial: ThemePreference = stored ?? "system";
+      setThemeState(initial);
+      setResolvedTheme(applyTheme(initial));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

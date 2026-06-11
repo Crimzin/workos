@@ -51,7 +51,10 @@ export function FieldEditDialog({ field, workspaceId, open, onClose }: FieldEdit
   const [newOption, setNewOption] = useState("");
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
       setName(field.name);
       setDescription(field.description ?? "");
       setColor(field.color);
@@ -59,7 +62,10 @@ export function FieldEditDialog({ field, workspaceId, open, onClose }: FieldEdit
       setLocalOptions(field.options);
       setError(null);
       setNewOption("");
-    }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [open, field.name, field.description, field.color, field.locked, field.options]);
 
   const sensors = useSensors(
@@ -313,7 +319,15 @@ function SortableOptionRow({
   const [draft, setDraft] = useState(name);
   const [, startTransition] = useTransition();
 
-  useEffect(() => setDraft(name), [name]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setDraft(name);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [name]);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: optionId,

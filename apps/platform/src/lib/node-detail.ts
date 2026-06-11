@@ -149,7 +149,7 @@ export async function getNodeDetail(
 
   // Fetch field values for child cards (for Cards tab badges)
   const children = (childrenRes.data ?? []) as WorkNode[];
-  let childFieldValues: Record<string, DetailFieldValue[]> = {};
+  const childFieldValues: Record<string, DetailFieldValue[]> = {};
   if (children.length > 0) {
     const childIds = children.map((c) => c.id);
     const { data: cfvData } = await supabase
