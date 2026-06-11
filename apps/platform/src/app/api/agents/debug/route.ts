@@ -151,6 +151,7 @@ export async function GET(req: Request) {
     reply = await invokeClaude({
       systemPrompt: ctx.systemPrompt,
       userMessage: ctx.userMessage,
+      attachments: ctx.attachments,
     });
   } catch (err) {
     return fail("anthropicCall", errMessage(err), steps, t0);

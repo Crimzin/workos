@@ -9,9 +9,15 @@ import {
   ToggleRight,
 } from "lucide-react";
 import {
+  setAgentProviderDefaultModel,
   setAgentProviderEnabled,
   setAgentToolStatus,
 } from "@/lib/actions/agent-settings";
+import {
+  AGENT_MODEL_GROUPS,
+  resolveDefaultModelFromConfig,
+  withProviderDefaultModelConfig,
+} from "@/lib/agents/model-selection";
 import type { AgentProviderSetting, AgentToolSetting } from "@/lib/types";
 
 export interface AgentSettingsProps {
@@ -38,6 +44,31 @@ export function AgentSettings({ providers, tools }: AgentSettingsProps) {
         await setAgentProviderEnabled(provider.provider_key, enabled);
       } catch {
         setError("Could not update that provider.");
+        setLocalProviders(providers);
+      }
+    });
+  };
+
+  const setDefaultModel = (
+    provider: AgentProviderSetting,
+    modelId: string
+  ) => {
+    const config = withProviderDefaultModelConfig(
+      provider.config,
+      provider.provider_key,
+      modelId
+    );
+    setLocalProviders((current) =>
+      current.map((item) =>
+        item.provider_key === provider.provider_key ? { ...item, config } : item
+      )
+    );
+    setError(null);
+    startTransition(async () => {
+      try {
+        await setAgentProviderDefaultModel(provider.provider_key, modelId);
+      } catch {
+        setError("Could not update that default model.");
         setLocalProviders(providers);
       }
     });
@@ -85,33 +116,65 @@ export function AgentSettings({ providers, tools }: AgentSettingsProps) {
         </div>
         <div className="divide-y divide-border">
           {localProviders.map((provider) => (
-            <div
-              key={provider.provider_key}
-              className="flex items-center justify-between gap-3 px-4 py-3"
-            >
+            <div key={provider.provider_key} className="px-4 py-3">
               <div>
-                <div className="text-sm font-medium text-text-primary">
-                  {provider.label}
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-text-primary">
+                      {provider.label}
+                    </div>
+                    <div className="text-xs text-text-tertiary">
+                      {provider.enabled ? "Enabled" : "Disabled"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleProvider(provider)}
+                    disabled={pending}
+                    className="rounded-md p-1 text-text-secondary transition hover:bg-bg-secondary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+                    aria-label={`${provider.enabled ? "Disable" : "Enable"} ${
+                      provider.label
+                    }`}
+                  >
+                    {provider.enabled ? (
+                      <ToggleRight className="h-5 w-5" aria-hidden="true" />
+                    ) : (
+                      <ToggleLeft className="h-5 w-5" aria-hidden="true" />
+                    )}
+                  </button>
                 </div>
-                <div className="text-xs text-text-tertiary">
-                  {provider.enabled ? "Enabled" : "Disabled"}
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <label
+                    className="text-xs font-medium text-text-tertiary"
+                    htmlFor={`default-model-${provider.provider_key}`}
+                  >
+                    Default model
+                  </label>
+                  <select
+                    id={`default-model-${provider.provider_key}`}
+                    value={
+                      resolveDefaultModelFromConfig(
+                        provider.provider_key,
+                        provider.config
+                      )?.modelId ?? ""
+                    }
+                    onChange={(event) =>
+                      setDefaultModel(provider, event.target.value)
+                    }
+                    disabled={
+                      pending ||
+                      AGENT_MODEL_GROUPS[provider.provider_key].length <= 1
+                    }
+                    className="h-8 rounded-md border border-border bg-bg-card px-2 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-secondary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+                  >
+                    {AGENT_MODEL_GROUPS[provider.provider_key].map((model) => (
+                      <option key={model.modelId} value={model.modelId}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => toggleProvider(provider)}
-                disabled={pending}
-                className="rounded-md p-1 text-text-secondary transition hover:bg-bg-secondary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
-                aria-label={`${provider.enabled ? "Disable" : "Enable"} ${
-                  provider.label
-                }`}
-              >
-                {provider.enabled ? (
-                  <ToggleRight className="h-5 w-5" aria-hidden="true" />
-                ) : (
-                  <ToggleLeft className="h-5 w-5" aria-hidden="true" />
-                )}
-              </button>
             </div>
           ))}
         </div>

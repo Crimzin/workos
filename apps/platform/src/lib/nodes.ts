@@ -4,6 +4,11 @@ import { cacheTags } from "./cache";
 import type { WorkNode } from "./types";
 import { buildSidebarTree, type SidebarTreeNode } from "./sidebar-tree";
 import type { PinnedSidebarNode } from "./sidebar-tree-dnd";
+import {
+  buildNodeMentionCandidates,
+  type NodeMentionCandidate,
+  type NodeMentionSearchRow,
+} from "./node-mentions";
 
 export async function getRootNodes(): Promise<WorkNode[]> {
   return cachedGetRootNodes();
@@ -66,6 +71,26 @@ export async function getChildren(parentId: string): Promise<WorkNode[]> {
     }
   );
   return cached();
+}
+
+export async function searchNodeMentionCandidates(
+  instanceId: string,
+  query: string,
+  limit = 12
+): Promise<NodeMentionCandidate[]> {
+  const { data, error } = await supabase
+    .from("nodes")
+    .select("id,title,type,parent_id")
+    .eq("instance_id", instanceId)
+    .is("archived_at", null)
+    .order("position", { ascending: true });
+  if (error) throw error;
+
+  return buildNodeMentionCandidates(
+    (data ?? []) as NodeMentionSearchRow[],
+    query,
+    limit
+  );
 }
 
 export async function getSidebarTree(): Promise<SidebarTreeNode[]> {

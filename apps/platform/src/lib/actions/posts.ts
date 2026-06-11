@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { supabase } from "../supabase";
 import { getCurrentActor } from "../actor";
+import { getAgentSettings } from "../agent-settings";
 import { DEFAULT_AI_STANDARDS } from "../ai-standards";
 import { getEffectiveAIStandards } from "../ai-standards-server";
 import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
@@ -17,10 +18,19 @@ import {
 import { renderClaudePrompt } from "../agents/claude-prompt";
 import { streamClaude } from "../agents/claude";
 import {
+  modelSelectionMetadata,
+  providerKeyForResponderName,
+  resolveDefaultModelFromConfig,
+  resolveModelSelection,
+  type AgentModelSelection,
+  type AgentModelSelectionInput,
+} from "../agents/model-selection";
+import {
   createStreamingAgentReply,
   updateStreamingAgentReply,
   type StreamingReplyHandle,
 } from "../agents/reply-poster";
+import { agentInvocationFailureReply } from "../agents/invocation-error";
 import { routeAgentMentions } from "../agents/router";
 import { isAgentRunConfirmation } from "../agents/confirmation";
 import { queueAwaitingRunsForConfirmation } from "../agents/runs";
@@ -48,6 +58,7 @@ export async function createPost(
   options: {
     requestAgentResponse?: boolean;
     selectedAgent?: MentionedAgent | null;
+    modelSelection?: AgentModelSelectionInput | null;
   } = {}
 ): Promise<void> {
   console.log(
@@ -56,6 +67,33 @@ export async function createPost(
   const trimmed = body.trim();
   if (!trimmed) return;
   const actor = await getCurrentActor();
+  const plainText = plainTextFromBody(trimmed);
+  const mentionedAgents = findAgentMentions(trimmed);
+  const selectedProviderKey =
+    options.modelSelection?.providerKey ??
+    (options.selectedAgent
+      ? providerKeyForResponderName(options.selectedAgent.name)
+      : mentionedAgents.length === 1
+        ? providerKeyForResponderName(mentionedAgents[0].name)
+      : "inline_claude");
+  const mayRequestAgent =
+    (options.requestAgentResponse ?? false) || mentionedAgents.length > 0;
+  const agentSettings = mayRequestAgent
+    ? await getAgentSettings(actor.instance_id)
+    : null;
+  const selectedProviderSettings = agentSettings?.providers.find(
+    (provider) => provider.provider_key === selectedProviderKey
+  );
+  const modelSelection = options.modelSelection
+    ? resolveModelSelection(selectedProviderKey, options.modelSelection)
+    : resolveDefaultModelFromConfig(
+        selectedProviderKey,
+        selectedProviderSettings?.config
+      );
+  const postMetadata =
+    mayRequestAgent && modelSelection
+      ? { agent_request: modelSelectionMetadata(modelSelection) }
+      : {};
 
   const { data: insertedPost, error } = await supabase
     .from("posts")
@@ -64,6 +102,7 @@ export async function createPost(
       actor_id: actor.id,
       post_type: "post",
       body: trimmed,
+      metadata: postMetadata,
     })
     .select(
       "id,node_id,actor_id,post_type,body,metadata,pinned,pinned_at,created_at,updated_at"
@@ -80,8 +119,6 @@ export async function createPost(
   revalidateWorkspaceFeed(workspaceId);
   revalidatePath(`/n/${workspaceId}`);
 
-  const plainText = plainTextFromBody(trimmed);
-  const mentionedAgents = findAgentMentions(trimmed);
   const confirmationAgentIds =
     mentionedAgents.length > 0
       ? mentionedAgents.map((agent) => agent.id)
@@ -135,6 +172,7 @@ export async function createPost(
       nodeId,
       workspaceId,
       targetPost,
+      modelSelection,
       renderClaudePromptForContext: (ctx) => {
         const targetAwareCtx = ensureTargetPostInOwnThread(ctx, targetPost);
         console.log(
@@ -149,9 +187,9 @@ export async function createPost(
         );
         return prompt;
       },
-      scheduleInlineClaude: (agent, ctxPrompt) => {
+      scheduleInlineClaude: (agent, ctxPrompt, selectedModel) => {
         console.log(
-          `[1.11] createPost: scheduling after() for ${agent.name}(${agent.id.slice(0, 8)})`
+          `[1.11] createPost: scheduling after() for ${agent.name}(${agent.id.slice(0, 8)}) model=${selectedModel?.modelId ?? "default"}`
         );
         after(async () => {
           await streamInlineClaudeReply({
@@ -159,6 +197,7 @@ export async function createPost(
             nodeId,
             workspaceId,
             ctxPrompt,
+            modelSelection: selectedModel,
           });
         });
       },
@@ -173,6 +212,7 @@ async function streamInlineClaudeReply(input: {
   nodeId: string;
   workspaceId: string;
   ctxPrompt: ReturnType<typeof renderClaudePrompt>;
+  modelSelection: AgentModelSelection | null;
 }): Promise<void> {
   const t0 = Date.now();
   console.log(`[1.11] after(): START for ${input.agent.name}`);
@@ -195,6 +235,8 @@ async function streamInlineClaudeReply(input: {
     for await (const event of streamClaude({
       systemPrompt: input.ctxPrompt.systemPrompt,
       userMessage: input.ctxPrompt.userMessage,
+      attachments: input.ctxPrompt.attachments,
+      model: input.modelSelection?.modelId,
     })) {
       if (event.type === "delta") {
         accumulated += event.text;
@@ -260,19 +302,27 @@ async function streamInlineClaudeReply(input: {
     );
   } catch (err) {
     console.error("[1.11] agent invocation failed:", err);
-    // Best-effort: leave the user with what we got plus a visible error
-    // marker so they don't think the indicator just vanished.
-    if (handle) {
-      try {
+    // Best-effort: always leave a visible post. Provider failures before the
+    // first streamed token otherwise look like an infinite thinking state.
+    const failureReply = agentInvocationFailureReply(accumulated, err);
+    try {
+      if (handle) {
         await updateStreamingAgentReply(
           handle,
           input.nodeId,
           input.workspaceId,
-          `${accumulated}\n\n_⚠️ Stream interrupted. Please try again._`
+          failureReply
         );
-      } catch {
-        /* ignore — we already logged the original error */
+      } else {
+        await createStreamingAgentReply(
+          input.nodeId,
+          input.workspaceId,
+          input.agent.id,
+          failureReply
+        );
       }
+    } catch {
+      /* ignore — we already logged the original error */
     }
   }
 }

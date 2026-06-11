@@ -219,7 +219,7 @@ function isTableSeparatorRow(line: string | undefined): boolean {
 function parseTableRow(line: string): TableCell[] {
   return splitTableCells(line).map((cell) => ({
     type: "tableCell",
-    content: parseInline(cell),
+    content: parseInline(normalizeTableCellMarkdown(cell)),
   }));
 }
 
@@ -228,6 +228,10 @@ function splitTableCells(line: string): string[] {
   if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
   if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
   return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function normalizeTableCellMarkdown(cell: string): string {
+  return cell.replace(/<br\s*\/?>/gi, "\n");
 }
 
 // ---------------------------------------------------------------------------

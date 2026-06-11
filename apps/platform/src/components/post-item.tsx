@@ -2,12 +2,17 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, Clipboard, Pin, Pencil, Trash2 } from "lucide-react";
+import { Check, Clipboard, FileDown, FileText, Pin, Pencil, Trash2 } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
 import { updatePost, deletePost, pinPost } from "@/lib/actions/posts";
 import { postBodyToMarkdown } from "@/lib/blocknote-markdown";
+import {
+  canExportPostToPdf,
+  postDocxDownloadPath,
+  postPdfDownloadPath,
+} from "@/lib/post-export";
 import { PostEditor, parsePostBody, serializePostBody } from "./post-editor";
 
 interface PostItemProps {
@@ -79,6 +84,7 @@ export function PostItem({
     .toUpperCase();
   const isAgent = post.actor?.kind === "agent";
   const initialContent = parsePostBody(post.body);
+  const canExportPdf = canExportPostToPdf(post);
 
   return (
     <div className="group relative px-5 py-3 hover:bg-bg-hover/40 transition-colors">
@@ -143,6 +149,28 @@ export function PostItem({
           >
             {copied ? <Check size={11} /> : <Clipboard size={11} />}
           </button>
+          {canExportPdf && (
+            <>
+              <Link
+                href={postDocxDownloadPath(post.id)}
+                target="_blank"
+                rel="noreferrer"
+                title="Export DOCX"
+                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+              >
+                <FileText size={11} />
+              </Link>
+              <Link
+                href={postPdfDownloadPath(post.id)}
+                target="_blank"
+                rel="noreferrer"
+                title="Export PDF"
+                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+              >
+                <FileDown size={11} />
+              </Link>
+            </>
+          )}
           {!isActivity && (
             <>
               <button

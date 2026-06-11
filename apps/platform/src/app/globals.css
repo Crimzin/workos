@@ -244,6 +244,10 @@ samp {
    ============================================================================= */
 
 /* Remove BlockNote's outer chrome — we provide our own border/bg wrapper */
+.bn-post-editor {
+  position: relative;
+}
+
 .bn-post-editor .bn-editor {
   padding: 8px 12px;
   font-family: var(--font-inter), sans-serif;
@@ -255,8 +259,17 @@ samp {
 
 .post-composer-editor .bn-post-editor .bn-editor {
   min-height: 44px;
-  max-height: 96px;
+  max-height: 192px;
   overflow-y: auto;
+}
+
+.post-composer-editor[data-fixed-height="true"] .bn-post-editor {
+  height: 100%;
+}
+
+.post-composer-editor[data-fixed-height="true"] .bn-post-editor .bn-editor {
+  height: 100%;
+  max-height: none;
 }
 
 /* Viewer mode (editable=false): tighter padding, no min-height */
@@ -276,8 +289,398 @@ samp {
   color: var(--text-tertiary);
 }
 
+/* BlockNote floating UI needs to clear the detail panel and post chrome. */
+.bn-root {
+  --bn-ui-base-z-index: 9999;
+}
+
 /* Slash-menu and formatting toolbar use their own z-index; ensure they float above the panel */
 .bn-slash-menu,
 .bn-formatting-toolbar {
   z-index: 9999 !important;
+}
+
+.bn-post-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 6px 8px;
+}
+
+.bn-post-table-toolbar button {
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-secondary);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.bn-post-table-toolbar button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* =============================================================================
+   Single-post PDF export
+   ============================================================================= */
+
+body:has(.post-export-page) aside {
+  display: none;
+}
+
+body:has(.post-export-page) main {
+  overflow: auto;
+}
+
+body:has(.post-export-page),
+.post-export-page {
+  --post-export-paper: #14292B;
+  --post-export-surface: #183134;
+  --post-export-surface-soft: #1F3A3D;
+  --post-export-ink: #FAF8F3;
+  --post-export-muted: #C8C6BB;
+  --post-export-soft: #A8A89E;
+  --post-export-border: #3A4F51;
+  --post-export-border-strong: #536A6D;
+  --post-export-accent: #D4A574;
+  --post-export-accent-warm: #E8835A;
+}
+
+.post-export-paper {
+  position: relative;
+  min-height: 11in;
+  background: var(--post-export-paper);
+}
+
+.post-export-watermark {
+  position: fixed;
+  right: 0.42in;
+  bottom: 0.28in;
+  z-index: 2;
+  font-family: var(--font-fraunces), serif;
+  font-size: 8.5pt;
+  font-weight: 600;
+  line-height: 1;
+  color: color-mix(in srgb, var(--post-export-accent) 42%, transparent);
+  letter-spacing: 0;
+  pointer-events: none;
+}
+
+.post-export-document,
+.post-export-body .bn-post-editor .bn-editor {
+  padding: 0;
+  font-size: 0.96rem;
+  line-height: 1.68;
+  color: var(--post-export-ink);
+  max-width: 7.05in;
+}
+
+.post-export-document h1,
+.post-export-body .bn-post-editor h1 {
+  margin: 0 0 1.3rem;
+  font-family: var(--font-inter), sans-serif;
+  font-size: 2.12rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.11;
+  color: var(--post-export-ink);
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+.post-export-document h1:not(:first-child),
+.post-export-body .bn-post-editor h1:not(:first-child) {
+  margin-top: 2.75rem;
+}
+
+.post-export-document h2,
+.post-export-body .bn-post-editor h2 {
+  margin: 2.05rem 0 0.7rem;
+  font-size: 1.48rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.2;
+  color: var(--post-export-accent);
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+.post-export-document h3,
+.post-export-body .bn-post-editor h3 {
+  margin: 1.1rem 0 0.45rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  color: var(--post-export-muted);
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+.post-export-document p,
+.post-export-body .bn-post-editor p {
+  margin: 0.62rem 0;
+  orphans: 3;
+  widows: 3;
+}
+
+.post-export-document ul,
+.post-export-document ol,
+.post-export-body .bn-post-editor ul,
+.post-export-body .bn-post-editor ol {
+  margin: 0.42rem 0 1.05rem;
+  padding-left: 1.28rem;
+  break-inside: avoid;
+}
+
+.post-export-document ul,
+.post-export-body .bn-post-editor ul {
+  list-style-type: disc;
+}
+
+.post-export-document ol,
+.post-export-body .bn-post-editor ol {
+  list-style-type: decimal;
+}
+
+.post-export-document li,
+.post-export-body .bn-post-editor li {
+  margin: 0.34rem 0;
+  padding-left: 0.2rem;
+  color: var(--post-export-muted);
+  orphans: 2;
+  widows: 2;
+}
+
+.post-export-document li::marker,
+.post-export-body .bn-post-editor li::marker {
+  color: var(--post-export-accent);
+}
+
+.post-export-document strong,
+.post-export-body .bn-post-editor strong {
+  font-weight: 700;
+  color: var(--post-export-ink);
+}
+
+.post-export-document a {
+  color: var(--post-export-accent);
+  text-decoration-color: color-mix(in srgb, var(--post-export-accent) 55%, transparent);
+  text-underline-offset: 0.13em;
+}
+
+.post-export-document blockquote {
+  margin: 1rem 0;
+  border-left: 2px solid var(--post-export-accent);
+  padding-left: 0.9rem;
+  color: var(--post-export-muted);
+  break-inside: avoid;
+}
+
+.post-export-document pre {
+  margin: 1rem 0;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  border: 1px solid var(--post-export-border);
+  border-radius: var(--radius-md);
+  background: var(--post-export-surface-soft);
+  padding: 0.65rem 0.75rem;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.post-export-body .bn-post-editor [data-node-type="blockContainer"] {
+  break-inside: avoid;
+}
+
+.post-export-document figure,
+.post-export-document table,
+.post-export-body .bn-post-editor img {
+  break-inside: avoid;
+}
+
+.post-export-document img,
+.post-export-body .bn-post-editor img {
+  max-width: 100%;
+  max-height: 7.25in;
+  object-fit: contain;
+  border: 1px solid var(--post-export-border);
+  border-radius: var(--radius-lg);
+  background: var(--post-export-surface);
+  break-inside: avoid;
+}
+
+.post-export-document table,
+.post-export-body .bn-post-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.post-export-document th,
+.post-export-document td,
+.post-export-body .bn-post-editor th,
+.post-export-body .bn-post-editor td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  vertical-align: top;
+  color: var(--post-export-muted);
+}
+
+.post-export-document th,
+.post-export-body .bn-post-editor th {
+  background: var(--post-export-surface-soft);
+  font-weight: 600;
+  color: var(--post-export-ink);
+}
+
+@page {
+  size: letter;
+  margin: 0.88in 0.7in 0.95in;
+  background: #14292B;
+}
+
+@media print {
+  html,
+  body {
+    background: var(--post-export-paper) !important;
+  }
+
+  body:has(.post-export-page) aside,
+  .post-export-screen-toolbar {
+    display: none !important;
+  }
+
+  body:has(.post-export-page) main {
+    overflow: visible !important;
+  }
+
+  .post-export-page {
+    min-height: auto !important;
+    padding: 0 !important;
+    background: var(--post-export-paper) !important;
+    color: var(--post-export-ink) !important;
+  }
+
+  .post-export-paper {
+    width: auto !important;
+    max-width: none !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: var(--post-export-paper) !important;
+    color: var(--post-export-ink) !important;
+  }
+
+  .post-export-paper,
+  .post-export-paper * {
+    color-adjust: exact;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .post-export-paper h1,
+  .post-export-document,
+  .post-export-body .bn-post-editor .bn-editor,
+  .post-export-body .bn-post-editor [data-node-type="blockContainer"] {
+    color: var(--post-export-ink) !important;
+  }
+
+  .post-export-paper h2 {
+    color: var(--post-export-accent) !important;
+  }
+
+  .post-export-paper h3,
+  .post-export-document,
+  .post-export-document li,
+  .post-export-document p {
+    color: var(--post-export-muted) !important;
+  }
+
+  .post-export-document strong {
+    color: var(--post-export-ink) !important;
+  }
+
+  .post-export-document a {
+    color: var(--post-export-accent) !important;
+  }
+
+  .post-export-document,
+  .post-export-body .bn-post-editor .bn-editor {
+    font-size: 10.8pt;
+    line-height: 1.62;
+  }
+
+  .post-export-document h1,
+  .post-export-body .bn-post-editor h1 {
+    margin-bottom: 0.22in;
+    font-size: 26pt;
+    line-height: 1.1;
+  }
+
+  .post-export-document h1:not(:first-child),
+  .post-export-body .bn-post-editor h1:not(:first-child) {
+    margin-top: 0.52in;
+  }
+
+  .post-export-document h2,
+  .post-export-body .bn-post-editor h2 {
+    margin-top: 0.34in;
+    margin-bottom: 0.12in;
+    font-size: 18pt;
+    line-height: 1.16;
+  }
+
+  .post-export-document h3,
+  .post-export-body .bn-post-editor h3 {
+    margin-top: 0.18in;
+    margin-bottom: 0.07in;
+    font-size: 11.5pt;
+    line-height: 1.2;
+  }
+
+  .post-export-document p,
+  .post-export-body .bn-post-editor p {
+    margin: 0.075in 0;
+  }
+
+  .post-export-document ul,
+  .post-export-document ol,
+  .post-export-body .bn-post-editor ul,
+  .post-export-body .bn-post-editor ol {
+    margin: 0.055in 0 0.15in;
+    padding-left: 0.24in;
+  }
+
+  .post-export-document li,
+  .post-export-body .bn-post-editor li {
+    margin: 0.047in 0;
+  }
+
+  .post-export-document img,
+  .post-export-body .bn-post-editor img {
+    max-height: 8.1in;
+    border-color: var(--post-export-border) !important;
+    background: var(--post-export-surface) !important;
+  }
+
+  .post-export-document th,
+  .post-export-document td,
+  .post-export-body .bn-post-editor th,
+  .post-export-body .bn-post-editor td {
+    border-color: var(--post-export-border) !important;
+  }
+
+  .post-export-document th,
+  .post-export-body .bn-post-editor th {
+    background: var(--post-export-surface-soft) !important;
+  }
 }

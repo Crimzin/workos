@@ -2,11 +2,19 @@ import { getAgentSettings } from "../agent-settings";
 import type { CurrentActor } from "../actor";
 import type { PostRecord } from "../posts";
 import type { AgentProviderKey } from "../types";
+import type { AgentModelSelection } from "./model-selection";
 import { resolveAgentRoutes } from "./capabilities";
 import type { ClaudePrompt } from "./claude-prompt";
 import type { MentionedAgent } from "./mention-detection";
-import { gatherNodeContext, type NodeContext } from "./node-context";
-import { renderCodingAgentPlan } from "./planning";
+import {
+  gatherMentionedNodeContextsFromBody,
+  gatherNodeContext,
+  type NodeContext,
+} from "./node-context";
+import {
+  renderCodingAgentPlan,
+  renderDisabledAgentProviderReply,
+} from "./planning";
 import { createStreamingAgentReply } from "./reply-poster";
 import { createPlanningAgentRun } from "./runs";
 
@@ -16,8 +24,13 @@ export interface RouteAgentMentionsInput {
   nodeId: string;
   workspaceId: string;
   targetPost: PostRecord;
+  modelSelection?: AgentModelSelection | null;
   renderClaudePromptForContext: (ctx: NodeContext) => ClaudePrompt;
-  scheduleInlineClaude: (agent: MentionedAgent, prompt: ClaudePrompt) => void;
+  scheduleInlineClaude: (
+    agent: MentionedAgent,
+    prompt: ClaudePrompt,
+    modelSelection: AgentModelSelection | null
+  ) => void;
 }
 
 function enabledProviderKeysFromSettings(
@@ -37,8 +50,16 @@ export async function routeAgentMentions(
   });
   if (routes.length === 0) return;
 
-  const nodeContext = await gatherNodeContext(input.nodeId);
-  if (!nodeContext) return;
+  const baseNodeContext = await gatherNodeContext(input.nodeId);
+  if (!baseNodeContext) return;
+
+  const mentionedContext = await gatherMentionedNodeContextsFromBody(
+    input.targetPost.body
+  );
+  const nodeContext: NodeContext = {
+    ...baseNodeContext,
+    ...mentionedContext,
+  };
 
   const aidexStatus =
     settings.tools.find((tool) => tool.tool_key === "aidex")?.status ??
@@ -46,15 +67,22 @@ export async function routeAgentMentions(
 
   for (const route of routes) {
     if (route.kind === "disabled") {
-      // Disabled coding providers fail closed; never stream inline Claude
-      // under a Codex/Claude Code actor identity.
+      await createStreamingAgentReply(
+        input.nodeId,
+        input.workspaceId,
+        route.mention.id,
+        renderDisabledAgentProviderReply(route.mention.name, route.providerKey)
+      );
       continue;
     }
 
     if (route.kind === "inline_chat") {
       input.scheduleInlineClaude(
         route.mention,
-        input.renderClaudePromptForContext(nodeContext)
+        input.renderClaudePromptForContext(nodeContext),
+        input.modelSelection?.providerKey === route.providerKey
+          ? input.modelSelection
+          : null
       );
       continue;
     }
@@ -76,7 +104,13 @@ export async function routeAgentMentions(
       agentActorId: route.mention.id,
       providerKey: route.providerKey,
       planBody: plan.planBody,
-      metadata: plan.metadata,
+      metadata: {
+        ...plan.metadata,
+        model_selection:
+          input.modelSelection?.providerKey === route.providerKey
+            ? input.modelSelection
+            : null,
+      },
     });
 
     await createStreamingAgentReply(

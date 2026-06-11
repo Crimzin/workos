@@ -167,6 +167,10 @@ function inlineToMarkdown(inline: InlineContent): string {
     const name = inline.props?.name;
     return typeof name === "string" ? `@${name}` : "@Unknown";
   }
+  if (inline.type === "nodeMention") {
+    const title = inline.props?.title;
+    return typeof title === "string" ? `#${title}` : "#Unknown";
+  }
   return applyInlineStyles(inline.text ?? "", inline.styles ?? {});
 }
 

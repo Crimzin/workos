@@ -8,8 +8,16 @@
 // files that consume the same `NodeContext` but format it however that agent
 // prefers.
 
-import type { NodeContext, RelativeThread } from "./node-context";
+import type {
+  MentionedNodeContext,
+  NodeContext,
+  RelativeThread,
+} from "./node-context";
 import { plainTextFromBody } from "./node-context";
+import {
+  extractAgentAttachmentsFromNodeContext,
+  type AgentAttachment,
+} from "./attachments";
 import { renderAIStandardsForPrompt } from "../ai-standards";
 import type { PostRecord } from "../posts";
 import type { AIStandard } from "../types";
@@ -17,6 +25,7 @@ import type { AIStandard } from "../types";
 export interface ClaudePrompt {
   systemPrompt: string;
   userMessage: string;
+  attachments: AgentAttachment[];
 }
 
 export interface ClaudePromptOptions {
@@ -40,6 +49,9 @@ export function renderClaudePrompt(
   return {
     systemPrompt: buildSystemPrompt(ctx, options),
     userMessage: buildUserMessage(ctx, options),
+    attachments: extractAgentAttachmentsFromNodeContext(ctx, {
+      targetPostId: options.targetPostId,
+    }),
   };
 }
 
@@ -53,6 +65,7 @@ export function renderClaudeNotFoundPrompt(): ClaudePrompt {
     systemPrompt:
       "You are Claude, a teammate in WorkOS. The node could not be found.",
     userMessage: "(no context available)",
+    attachments: [],
   };
 }
 
@@ -134,6 +147,16 @@ function buildUserMessage(ctx: NodeContext, options: ClaudePromptOptions): strin
     sections.push(renderRelativeSection(`# Child card: "${c.node.title}"`, c));
   }
 
+  const mentionedNodes = ctx.mentionedNodes ?? [];
+  if (mentionedNodes.length > 0 || (ctx.omittedMentionedNodeCount ?? 0) > 0) {
+    sections.push(
+      renderMentionedNodeSection(
+        mentionedNodes,
+        ctx.omittedMentionedNodeCount ?? 0
+      )
+    );
+  }
+
   // Own thread (the one Claude was @-mentioned in) must come last, immediately
   // before the instruction. Related threads are useful context, but putting
   // them after the active thread made Claude sometimes answer a sibling card
@@ -181,6 +204,78 @@ function renderRelativeSection(heading: string, thread: RelativeThread): string 
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+function renderMentionedNodeSection(
+  nodes: MentionedNodeContext[],
+  omittedCount: number
+): string {
+  const lines: string[] = ["# Mentioned Node Context", ""];
+
+  for (const item of nodes) {
+    lines.push(`## ${item.mention.title} [${item.mention.type}]`);
+
+    if (!item.found || !item.node) {
+      lines.push(
+        "Context unavailable; this node may have been deleted or archived."
+      );
+      lines.push("");
+      continue;
+    }
+
+    if (item.breadcrumb) lines.push(`Path: ${item.breadcrumb}`);
+    if (item.owner) lines.push(`Owner: ${item.owner.name}`);
+    if (item.members.length > 0) {
+      lines.push(`Members: ${item.members.map((m) => m.name).join(", ")}`);
+    }
+
+    if (item.fields.length > 0) {
+      lines.push("Fields:");
+      for (const field of item.fields) {
+        lines.push(`- ${field.name}: ${field.rendered}`);
+      }
+    }
+
+    const memoryLines = renderMentionedNodeMemory(item);
+    if (memoryLines.length > 0) {
+      lines.push("Memory:");
+      lines.push(...memoryLines);
+    }
+
+    if (item.posts.length > 0) {
+      lines.push("Recent thread:");
+      const chronological = [...item.posts].reverse();
+      for (const post of chronological) {
+        lines.push(renderPost(post));
+        lines.push("");
+      }
+    } else {
+      lines.push("");
+    }
+  }
+
+  if (omittedCount > 0) {
+    lines.push(`${omittedCount} additional #node mentions omitted.`);
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
+function renderMentionedNodeMemory(item: MentionedNodeContext): string[] {
+  const lines: string[] = [];
+
+  if (item.memory.rationale) {
+    lines.push(`- Rationale: ${item.memory.rationale}`);
+  }
+  for (const assumption of item.memory.assumptions) {
+    lines.push(`- Assumption: ${assumption.statement} (${assumption.status})`);
+  }
+  for (const decision of item.memory.decisions) {
+    const body = decision.body ? ` — ${decision.body.slice(0, 200)}` : "";
+    lines.push(`- Decision: ${decision.statement}${body} (${decision.status})`);
+  }
+
+  return lines;
 }
 
 function renderPost(post: PostRecord, targetPostId?: string): string {

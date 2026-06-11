@@ -5,8 +5,12 @@
 // v1 minimum: non-streaming, single text response. Streaming is a v2 follow-up.
 
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  renderAttachmentSource,
+  type AgentAttachment,
+} from "./attachments.ts";
 
-const MODEL = "claude-sonnet-4-5";
+export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
 const MAX_TOKENS_DEFAULT = 4096;
 
 let _client: Anthropic | null = null;
@@ -25,7 +29,61 @@ function client(): Anthropic {
 export interface ClaudeInvocation {
   systemPrompt: string;
   userMessage: string;
+  attachments?: AgentAttachment[];
+  model?: string;
   maxTokens?: number;
+}
+
+export function buildClaudeMessageParams(opts: ClaudeInvocation) {
+  const userContent = buildClaudeUserContent(
+    opts.userMessage,
+    opts.attachments ?? []
+  );
+
+  return {
+    model: opts.model ?? DEFAULT_CLAUDE_MODEL,
+    max_tokens: opts.maxTokens ?? MAX_TOKENS_DEFAULT,
+    system: [
+      {
+        type: "text" as const,
+        text: opts.systemPrompt,
+        cache_control: { type: "ephemeral" as const },
+      },
+    ],
+    messages: [
+      {
+        role: "user" as const,
+        content: userContent,
+      },
+    ],
+  };
+}
+
+function buildClaudeUserContent(
+  userMessage: string,
+  attachments: AgentAttachment[]
+) {
+  const images = attachments.filter((attachment) => attachment.kind === "image");
+  if (images.length === 0) return userMessage;
+
+  return [
+    { type: "text" as const, text: userMessage },
+    ...images.flatMap((image, index) => [
+      {
+        type: "text" as const,
+        text: `Attached image ${index + 1}: ${renderAttachmentSource(image)}${
+          image.caption ? ` — ${image.caption}` : ""
+        }`,
+      },
+      {
+        type: "image" as const,
+        source: {
+          type: "url" as const,
+          url: image.url,
+        },
+      },
+    ]),
+  ];
 }
 
 /** Hard ceiling for a non-streaming Anthropic call. Beyond this we abort and
@@ -43,8 +101,9 @@ const CLAUDE_STREAM_TIMEOUT_MS = 5 * 60_000;
 
 export async function invokeClaude(opts: ClaudeInvocation): Promise<string> {
   const t0 = Date.now();
+  const model = opts.model ?? DEFAULT_CLAUDE_MODEL;
   console.log(
-    `[claude.ts] invokeClaude start (system=${opts.systemPrompt.length}c, user=${opts.userMessage.length}c, model=${MODEL})`
+    `[claude.ts] invokeClaude start (system=${opts.systemPrompt.length}c, user=${opts.userMessage.length}c, model=${model})`
   );
 
   const c = client();
@@ -64,23 +123,7 @@ export async function invokeClaude(opts: ClaudeInvocation): Promise<string> {
   try {
     console.log(`[claude.ts] calling messages.create… (${Date.now() - t0}ms)`);
     response = await c.messages.create(
-      {
-        model: MODEL,
-        max_tokens: opts.maxTokens ?? MAX_TOKENS_DEFAULT,
-        system: [
-          {
-            type: "text",
-            text: opts.systemPrompt,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        messages: [
-          {
-            role: "user",
-            content: opts.userMessage,
-          },
-        ],
-      },
+      buildClaudeMessageParams(opts),
       { signal: controller.signal }
     );
     console.log(
@@ -131,8 +174,9 @@ export async function* streamClaude(
   opts: ClaudeInvocation
 ): AsyncGenerator<ClaudeStreamEvent> {
   const t0 = Date.now();
+  const model = opts.model ?? DEFAULT_CLAUDE_MODEL;
   console.log(
-    `[claude.ts] streamClaude start (system=${opts.systemPrompt.length}c, user=${opts.userMessage.length}c, model=${MODEL})`
+    `[claude.ts] streamClaude start (system=${opts.systemPrompt.length}c, user=${opts.userMessage.length}c, model=${model})`
   );
 
   const c = client();
@@ -150,23 +194,7 @@ export async function* streamClaude(
 
   try {
     const stream = c.messages.stream(
-      {
-        model: MODEL,
-        max_tokens: opts.maxTokens ?? MAX_TOKENS_DEFAULT,
-        system: [
-          {
-            type: "text",
-            text: opts.systemPrompt,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        messages: [
-          {
-            role: "user",
-            content: opts.userMessage,
-          },
-        ],
-      },
+      buildClaudeMessageParams(opts),
       { signal: controller.signal }
     );
 

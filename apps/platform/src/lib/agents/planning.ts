@@ -1,5 +1,6 @@
 import type { AgentPlanningInput, AgentPlanningResult } from "./types";
 import type { AgentProviderKey } from "../types";
+import { plainTextFromBody } from "./node-context";
 
 const AIDEX_INSTALL_PROMPT =
   "This repo's AiDex index is not available. I can fall back to direct file search, but AiDex is strongly recommended for coding agents because it gives better repo search and session continuity. Want me to install and configure it for this repo?";
@@ -71,42 +72,4 @@ export function renderDisabledAgentProviderReply(
     "",
     "Enable it in Settings -> Agents, then send the request again.",
   ].join("\n");
-}
-
-function plainTextFromBody(body: string): string {
-  if (!body) return "";
-  let doc: unknown;
-  try {
-    doc = JSON.parse(body);
-  } catch {
-    return body;
-  }
-  if (!Array.isArray(doc)) return body;
-
-  return doc
-    .map((block) => {
-      if (!block || typeof block !== "object") return "";
-      const content = (block as { content?: unknown }).content;
-      if (!Array.isArray(content)) return "";
-      return content
-        .map((inline) => {
-          if (!inline || typeof inline !== "object") return "";
-          const item = inline as {
-            type?: unknown;
-            text?: unknown;
-            props?: { name?: unknown };
-          };
-          if (item.type === "text" && typeof item.text === "string") {
-            return item.text;
-          }
-          if (item.type === "mention") {
-            const name = item.props?.name;
-            return `@${typeof name === "string" ? name : "Unknown"}`;
-          }
-          return "";
-        })
-        .join("");
-    })
-    .join("\n")
-    .trim();
 }

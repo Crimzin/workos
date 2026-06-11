@@ -58,5 +58,24 @@ assert.equal(
   "| Item | Status |\n| --- | --- |\n| Alpha | Done |"
 );
 
+assert.equal(
+  postBodyToMarkdown(
+    JSON.stringify([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Use ", styles: {} },
+          {
+            type: "nodeMention",
+            props: { title: "Pricing rewrite" },
+          },
+          { type: "text", text: " here.", styles: {} },
+        ],
+      },
+    ])
+  ),
+  "Use #Pricing rewrite here."
+);
+
 assert.equal(postBodyToMarkdown("legacy **markdown**"), "legacy **markdown**");
 assert.equal(postBodyToMarkdown(null), "");

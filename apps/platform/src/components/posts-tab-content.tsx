@@ -2,14 +2,26 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, Pin } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, GripHorizontal, Pin } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
 import { createPost, pollNodePosts } from "@/lib/actions/posts";
 import { findAgentMentions } from "@/lib/agents/mention-detection";
+import {
+  AGENT_MODEL_GROUPS,
+  providerKeyForResponderName,
+  resolveDefaultModelFromConfig,
+  type AgentModelSelection,
+} from "@/lib/agents/model-selection";
 import { buildRequestedAgentMentions } from "@/lib/agents/response-selection";
+import {
+  COMPOSER_COMPACT_HEIGHT,
+  clampComposerHeight,
+  getNextComposerCompactState,
+} from "@/lib/composer-resize";
 import { orderPostsForThread } from "@/lib/post-order";
+import type { AgentProviderSetting } from "@/lib/types";
 import { PostEditor, serializePostBody } from "./post-editor";
 import { PostItem } from "./post-item";
 
@@ -39,6 +51,7 @@ const POLL_INITIAL_DURATION_MS = 90_000;
  * window, so the user sees the complete reply without manually refreshing.
  */
 const POLL_IDLE_EXTENSION_MS = 15_000;
+const COMPOSER_REVEAL_GRACE_MS = 250;
 
 interface ThinkingClaude {
   id: string;
@@ -62,6 +75,7 @@ interface PostsTabContentProps {
   currentActorName: string;
   actors: ActorForMention[];
   inlineClaudeEnabled: boolean;
+  agentProviders: AgentProviderSetting[];
 }
 
 /** True when the document has only a single empty paragraph (nothing typed). */
@@ -82,11 +96,14 @@ export function PostsTabContent({
   currentActorId,
   actors,
   inlineClaudeEnabled,
+  agentProviders,
 }: PostsTabContentProps) {
   const [posts, setPosts] = useState<PostRecord[]>(initialPosts);
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [composerHeight, setComposerHeight] = useState<number | null>(null);
+  const [composerCompact, setComposerCompact] = useState(false);
   // Increment to force-remount (reset) the BlockNote composer after submit.
   const [composerKey, setComposerKey] = useState(0);
   // Claude actors we're waiting on. Empty means no thinking indicator shown.
@@ -102,6 +119,9 @@ export function PostsTabContent({
   const pollDeadlineRef = useRef<number>(0);
   const currentBlocksRef = useRef<Block[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
+  const composerEditorRef = useRef<HTMLDivElement>(null);
+  const composerResizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const composerRevealUntilRef = useRef(0);
   const shouldStickToBottomRef = useRef(true);
   const router = useRouter();
   const agentActors = useMemo(
@@ -115,12 +135,20 @@ export function PostsTabContent({
     null;
   const responderOptions = [
     ...(workosBackingAgent
-      ? [{ id: "workos", label: "WorkOS", agent: workosBackingAgent }]
+      ? [
+          {
+            id: "workos",
+            label: "WorkOS",
+            agent: workosBackingAgent,
+            providerKey: providerKeyForResponderName(workosBackingAgent.name),
+          },
+        ]
       : []),
     ...agentActors.map((agent) => ({
       id: agent.id,
       label: agent.name,
       agent,
+      providerKey: providerKeyForResponderName(agent.name),
     })),
   ];
   const [selectedResponderId, setSelectedResponderId] = useState(
@@ -130,8 +158,26 @@ export function PostsTabContent({
     responderOptions.find((option) => option.id === selectedResponderId) ??
     responderOptions[0] ??
     null;
+  const [modelSelection, setModelSelection] = useState<AgentModelSelection | null>(
+    null
+  );
   const selectedAgent = selectedResponder?.agent ?? null;
   const selectedResponderLabel = selectedResponder?.label ?? selectedAgent?.name;
+  const selectedProviderSettings = selectedResponder
+    ? agentProviders.find(
+        (provider) => provider.provider_key === selectedResponder.providerKey
+      )
+    : null;
+  const selectedDefaultModel = selectedResponder
+    ? resolveDefaultModelFromConfig(
+        selectedResponder.providerKey,
+        selectedProviderSettings?.config
+      )
+    : null;
+  const selectedModel =
+    selectedResponder && modelSelection?.providerKey === selectedResponder.providerKey
+      ? modelSelection
+      : selectedDefaultModel;
 
   // Keep local posts in sync when server passes fresh data (after router.refresh()).
   useEffect(() => {
@@ -259,6 +305,46 @@ export function PostsTabContent({
     const distanceFromBottom =
       feed.scrollHeight - feed.scrollTop - feed.clientHeight;
     shouldStickToBottomRef.current = distanceFromBottom < 48;
+    setComposerCompact((currentlyCompact) => {
+      if (Date.now() < composerRevealUntilRef.current) return false;
+      return getNextComposerCompactState(
+        currentlyCompact,
+        distanceFromBottom,
+        feed.clientHeight
+      );
+    });
+  };
+
+  const revealComposer = () => {
+    composerRevealUntilRef.current = Date.now() + COMPOSER_REVEAL_GRACE_MS;
+    setComposerCompact(false);
+  };
+
+  const handleComposerResizeStart = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    revealComposer();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const measuredHeight =
+      composerHeight ??
+      composerEditorRef.current?.getBoundingClientRect().height ??
+      COMPOSER_COMPACT_HEIGHT;
+    composerResizeRef.current = {
+      startY: event.clientY,
+      startHeight: measuredHeight,
+    };
+  };
+
+  const handleComposerResizeMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const resize = composerResizeRef.current;
+    if (!resize) return;
+    const nextHeight = clampComposerHeight(
+      resize.startHeight - (event.clientY - resize.startY)
+    );
+    setComposerHeight(nextHeight);
+  };
+
+  const handleComposerResizeEnd = () => {
+    composerResizeRef.current = null;
   };
 
   const handleSubmit = (
@@ -291,6 +377,12 @@ export function PostsTabContent({
       await createPost(nodeId, workspaceId, body, {
         requestAgentResponse: options.requestAgentResponse,
         selectedAgent,
+        modelSelection: selectedModel
+          ? {
+              providerKey: selectedModel.providerKey,
+              modelId: selectedModel.modelId,
+            }
+          : null,
       });
       setComposerKey((k) => k + 1); // remounts editor → clean slate
       setHasContent(false);
@@ -347,6 +439,13 @@ export function PostsTabContent({
   const submitWithoutAiResponse = () => {
     handleSubmit(currentBlocksRef.current, { requestAgentResponse: false });
   };
+
+  const effectiveComposerHeight = composerCompact
+    ? COMPOSER_COMPACT_HEIGHT
+    : composerHeight;
+  const composerEditorStyle = effectiveComposerHeight
+    ? { height: effectiveComposerHeight }
+    : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -429,8 +528,27 @@ export function PostsTabContent({
           pending ? "opacity-60 pointer-events-none" : "",
         ].join(" ")}
       >
+        <button
+          type="button"
+          aria-label="Resize composer"
+          title="Drag to resize composer"
+          className="mx-auto -mt-2 mb-1 flex h-4 w-12 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary cursor-ns-resize transition-colors"
+          onPointerDown={handleComposerResizeStart}
+          onPointerMove={handleComposerResizeMove}
+          onPointerUp={handleComposerResizeEnd}
+          onPointerCancel={handleComposerResizeEnd}
+          onDoubleClick={() => setComposerHeight(null)}
+        >
+          <GripHorizontal size={15} />
+        </button>
         <div
+          ref={composerEditorRef}
           className="post-composer-editor rounded-xl border border-border bg-bg-card overflow-hidden focus-within:ring-1 focus-within:ring-accent"
+          data-fixed-height={effectiveComposerHeight ? "true" : undefined}
+          data-compact={composerCompact ? "true" : undefined}
+          style={composerEditorStyle}
+          onFocusCapture={revealComposer}
+          onPointerDownCapture={revealComposer}
           onKeyDownCapture={(event) => {
             if (
               (event.metaKey || event.ctrlKey) &&
@@ -468,21 +586,16 @@ export function PostsTabContent({
               Post without AI response
             </button>
             {agentActors.length > 0 && (
-              <label className="relative">
-                <span className="sr-only">AI responder</span>
-                <select
-                  value={selectedResponder?.id ?? ""}
-                  onChange={(event) => setSelectedResponderId(event.target.value)}
-                  disabled={pending}
-                  className="h-7 rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus:border-border-strong focus:bg-bg-card focus:outline-none"
-                >
-                  {responderOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <AgentModelMenu
+                disabled={pending}
+                responders={responderOptions}
+                selectedResponderId={selectedResponder?.id ?? ""}
+                selectedModel={selectedModel}
+                onSelect={(responderId, model) => {
+                  setSelectedResponderId(responderId);
+                  setModelSelection(model);
+                }}
+              />
             )}
             <button
               type="button"
@@ -505,6 +618,166 @@ export function PostsTabContent({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface AgentResponderOption {
+  id: string;
+  label: string;
+  agent: ActorForMention;
+  providerKey: AgentModelSelection["providerKey"];
+}
+
+interface AgentModelMenuProps {
+  responders: AgentResponderOption[];
+  selectedResponderId: string;
+  selectedModel: AgentModelSelection | null;
+  disabled: boolean;
+  onSelect: (responderId: string, model: AgentModelSelection) => void;
+}
+
+function AgentModelMenu({
+  responders,
+  selectedResponderId,
+  selectedModel,
+  disabled,
+  onSelect,
+}: AgentModelMenuProps) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const selectedResponder =
+    responders.find((responder) => responder.id === selectedResponderId) ??
+    responders[0] ??
+    null;
+  const [activeResponderId, setActiveResponderId] = useState(
+    selectedResponder?.id ?? ""
+  );
+  const activeResponder =
+    responders.find((responder) => responder.id === activeResponderId) ??
+    selectedResponder ??
+    responders[0] ??
+    null;
+  const activeModels = activeResponder
+    ? AGENT_MODEL_GROUPS[activeResponder.providerKey]
+    : [];
+  const selectedLabel = [
+    selectedResponder?.label,
+    selectedModel?.label,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  useEffect(() => {
+    if (!open) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        menuRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+    };
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          if (selectedResponder) setActiveResponderId(selectedResponder.id);
+          setOpen((value) => !value);
+        }}
+        onFocus={() => {
+          if (selectedResponder) setActiveResponderId(selectedResponder.id);
+        }}
+        className="inline-flex h-7 min-w-[132px] items-center justify-between gap-1 rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus:border-border-strong focus:bg-bg-card focus:outline-none disabled:opacity-50"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <span className="truncate">{selectedLabel || "AI responder"}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full right-0 z-20 mb-2 flex rounded-md border border-border bg-bg-card shadow-lg">
+          <div className="min-w-[132px] py-1">
+            {responders.map((responder) => (
+              <button
+                key={responder.id}
+                type="button"
+                onMouseEnter={() => setActiveResponderId(responder.id)}
+                onFocus={() => setActiveResponderId(responder.id)}
+                className={[
+                  "flex h-8 w-full items-center justify-between gap-3 px-3 text-left text-xs transition-colors",
+                  activeResponder?.id === responder.id
+                    ? "bg-bg-hover text-text-primary"
+                    : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
+                ].join(" ")}
+                role="menuitem"
+              >
+                <span className="truncate">{responder.label}</span>
+                <ChevronDown
+                  className="-rotate-90 h-3.5 w-3.5 shrink-0 text-text-tertiary"
+                  aria-hidden="true"
+                />
+              </button>
+            ))}
+          </div>
+
+          {activeResponder && (
+            <div className="min-w-[116px] border-l border-border py-1">
+              {activeModels.map((model) => {
+                const selected =
+                  selectedResponder?.id === activeResponder.id &&
+                  selectedModel?.modelId === model.modelId;
+                return (
+                  <button
+                    key={model.modelId}
+                    type="button"
+                    onClick={() => {
+                      onSelect(activeResponder.id, model);
+                      setOpen(false);
+                    }}
+                    className="flex h-8 w-full items-center justify-between gap-3 px-3 text-left text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus:bg-bg-hover focus:text-text-primary focus:outline-none"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                  >
+                    <span className="truncate">{model.label}</span>
+                    {selected && (
+                      <Check
+                        className="h-3.5 w-3.5 shrink-0 text-accent"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -36,6 +36,12 @@ import { getNodeLinks } from "../links";
 import { getNodeMemoryPrimitives } from "../memory-primitives";
 import { getChildren } from "../nodes";
 import type { Actor, MemoryPrimitive, WorkNode } from "../types";
+import {
+  findNodeMentions,
+  limitNodeMentions,
+  MENTIONED_NODE_POST_LIMIT,
+  type NodeMentionRef,
+} from "../node-mentions";
 
 const PARENT_POST_LIMIT = 30;
 const RELATIVE_POST_LIMIT = 10; // per sibling / per child
@@ -70,6 +76,23 @@ export interface NodeContextMemory {
   decisions: Array<{ statement: string; body: string | null; status: string }>;
 }
 
+export interface MentionedNodeContext {
+  mention: NodeMentionRef;
+  found: boolean;
+  node: {
+    id: string;
+    type: string;
+    title: string;
+  } | null;
+  workspaceTitle: string | null;
+  breadcrumb: string | null;
+  owner: Pick<Actor, "id" | "name" | "kind"> | null;
+  members: Array<Pick<Actor, "id" | "name" | "kind">>;
+  fields: NodeContextField[];
+  memory: NodeContextMemory;
+  posts: PostRecord[];
+}
+
 export interface NodeContext {
   // Identity
   node: {
@@ -100,6 +123,10 @@ export interface NodeContext {
 
   // Linked nodes (titles only, no posts)
   links: NodeContextLink[];
+
+  // Explicit #node mentions from the target post.
+  mentionedNodes?: MentionedNodeContext[];
+  omittedMentionedNodeCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,9 +355,124 @@ export async function gatherNodeContext(
   };
 }
 
+export async function gatherMentionedNodeContextsFromBody(
+  body: string | null | undefined
+): Promise<{
+  mentionedNodes: MentionedNodeContext[];
+  omittedMentionedNodeCount: number;
+}> {
+  const { included, omittedCount } = limitNodeMentions(findNodeMentions(body));
+  const mentionedNodes = await Promise.all(
+    included.map((mention) => gatherMentionedNodeContext(mention))
+  );
+
+  return {
+    mentionedNodes,
+    omittedMentionedNodeCount: omittedCount,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+async function gatherMentionedNodeContext(
+  mention: NodeMentionRef
+): Promise<MentionedNodeContext> {
+  const detail = await getNodeDetail(mention.id);
+  if (!detail || detail.node.archived_at) {
+    return missingMentionedNodeContext(mention);
+  }
+
+  const [posts, memory] = await Promise.all([
+    getNodePosts(mention.id),
+    getNodeMemoryPrimitives(mention.id),
+  ]);
+
+  return {
+    mention,
+    found: true,
+    node: {
+      id: detail.node.id,
+      type: detail.node.type,
+      title: detail.node.title,
+    },
+    workspaceTitle: workspaceTitleForDetail(detail),
+    breadcrumb: breadcrumbForDetail(detail),
+    owner: detail.owner ?? null,
+    members: detail.members,
+    fields: renderFieldsForContext(detail.fields, detail.values),
+    memory: memoryToContextShape(memory),
+    posts: posts.slice(0, MENTIONED_NODE_POST_LIMIT),
+  };
+}
+
+function missingMentionedNodeContext(
+  mention: NodeMentionRef
+): MentionedNodeContext {
+  return {
+    mention,
+    found: false,
+    node: null,
+    workspaceTitle: null,
+    breadcrumb: null,
+    owner: null,
+    members: [],
+    fields: [],
+    memory: emptyMemoryShape(),
+    posts: [],
+  };
+}
+
+function memoryToContextShape(memory: {
+  rationale: MemoryPrimitive | null;
+  assumptions: MemoryPrimitive[];
+  decisions: MemoryPrimitive[];
+}): NodeContextMemory {
+  return {
+    rationale: memory.rationale
+      ? plainTextFromBody(memory.rationale.body ?? memory.rationale.statement)
+      : null,
+    assumptions: memory.assumptions.map((a: MemoryPrimitive) => ({
+      statement: a.statement,
+      status: a.status,
+    })),
+    decisions: memory.decisions.map((d: MemoryPrimitive) => ({
+      statement: d.statement,
+      body: d.body ? plainTextFromBody(d.body) : null,
+      status: d.status,
+    })),
+  };
+}
+
+function emptyMemoryShape(): NodeContextMemory {
+  return {
+    rationale: null,
+    assumptions: [],
+    decisions: [],
+  };
+}
+
+function workspaceTitleForDetail(
+  detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>
+): string {
+  const homePlacement = detail.mirrorPlacements.find((p) => p.is_home);
+  return (
+    homePlacement?.parent.title ??
+    detail.ancestors.find((a) => a.type === "workspace")?.title ??
+    "(unknown workspace)"
+  );
+}
+
+function breadcrumbForDetail(
+  detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>
+): string {
+  return detail.ancestors.length > 0
+    ? detail.ancestors.map((a) => a.title).join(" / ") +
+        " / " +
+        detail.node.title
+    : detail.node.title;
+}
 
 /**
  * Collapse multi-valued fields down to "Field name: value, value" lines for
@@ -391,7 +533,12 @@ export function plainTextFromBody(body: string): string {
   return lines.join("\n").trim();
 }
 
-function renderBlock(block: { type?: string; content?: unknown }): string {
+function renderBlock(block: {
+  type?: string;
+  content?: unknown;
+  props?: unknown;
+}): string {
+  if (block.type === "image") return renderImageBlock(block);
   if (!block.content) return "";
   if (!Array.isArray(block.content)) return "";
 
@@ -402,6 +549,9 @@ function renderBlock(block: { type?: string; content?: unknown }): string {
     } else if (inline.type === "mention" && inline.props) {
       const name = (inline.props as { name?: string }).name ?? "Unknown";
       parts.push(`@${name}`);
+    } else if (inline.type === "nodeMention" && inline.props) {
+      const title = (inline.props as { title?: string }).title ?? "Unknown";
+      parts.push(`#${title}`);
     } else if (inline.type === "link" && Array.isArray(inline.content)) {
       for (const child of inline.content as Array<Record<string, unknown>>) {
         if (child.type === "text" && typeof child.text === "string") {
@@ -420,6 +570,30 @@ function renderBlock(block: { type?: string; content?: unknown }): string {
   if (block.type === "quote") return `> ${joined}`;
   if (block.type === "codeBlock") return "```\n" + joined + "\n```";
   return joined;
+}
+
+function renderImageBlock(block: { props?: unknown }): string {
+  const props =
+    typeof block.props === "object" && block.props !== null
+      ? (block.props as Record<string, unknown>)
+      : {};
+  const url = stringProp(props, "url") ?? stringProp(props, "src");
+  const label =
+    stringProp(props, "caption") ??
+    stringProp(props, "alt") ??
+    stringProp(props, "altText") ??
+    stringProp(props, "name") ??
+    "image";
+
+  return url ? `[Image: ${label} (${url})]` : `[Image: ${label}]`;
+}
+
+function stringProp(
+  props: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const value = props[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 /**
