@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   Archive,
   ChevronDown,
@@ -18,8 +18,10 @@ import {
   Search,
   Settings,
   Trash2,
+  X,
 } from "lucide-react";
 import type { SidebarTreeNode } from "@/lib/sidebar-tree";
+import { buildAppSearchResults, type AppSearchResult } from "@/lib/app-search";
 import {
   createCard,
   createStack,
@@ -42,6 +44,7 @@ import {
   type SidebarDropPlan,
   type PinnedSidebarNode,
 } from "@/lib/sidebar-tree-dnd";
+import { isSettingsPathActive } from "@/lib/settings-nav";
 import { ThemeToggle } from "./theme-toggle";
 import { InlineCreate } from "./inline-create";
 import { ConfirmModal } from "./confirm-modal";
@@ -90,6 +93,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
   const [creatingRoot, setCreatingRoot] = useState(false);
   const [creatingChildOf, setCreatingChildOf] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [dragState, setDragState] = useState<SidebarDragState | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(projectTree.map((node) => node.id))
@@ -118,6 +122,19 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
     () => new Set(sortedPins.map((pin) => pin.node.id)),
     [sortedPins]
   );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLocaleLowerCase() !== "k" || (!event.metaKey && !event.ctrlKey)) {
+        return;
+      }
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     const frameId = requestAnimationFrame(() => {
@@ -376,8 +393,10 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
         />
         <button
           type="button"
-          disabled
-          title="Search (coming soon)"
+          onClick={() => setSearchOpen(true)}
+          title="Search"
+          aria-haspopup="dialog"
+          aria-expanded={searchOpen}
           className={[
             "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm",
             "text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
@@ -388,6 +407,17 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
           {!collapsed && <span>Search</span>}
         </button>
       </SidebarSection>
+
+      {searchOpen && (
+        <AppSearchDialog
+          tree={localProjectTree}
+          onClose={() => setSearchOpen(false)}
+          onSelect={(result) => {
+            setSearchOpen(false);
+            router.push(result.href);
+          }}
+        />
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {sortedPins.length > 0 && (
@@ -500,10 +530,10 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
 
       <div className="border-t border-border px-2 py-2">
         <NavLink
-          href="/settings/ai-standards"
-          label="AI Standards"
+          href="/settings"
+          label="Settings"
           icon={<Settings size={15} />}
-          active={pathname === "/settings/ai-standards"}
+          active={isSettingsPathActive(pathname)}
           collapsed={collapsed}
         />
       </div>
@@ -526,6 +556,133 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
         />
       )}
     </aside>
+  );
+}
+
+function AppSearchDialog({
+  tree,
+  onClose,
+  onSelect,
+}: {
+  tree: SidebarTreeNode[];
+  onClose: () => void;
+  onSelect: (result: AppSearchResult) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const results = useMemo(() => buildAppSearchResults(tree, query, 8), [tree, query]);
+  const showEmpty = query.trim().length > 0 && results.length === 0;
+
+  useEffect(() => {
+    const frameId = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (results.length === 0) return;
+      setActiveIndex((index) => Math.min(index + 1, results.length - 1));
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (results.length === 0) return;
+      setActiveIndex((index) => Math.max(index - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter" && results[activeIndex]) {
+      event.preventDefault();
+      onSelect(results[activeIndex]);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search WorkOS"
+      className="fixed inset-0 z-[120] bg-text-primary/20 px-4 pt-24 backdrop-blur-[2px]"
+      onMouseDown={onClose}
+    >
+      <div
+        className="mx-auto w-full max-w-xl overflow-hidden rounded-lg border border-border bg-bg-primary shadow-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <Search size={16} className="shrink-0 text-text-tertiary" />
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActiveIndex(0);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Search workspaces, stacks, and cards"
+            aria-label="Search workspaces, stacks, and cards"
+            className="min-w-0 flex-1 bg-transparent py-1 text-sm text-text-primary outline-none placeholder:text-text-tertiary"
+          />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close search"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="max-h-[360px] overflow-y-auto p-2">
+          {results.length === 0 && !showEmpty && (
+            <div className="px-2 py-6 text-center text-sm text-text-tertiary">
+              Start typing to search.
+            </div>
+          )}
+
+          {showEmpty && (
+            <div className="px-2 py-6 text-center text-sm text-text-tertiary">
+              No results found.
+            </div>
+          )}
+
+          {results.map((result, index) => (
+            <button
+              key={result.id}
+              type="button"
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => onSelect(result)}
+              className={[
+                "flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors",
+                index === activeIndex
+                  ? "bg-bg-selected text-text-primary"
+                  : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
+              ].join(" ")}
+            >
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-bg-card text-[10px] font-semibold uppercase text-text-tertiary">
+                {result.type.slice(0, 1)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{result.title}</span>
+                <span className="block truncate text-xs text-text-tertiary">
+                  {result.path}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

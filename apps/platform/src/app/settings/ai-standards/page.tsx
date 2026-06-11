@@ -13,21 +13,17 @@ export default async function AIStandardsSettingsPage() {
     .join("|");
 
   return (
-    <main className="h-full overflow-auto">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
-        <header>
-          <div className="section-label">Admin</div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-text-primary">
-            AI Standards
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-text-secondary">
-            Universal standards that shape how AI teammates collaborate and
-            structure their output.
-          </p>
-        </header>
-
-        <AIStandardsSettings key={standardsKey} standards={standards} />
+    <section className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-base font-semibold text-text-primary">
+          AI Standards
+        </h2>
+        <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+          Universal standards that shape how AI teammates collaborate and
+          structure their output.
+        </p>
       </div>
-    </main>
+      <AIStandardsSettings key={standardsKey} standards={standards} />
+    </section>
   );
 }
