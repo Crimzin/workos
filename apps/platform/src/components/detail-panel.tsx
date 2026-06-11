@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { X, User } from "lucide-react";
+import { X } from "lucide-react";
 import { getNodeDetail, getMirrorTargets } from "@/lib/node-detail";
-import type { DetailField, DetailFieldValue, NodeAncestor } from "@/lib/node-detail";
+import type { DetailField, DetailFieldValue } from "@/lib/node-detail";
 import type { WorkNode } from "@/lib/types";
 import type { NodeMirrorPlacement } from "@/lib/board-types";
 import { getNodePosts } from "@/lib/posts";
@@ -10,17 +10,22 @@ import { getNodeLinks } from "@/lib/links";
 import type { NodeLinks } from "@/lib/links";
 import { getCurrentActor, getActors } from "@/lib/actor";
 import { getAgentSettings } from "@/lib/agent-settings";
-import { FieldBadge } from "./field-badge";
+import { getNodeBoard } from "@/lib/board";
+import { getWorkspaceViews } from "@/lib/views";
+import {
+  buildBoardDetailTrail,
+  getHeaderBadges,
+} from "@/lib/detail-header";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
-import { EditableTitle } from "./editable-title";
-import { DetailPanelTabs } from "./detail-panel-tabs";
 import { NodeActions } from "./node-actions";
 import { CardsTabContent } from "./cards-tab-content";
 import { MirrorsSection } from "./mirrors-section";
 import { NodeLinksSection } from "./node-links-section";
 import { PostsTabContent } from "./posts-tab-content";
 import { MemoryPrimitivesTabContent } from "./memory-primitives-tab-content";
+import { NodeDetailTabs } from "./node-detail-tabs";
+import { Board } from "./board/board";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -39,7 +44,7 @@ export async function DetailPanel({
   ]);
 
   // Fetch mirror targets + posts + links + memory in parallel with detail panel render.
-  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors] = await Promise.all([
+  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors, board, views] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
@@ -52,12 +57,14 @@ export async function DetailPanel({
       : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
     getAgentSettings(actor.instance_id),
     getActors(actor.instance_id),
+    detail ? getNodeBoard(nodeId) : Promise.resolve(null),
+    detail ? getWorkspaceViews(nodeId) : Promise.resolve([]),
   ]);
 
   return (
-    <aside className="flex h-full w-full flex-col border-l border-border bg-bg-primary">
+    <aside className="flex h-full w-full flex-col border-l border-border bg-bg-secondary/70">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} agentProviders={agentSettings.providers} board={board} views={views} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -83,6 +90,9 @@ function DetailBody({
   actor,
   actors,
   inlineClaudeEnabled,
+  agentProviders,
+  board,
+  views,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
@@ -94,6 +104,9 @@ function DetailBody({
   actor: import("@/lib/actor").CurrentActor;
   actors: import("@/lib/actor").ActorForMention[];
   inlineClaudeEnabled: boolean;
+  agentProviders: import("@/lib/types").AgentProviderSetting[];
+  board: Awaited<ReturnType<typeof getNodeBoard>>;
+  views: Awaited<ReturnType<typeof getWorkspaceViews>>;
 }) {
   const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
 
@@ -105,23 +118,12 @@ function DetailBody({
   // If viewing from a mirror workspace, this is the mirror_parent_id to unlink.
   const mirrorParentId = !isHomeContext ? workspaceId : undefined;
 
-  // Header field badges: select-type fields that have a value set
-  const valuesByField = new Map<string, DetailFieldValue[]>();
-  for (const v of values) {
-    const arr = valuesByField.get(v.field_id) ?? [];
-    arr.push(v);
-    valuesByField.set(v.field_id, arr);
-  }
-
-  const headerBadges: { id: string; name: string; color: string }[] = [];
-  for (const field of fields) {
-    const vals = valuesByField.get(field.id) ?? [];
-    for (const v of vals) {
-      if (!v.option_id) continue;
-      const opt = field.options.find((o) => o.id === v.option_id);
-      if (opt) headerBadges.push({ id: `${field.id}:${opt.id}`, name: opt.name, color: field.color });
-    }
-  }
+  const headerBadges = getHeaderBadges(fields, values);
+  const detailTrail = buildBoardDetailTrail({
+    ancestors,
+    current: { id: node.id, title: node.title, type: node.type },
+    workspaceId,
+  });
 
   const postsContent = (
     <PostsTabContent
@@ -132,6 +134,7 @@ function DetailBody({
       currentActorName={actor.name}
       actors={actors}
       inlineClaudeEnabled={inlineClaudeEnabled}
+      agentProviders={agentProviders}
     />
   );
 
@@ -157,6 +160,14 @@ function DetailBody({
     />
   );
 
+  const boardContent = board ? (
+    <Board data={board} views={views} navigationMode="thread" />
+  ) : (
+    <div className="flex h-full items-center justify-center px-5 text-sm text-text-tertiary">
+      Board unavailable for this node.
+    </div>
+  );
+
   const cardsContent =
     node.type === "stack" ? (
       <CardsTabContent
@@ -170,162 +181,40 @@ function DetailBody({
 
   return (
     <>
-      {/* Header */}
-      <div className="shrink-0 border-b border-border px-4 py-2.5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            {/* Breadcrumb */}
-            <Breadcrumb ancestors={ancestors} workspaceId={workspaceId} />
-
-            {/* Archived badge */}
-            {node.archived_at && (
-              <span className="mt-1 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-bg-hover text-text-tertiary">
-                Archived
-              </span>
-            )}
-
-            {/* Editable title */}
-            <div className="mt-0.5">
-              <EditableTitle
+      <NodeDetailTabs
+        identity={{
+          node,
+          workspaceId,
+          trail: detailTrail,
+          badges: headerBadges,
+          owner,
+          members,
+          actions: (
+            <>
+              <NodeActions
                 nodeId={node.id}
                 workspaceId={workspaceId}
                 parentId={node.parent_id}
-                initialTitle={node.title}
+                nodeType={node.type as "card" | "stack"}
+                isArchived={!!node.archived_at}
+                closeHref={closeHref}
+                isHomeContext={isHomeContext}
+                isMirrored={isMirrored}
+                mirrorParentId={mirrorParentId}
+                homeWorkspaceId={homeWorkspaceId}
               />
-            </div>
-
-            {/* Field badges */}
-            {headerBadges.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {headerBadges.map((b) => (
-                  <FieldBadge key={b.id} name={b.name} color={b.color} />
-                ))}
-              </div>
-            )}
-
-            {/* Owner + members */}
-            <OwnerMembersRow owner={owner} members={members} />
-          </div>
-
-          <div className="flex shrink-0 items-center gap-1">
-            <NodeActions
-              nodeId={node.id}
-              workspaceId={workspaceId}
-              parentId={node.parent_id}
-              nodeType={node.type as "card" | "stack"}
-              isArchived={!!node.archived_at}
-              closeHref={closeHref}
-              isHomeContext={isHomeContext}
-              isMirrored={isMirrored}
-              mirrorParentId={mirrorParentId}
-              homeWorkspaceId={homeWorkspaceId}
-            />
-            <CloseButton href={closeHref} />
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <DetailPanelTabs
-        nodeType={node.type}
+              <CloseButton href={closeHref} />
+            </>
+          ),
+        }}
         fieldsContent={fieldsContent}
+        boardContent={boardContent}
         memoryContent={memoryContent}
-        cardsContent={cardsContent}
         postsContent={postsContent}
+        treeContent={cardsContent}
+        paddingClassName="px-4"
       />
     </>
-  );
-}
-
-function Breadcrumb({
-  ancestors,
-  workspaceId,
-}: {
-  ancestors: NodeAncestor[];
-  workspaceId: string;
-}) {
-  if (ancestors.length === 0) return null;
-
-  return (
-    <nav className="flex items-center gap-1 text-xs text-text-tertiary">
-      {ancestors.map((a, i) => {
-        const isLast = i === ancestors.length - 1;
-        // Workspace links go to the board; stacks open in the panel
-        const href =
-          a.type === "workspace"
-            ? `/n/${workspaceId}?view=board`
-            : `/n/${workspaceId}?view=board&d=${a.id}`;
-        return (
-          <span key={a.id} className="flex items-center gap-1">
-            {i > 0 && <span className="text-text-tertiary">/</span>}
-            <Link
-              href={href}
-              scroll={false}
-              className={[
-                "truncate max-w-[120px] hover:text-text-secondary transition-colors",
-                isLast ? "font-medium" : "",
-              ].join(" ")}
-            >
-              {a.title}
-            </Link>
-          </span>
-        );
-      })}
-    </nav>
-  );
-}
-
-function OwnerMembersRow({
-  owner,
-  members,
-}: {
-  owner: { id: string; name: string; kind: string } | null;
-  members: { id: string; name: string; kind: string }[];
-}) {
-  const all = [
-    ...(owner ? [{ ...owner, isOwner: true }] : []),
-    ...members.filter((m) => m.id !== owner?.id).map((m) => ({ ...m, isOwner: false })),
-  ];
-
-  if (all.length === 0) return null;
-
-  return (
-    <div className="mt-1.5 flex items-center gap-1.5">
-      {all.map((a) => (
-        <ActorChip key={a.id} name={a.name} kind={a.kind} isOwner={a.isOwner} />
-      ))}
-    </div>
-  );
-}
-
-function ActorChip({
-  name,
-  kind,
-  isOwner,
-}: {
-  name: string;
-  kind: string;
-  isOwner: boolean;
-}) {
-  const initials = name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-
-  return (
-    <div
-      title={`${name}${isOwner ? " (owner)" : ""}`}
-      className={[
-        "inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold",
-        kind === "agent"
-          ? "ring-2 ring-agent-accent bg-bg-hover text-text-secondary"
-          : "bg-bg-hover text-text-secondary",
-      ].join(" ")}
-    >
-      {initials || <User size={10} />}
-    </div>
   );
 }
 
@@ -380,7 +269,7 @@ export function FieldsTabContent({
         <div className="section-label">Fields</div>
         <AddFieldButton workspaceId={workspaceId} />
       </div>
-      <dl className="mt-2 mx-5 divide-y divide-border rounded-md border border-border bg-bg-card">
+      <dl className="mt-2 mx-5 divide-y divide-border rounded-md border border-border bg-bg-card shadow-sm">
         <SystemRow label="Owner" value={owner?.name ?? "—"} />
         <SystemRow label="Type" value={node.type} />
         {node.type === "stack" && (

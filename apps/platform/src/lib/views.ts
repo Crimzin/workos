@@ -29,7 +29,19 @@ export async function getWorkspaceViews(workspaceId: string): Promise<WorkspaceV
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as WorkspaceView[];
+      if (data && data.length > 0) return data as WorkspaceView[];
+
+      const { data: created, error: createErr } = await supabase
+        .from("workspace_views")
+        .insert({
+          workspace_id: workspaceId,
+          name: "Default",
+          starred: true,
+        })
+        .select("id, workspace_id, name, starred, column_field_id, filters, stack_filters, hidden_stack_ids, collapsed_column_ids, stack_column_fields")
+        .single();
+      if (createErr) throw createErr;
+      return [created as WorkspaceView];
     },
     ["workspace-views", workspaceId],
     {

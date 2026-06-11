@@ -5,6 +5,7 @@ import { getNodeMemoryPrimitives } from "./memory-primitives";
 import { getMirrorTargets, getNodeDetail } from "./node-detail";
 import { getNodePath, type NodePathItem } from "./node-path";
 import { getNodePosts, type PostRecord } from "./posts";
+import type { AgentProviderSetting } from "./types";
 
 export interface ThreadSurfaceData {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
@@ -17,6 +18,7 @@ export interface ThreadSurfaceData {
   actor: Awaited<ReturnType<typeof getCurrentActor>>;
   actors: Awaited<ReturnType<typeof getActors>>;
   inlineClaudeEnabled: boolean;
+  agentProviders: AgentProviderSetting[];
 }
 
 export async function getThreadSurface(
@@ -59,5 +61,6 @@ export async function getThreadSurface(
     inlineClaudeEnabled: agentSettings.providers.some(
       (provider) => provider.provider_key === "inline_claude" && provider.enabled
     ),
+    agentProviders: agentSettings.providers,
   };
 }

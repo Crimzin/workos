@@ -29,9 +29,10 @@ interface CardTileProps {
   fields: BoardField[];
   columnFieldId: string | null;
   actors: Record<string, BoardActor>;
+  navigationMode: "board-detail" | "thread";
 }
 
-export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, actors }: CardTileProps) {
+export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, actors, navigationMode }: CardTileProps) {
   const search = useSearchParams();
   const isActive = search.get("d") === card.id;
   const router = useRouter();
@@ -171,7 +172,7 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
     <>
       <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="touch-none">
         <Link
-          href={`/n/${workspaceId}?view=board&d=${card.id}`}
+          href={navigationMode === "thread" ? `/n/${card.id}` : `/n/${workspaceId}?view=board&d=${card.id}`}
           scroll={false}
           aria-current={isActive ? "true" : undefined}
           className={[

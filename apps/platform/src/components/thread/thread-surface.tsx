@@ -1,14 +1,24 @@
 import { getThreadSurface } from "@/lib/thread-surface";
+import { getNodeBoard } from "@/lib/board";
+import { getWorkspaceViews } from "@/lib/views";
+import {
+  buildThreadIdentityTrail,
+  getHeaderBadges,
+} from "@/lib/detail-header";
+import { Board } from "../board/board";
 import { FieldsTabContent } from "../detail-panel";
 import { MemoryPrimitivesTabContent } from "../memory-primitives-tab-content";
+import { NodeDetailTabs } from "../node-detail-tabs";
 import { NodeActions } from "../node-actions";
 import { PostsTabContent } from "../posts-tab-content";
-import { ThreadHeader } from "./thread-header";
-import { ThreadTabs } from "./thread-tabs";
 import { ThreadTree } from "./thread-tree";
 
 export async function ThreadSurface({ nodeId }: { nodeId: string }) {
-  const data = await getThreadSurface(nodeId);
+  const [data, board, views] = await Promise.all([
+    getThreadSurface(nodeId),
+    getNodeBoard(nodeId),
+    getWorkspaceViews(nodeId),
+  ]);
 
   if (!data) {
     return (
@@ -29,6 +39,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     actor,
     actors,
     inlineClaudeEnabled,
+    agentProviders,
   } = data;
   const {
     node,
@@ -61,6 +72,8 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
         homeWorkspaceId={homeWorkspaceId}
       />
     );
+  const identityTrail = buildThreadIdentityTrail({ path, current: node });
+  const headerBadges = getHeaderBadges(fields, values);
 
   const postsContent = (
     <PostsTabContent
@@ -71,6 +84,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
       currentActorName={actor.name}
       actors={actors}
       inlineClaudeEnabled={inlineClaudeEnabled}
+      agentProviders={agentProviders}
     />
   );
 
@@ -101,27 +115,35 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     />
   );
 
+  const boardContent = board ? (
+    <Board data={board} views={views} navigationMode="thread" />
+  ) : (
+    <div className="flex h-full items-center justify-center px-5 text-sm text-text-tertiary">
+      Board unavailable for this thread.
+    </div>
+  );
+
   const treeContent = <ThreadTree threads={children} />;
 
   return (
     <main className="flex h-full min-h-0 flex-col bg-bg-primary">
-      <ThreadHeader
-        node={node}
-        path={path}
-        fields={fields}
-        values={values}
-        owner={owner}
-        members={members}
-        workspaceId={workspaceId}
-        actions={actions}
-        viewSwitcher={null}
-      />
-
-      <ThreadTabs
+      <NodeDetailTabs
+        identity={{
+          node,
+          workspaceId,
+          trail: identityTrail,
+          badges: headerBadges,
+          owner,
+          members,
+          actions,
+          viewSwitcher: null,
+        }}
         postsContent={postsContent}
+        boardContent={boardContent}
         fieldsContent={fieldsContent}
         memoryContent={memoryContent}
         treeContent={treeContent}
+        paddingClassName="px-6"
       />
     </main>
   );

@@ -1,10 +1,22 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "./supabase";
 import { cacheTags } from "./cache";
-import type { BoardActor, BoardData } from "./board-types";
+import type { BoardActor, BoardData, BoardField } from "./board-types";
+import {
+  buildRecursiveBoardData,
+  type RecursiveBoardFieldValueRow,
+  type RecursiveBoardMirrorRow,
+  type RecursiveBoardNodeRow,
+} from "./recursive-board";
 
 export { UNASSIGNED_COL_ID } from "./board-types";
 export type { BoardOption, BoardField, BoardCard, BoardStack, BoardData, BoardActor } from "./board-types";
+export {
+  buildRecursiveBoardData,
+  type RecursiveBoardFieldValueRow,
+  type RecursiveBoardMirrorRow,
+  type RecursiveBoardNodeRow,
+} from "./recursive-board";
 
 /**
  * Fetch the full board payload in one round trip via the
@@ -82,4 +94,158 @@ export async function getWorkspaceBoard(
     }
   );
   return cached();
+}
+
+export async function getNodeBoard(nodeId: string): Promise<BoardData | null> {
+  const cached = unstable_cache(
+    async (): Promise<BoardData | null> => {
+      const { data: root, error: rootErr } = await supabase
+        .from("nodes")
+        .select("*")
+        .eq("id", nodeId)
+        .maybeSingle();
+      if (rootErr) throw rootErr;
+      if (!root || root.archived_at) return null;
+
+      const [
+        homeStacksRes,
+        stackMirrorsRes,
+        fieldsRes,
+        optionsRes,
+        actorRowsRes,
+      ] = await Promise.all([
+        supabase
+          .from("nodes")
+          .select("*")
+          .eq("parent_id", nodeId)
+          .order("position", { ascending: true }),
+        supabase
+          .from("node_mirrors")
+          .select("node_id, mirror_parent_id, position")
+          .eq("mirror_parent_id", nodeId)
+          .order("position", { ascending: true }),
+        supabase
+          .from("data_fields")
+          .select("*")
+          .eq("instance_id", root.instance_id)
+          .in("field_type", ["single_select", "multi_select"])
+          .order("position", { ascending: true }),
+        supabase
+          .from("data_field_options")
+          .select("*")
+          .order("position", { ascending: true }),
+        supabase
+          .from("actors")
+          .select("id, name, kind, avatar_url")
+          .eq("instance_id", root.instance_id),
+      ]);
+
+      if (homeStacksRes.error) throw homeStacksRes.error;
+      if (stackMirrorsRes.error) throw stackMirrorsRes.error;
+      if (fieldsRes.error) throw fieldsRes.error;
+      if (optionsRes.error) throw optionsRes.error;
+      if (actorRowsRes.error) throw actorRowsRes.error;
+
+      const stackMirrorRows = (stackMirrorsRes.data ?? []) as RecursiveBoardMirrorRow[];
+      const mirrorStackIds = stackMirrorRows.map((row) => row.node_id);
+      const { data: mirrorStacks, error: mirrorStacksErr } = mirrorStackIds.length
+        ? await supabase.from("nodes").select("*").in("id", mirrorStackIds)
+        : { data: [] as RecursiveBoardNodeRow[], error: null };
+      if (mirrorStacksErr) throw mirrorStacksErr;
+
+      const stackRows = [
+        ...((homeStacksRes.data ?? []) as RecursiveBoardNodeRow[]),
+        ...((mirrorStacks ?? []) as RecursiveBoardNodeRow[]),
+      ];
+      const stackIds = stackRows.map((row) => row.id);
+
+      const [homeCardsRes, cardMirrorsRes] = stackIds.length
+        ? await Promise.all([
+            supabase
+              .from("nodes")
+              .select("*")
+              .in("parent_id", stackIds)
+              .order("position", { ascending: true }),
+            supabase
+              .from("node_mirrors")
+              .select("node_id, mirror_parent_id, position")
+              .in("mirror_parent_id", stackIds)
+              .order("position", { ascending: true }),
+          ])
+        : [
+            { data: [] as RecursiveBoardNodeRow[], error: null },
+            { data: [] as RecursiveBoardMirrorRow[], error: null },
+          ];
+      if (homeCardsRes.error) throw homeCardsRes.error;
+      if (cardMirrorsRes.error) throw cardMirrorsRes.error;
+
+      const cardMirrorRows = (cardMirrorsRes.data ?? []) as RecursiveBoardMirrorRow[];
+      const mirrorCardIds = cardMirrorRows.map((row) => row.node_id);
+      const { data: mirrorCards, error: mirrorCardsErr } = mirrorCardIds.length
+        ? await supabase.from("nodes").select("*").in("id", mirrorCardIds)
+        : { data: [] as RecursiveBoardNodeRow[], error: null };
+      if (mirrorCardsErr) throw mirrorCardsErr;
+
+      const rows = dedupeRows([
+        ...stackRows,
+        ...((homeCardsRes.data ?? []) as RecursiveBoardNodeRow[]),
+        ...((mirrorCards ?? []) as RecursiveBoardNodeRow[]),
+      ]);
+      const boardNodeIds = rows.map((row) => row.id);
+
+      const [fieldValuesRes, mirroredIdsRes] = boardNodeIds.length
+        ? await Promise.all([
+            supabase
+              .from("node_field_values")
+              .select("node_id, field_id, option_id")
+              .in("node_id", boardNodeIds)
+              .not("option_id", "is", null),
+            supabase
+              .from("node_mirrors")
+              .select("node_id")
+              .in("node_id", boardNodeIds),
+          ])
+        : [
+            { data: [] as RecursiveBoardFieldValueRow[], error: null },
+            { data: [] as { node_id: string }[], error: null },
+          ];
+      if (fieldValuesRes.error) throw fieldValuesRes.error;
+      if (mirroredIdsRes.error) throw mirroredIdsRes.error;
+
+      const optionsByField = new Map<string, import("./types").DataFieldOption[]>();
+      for (const option of optionsRes.data ?? []) {
+        const options = optionsByField.get(option.field_id) ?? [];
+        options.push(option);
+        optionsByField.set(option.field_id, options);
+      }
+
+      const fields: BoardField[] = (fieldsRes.data ?? []).map((field) => ({
+        ...field,
+        options: optionsByField.get(field.id) ?? [],
+      }));
+
+      const actors: Record<string, BoardActor> = {};
+      for (const actor of actorRowsRes.data ?? []) actors[actor.id] = actor as BoardActor;
+
+      return buildRecursiveBoardData({
+        root: root as RecursiveBoardNodeRow,
+        rows,
+        fields,
+        fieldValues: (fieldValuesRes.data ?? []) as RecursiveBoardFieldValueRow[],
+        mirrorRows: [...stackMirrorRows, ...cardMirrorRows],
+        mirroredNodeIds: new Set((mirroredIdsRes.data ?? []).map((row) => row.node_id)),
+        actors,
+      });
+    },
+    ["node-board", nodeId],
+    {
+      tags: [cacheTags.workspaceBoard(nodeId)],
+      revalidate: 300,
+    }
+  );
+  return cached();
+}
+
+function dedupeRows(rows: RecursiveBoardNodeRow[]): RecursiveBoardNodeRow[] {
+  return Array.from(new Map(rows.map((row) => [row.id, row])).values());
 }

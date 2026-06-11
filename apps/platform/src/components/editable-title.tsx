@@ -8,6 +8,8 @@ interface EditableTitleProps {
   workspaceId: string;
   parentId: string | null;
   initialTitle: string;
+  displayClassName?: string;
+  inputClassName?: string;
 }
 
 export function EditableTitle({
@@ -15,6 +17,8 @@ export function EditableTitle({
   workspaceId,
   parentId,
   initialTitle,
+  displayClassName,
+  inputClassName,
 }: EditableTitleProps) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(initialTitle);
@@ -48,7 +52,10 @@ export function EditableTitle({
           if (e.key === "Enter") { e.preventDefault(); commit(); }
           if (e.key === "Escape") { setValue(initialTitle); setEditing(false); }
         }}
-        className="w-full rounded px-0.5 text-lg font-semibold tracking-tight text-text-primary outline-none ring-1 ring-accent focus:ring-2 bg-transparent"
+        className={
+          inputClassName ??
+          "w-full rounded px-0.5 text-lg font-semibold tracking-tight text-text-primary outline-none ring-1 ring-accent focus:ring-2 bg-transparent"
+        }
       />
     );
   }
@@ -60,7 +67,10 @@ export function EditableTitle({
       onClick={() => setEditing(true)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setEditing(true); }}
       title="Click to rename"
-      className="cursor-text text-lg font-semibold tracking-tight text-text-primary hover:text-accent transition-colors"
+      className={
+        displayClassName ??
+        "cursor-text text-lg font-semibold tracking-tight text-text-primary hover:text-accent transition-colors"
+      }
     >
       {value}
     </h2>

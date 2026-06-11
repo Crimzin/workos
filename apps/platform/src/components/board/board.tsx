@@ -48,9 +48,10 @@ type ActiveItem = ActiveCard | ActiveStack | null;
 interface BoardProps {
   data: BoardData;
   views: WorkspaceView[];
+  navigationMode?: "board-detail" | "thread";
 }
 
-export function Board({ data, views }: BoardProps) {
+export function Board({ data, views, navigationMode = "board-detail" }: BoardProps) {
   const starredView = views.find((v) => v.starred) ?? views[0] ?? null;
   const [activeView, setActiveView] = useState<WorkspaceView | null>(starredView);
   const [localViews, setLocalViews] = useState<WorkspaceView[]>(views);
@@ -522,6 +523,7 @@ export function Board({ data, views }: BoardProps) {
                       stackIndex={i}
                       totalStacks={localStacks.length}
                       actors={data.actors}
+                      navigationMode={navigationMode}
                       collapsedColumnIds={collapsedColumnIds}
                       onToggleColumnCollapse={handleToggleColumnCollapse}
                       onColumnFieldChange={(fieldId) => handleStackColumnFieldChange(stack.id, fieldId)}

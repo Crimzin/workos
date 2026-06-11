@@ -29,12 +29,13 @@ interface StackRowProps {
   stackIndex: number;
   totalStacks: number;
   actors: Record<string, BoardActor>;
+  navigationMode: "board-detail" | "thread";
   collapsedColumnIds: string[];
   onToggleColumnCollapse: (colId: string) => void;
   onColumnFieldChange: (fieldId: string | null) => void;
 }
 
-export function StackRow({ stack, workspaceId, columnField, columnFieldId, fields, activeDetailId, stackIndex, totalStacks, actors, collapsedColumnIds, onToggleColumnCollapse, onColumnFieldChange }: StackRowProps) {
+export function StackRow({ stack, workspaceId, columnField, columnFieldId, fields, activeDetailId, stackIndex, totalStacks, actors, navigationMode, collapsedColumnIds, onToggleColumnCollapse, onColumnFieldChange }: StackRowProps) {
   const router = useRouter();
   const isActive = activeDetailId === stack.id;
 
@@ -103,6 +104,7 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
           totalStacks={totalStacks}
           actors={actors}
           columnFieldId={columnFieldId}
+          navigationMode={navigationMode}
           onColumnFieldChange={onColumnFieldChange}
         />
         <div className="flex flex-1 min-w-0">
@@ -120,6 +122,7 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                 fields={fields}
                 columnField={columnField}
                 actors={actors}
+                navigationMode={navigationMode}
                 collapsed={collapsedColumnIds.includes(col.id)}
                 onToggleCollapse={() => onToggleColumnCollapse(col.id)}
                 onAddCard={async (title) => {
@@ -151,6 +154,7 @@ function DroppableColumn({
   fields,
   columnField,
   actors,
+  navigationMode,
   collapsed,
   onToggleCollapse,
   onAddCard,
@@ -163,6 +167,7 @@ function DroppableColumn({
   fields: BoardField[];
   columnField: BoardField | null;
   actors: Record<string, BoardActor>;
+  navigationMode: "board-detail" | "thread";
   collapsed: boolean;
   onToggleCollapse: () => void;
   onAddCard: (title: string) => Promise<void | { id: string }>;
@@ -298,6 +303,7 @@ function DroppableColumn({
               fields={fields}
               columnFieldId={columnField?.id ?? null}
               actors={actors}
+              navigationMode={navigationMode}
             />
           ))}
           <InlineCreate
@@ -325,6 +331,7 @@ function StackHeader({
   stackIndex,
   totalStacks,
   actors,
+  navigationMode,
   columnFieldId,
   onColumnFieldChange,
 }: {
@@ -338,6 +345,7 @@ function StackHeader({
   stackIndex: number;
   totalStacks: number;
   actors: Record<string, BoardActor>;
+  navigationMode: "board-detail" | "thread";
   columnFieldId: string | null;
   onColumnFieldChange: (fieldId: string | null) => void;
 }) {
@@ -457,7 +465,7 @@ function StackHeader({
           </div>
         ) : (
           <Link
-            href={`/n/${workspaceId}?view=board&d=${stack.id}`}
+            href={navigationMode === "thread" ? `/n/${stack.id}` : `/n/${workspaceId}?view=board&d=${stack.id}`}
             scroll={false}
             className="min-w-0 flex-1 group"
           >
