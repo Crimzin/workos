@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Layers, CreditCard } from "lucide-react";
 import type { ActorForMention } from "@/lib/actor";
 import type { FeedPost } from "@/lib/posts";
+import type { PostReactionSummary } from "@/lib/post-reactions";
 import { PostItem } from "./post-item";
 
 interface WorkspaceFeedProps {
@@ -29,6 +30,9 @@ export function WorkspaceFeed({
   global = false,
 }: WorkspaceFeedProps) {
   const [tab, setTab] = useState<FeedTab>(global ? "all" : "workspace");
+  const [reactionOverrides, setReactionOverrides] = useState<
+    Record<string, PostReactionSummary[]>
+  >({});
 
   const tabs: { id: FeedTab; label: string }[] = global
     ? [{ id: "all", label: "All" }]
@@ -39,8 +43,27 @@ export function WorkspaceFeed({
       ];
 
   // In solo mode, My Feed = Workspace Feed
+  const sourcePosts: FeedPost[] =
+    global || tab === "all"
+      ? allFeed
+      : tab === "my"
+        ? workspaceFeed
+        : workspaceFeed;
   const posts: FeedPost[] =
-    global || tab === "all" ? allFeed : tab === "my" ? workspaceFeed : workspaceFeed;
+    Object.keys(reactionOverrides).length === 0
+      ? sourcePosts
+      : sourcePosts.map((post) =>
+          reactionOverrides[post.id]
+            ? { ...post, reactions: reactionOverrides[post.id] }
+            : post
+        );
+
+  const handleReactionUpdate = (
+    postId: string,
+    reactions: PostReactionSummary[]
+  ) => {
+    setReactionOverrides((prev) => ({ ...prev, [postId]: reactions }));
+  };
 
   return (
     <div className="mx-auto max-w-2xl w-full">
@@ -75,6 +98,7 @@ export function WorkspaceFeed({
               workspaceId={workspaceId}
               actorId={actorId}
               actors={actors}
+              onReactionUpdate={handleReactionUpdate}
             />
           ))}
         </div>
@@ -88,11 +112,13 @@ function FeedPostItem({
   workspaceId,
   actorId,
   actors,
+  onReactionUpdate,
 }: {
   post: FeedPost;
   workspaceId: string;
   actorId: string;
   actors: ActorForMention[];
+  onReactionUpdate: (postId: string, reactions: PostReactionSummary[]) => void;
 }) {
   const nodeType = post.node?.type;
   const nodeTitle = post.node?.title ?? "Unknown";
@@ -119,6 +145,7 @@ function FeedPostItem({
         workspaceId={workspaceId}
         currentActorId={actorId}
         actors={actors}
+        onReactionUpdate={onReactionUpdate}
       />
     </div>
   );

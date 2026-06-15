@@ -11,7 +11,7 @@ export default async function GlobalFeedPage() {
   ]);
   const fallbackWorkspaceId = roots[0]?.id ?? "";
   const posts = fallbackWorkspaceId
-    ? await getWorkspaceFeed(fallbackWorkspaceId, "all")
+    ? await getWorkspaceFeed(fallbackWorkspaceId, "all", actor.id)
     : [];
 
   return (

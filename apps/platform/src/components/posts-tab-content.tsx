@@ -432,6 +432,15 @@ export function PostsTabContent({
     );
   };
 
+  const handleReactionUpdate = (
+    postId: string,
+    reactions: PostRecord["reactions"]
+  ) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, reactions } : p))
+    );
+  };
+
   const submitWithAiResponse = () => {
     handleSubmit(currentBlocksRef.current, { requestAgentResponse: true });
   };
@@ -497,6 +506,7 @@ export function PostsTabContent({
                   onPinToggle={handlePinToggle}
                   onDelete={handleDelete}
                   onUpdate={handleUpdate}
+                  onReactionUpdate={handleReactionUpdate}
                 />
                 {idx === orderedVisiblePosts.length - 1 &&
                   activeThinkingClaudes.length > 0 &&

@@ -29,6 +29,7 @@ function targetPost(text: string): PostRecord {
     created_at: "2026-05-20T12:00:00.000Z",
     updated_at: "2026-05-20T12:00:00.000Z",
     actor: { id: "will", name: "Will", kind: "human" },
+    reactions: [],
   };
 }
 

@@ -1,12 +1,28 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, Clipboard, FileDown, FileText, Pin, Pencil, Trash2 } from "lucide-react";
+import EmojiPicker, { Theme, type EmojiClickData } from "emoji-picker-react";
+import {
+  Check,
+  Clipboard,
+  FileDown,
+  FileText,
+  Pin,
+  Pencil,
+  SmilePlus,
+  Trash2,
+} from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
-import { updatePost, deletePost, pinPost } from "@/lib/actions/posts";
+import type { PostReactionSummary } from "@/lib/post-reactions";
+import {
+  updatePost,
+  deletePost,
+  pinPost,
+  togglePostReaction,
+} from "@/lib/actions/posts";
 import { postBodyToMarkdown } from "@/lib/blocknote-markdown";
 import {
   canExportPostToPdf,
@@ -24,6 +40,7 @@ interface PostItemProps {
   onPinToggle?: (postId: string, pinned: boolean) => void;
   onDelete?: (postId: string) => void;
   onUpdate?: (postId: string, newBody: string) => void;
+  onReactionUpdate?: (postId: string, reactions: PostReactionSummary[]) => void;
 }
 
 export function PostItem({
@@ -34,12 +51,16 @@ export function PostItem({
   onPinToggle,
   onDelete,
   onUpdate,
+  onReactionUpdate,
 }: PostItemProps) {
   const [localPinned, setLocalPinned] = useState(post.pinned);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [reactionPending, startReactionTransition] = useTransition();
+  const reactionPickerRef = useRef<HTMLDivElement>(null);
 
   const isActivity = post.post_type !== "post";
 
@@ -74,6 +95,46 @@ export function PostItem({
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   };
+
+  const handleToggleReaction = (emoji: string) => {
+    startReactionTransition(async () => {
+      const reactions = await togglePostReaction(
+        post.id,
+        nodeId,
+        workspaceId,
+        emoji
+      );
+      onReactionUpdate?.(post.id, reactions);
+    });
+  };
+
+  const handleEmojiClick = (emojiData: EmojiClickData) => {
+    handleToggleReaction(emojiData.emoji);
+    setReactionPickerOpen(false);
+  };
+
+  useEffect(() => {
+    if (!reactionPickerOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        reactionPickerRef.current &&
+        !reactionPickerRef.current.contains(event.target as Node)
+      ) {
+        setReactionPickerOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setReactionPickerOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [reactionPickerOpen]);
 
   const actorName = post.actor?.name ?? "Unknown";
   const initials = actorName
@@ -140,12 +201,67 @@ export function PostItem({
 
       {/* Hover actions */}
       {!editing && !confirmDelete && (
-        <div className="absolute right-4 bottom-2.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div
+          className={[
+            "absolute right-4 bottom-2.5 flex items-center gap-0.5 transition-opacity",
+            !isActivity && post.reactions.length > 0
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100",
+          ].join(" ")}
+        >
+          {!isActivity &&
+            post.reactions.map((reaction) => (
+              <button
+                key={reaction.emoji}
+                type="button"
+                disabled={reactionPending}
+                onClick={() => handleToggleReaction(reaction.emoji)}
+                title={reaction.actorNames.join(", ")}
+                className={[
+                  "inline-flex h-5 items-center gap-1 rounded px-1.5 text-[11px] transition-colors hover:bg-bg-hover",
+                  reaction.reactedByCurrentActor
+                    ? "border border-accent/50 bg-accent-subtle text-accent"
+                    : "border border-border bg-bg-card text-text-secondary hover:text-text-primary",
+                ].join(" ")}
+              >
+                <span>{reaction.emoji}</span>
+                <span>{reaction.count}</span>
+              </button>
+            ))}
+          {!isActivity && (
+            <div ref={reactionPickerRef} className="relative">
+              <button
+                type="button"
+                disabled={reactionPending}
+                onClick={() => setReactionPickerOpen((v) => !v)}
+                title="Add reaction"
+                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+              >
+                <SmilePlus size={12} />
+              </button>
+              {reactionPickerOpen && (
+                <div className="absolute bottom-7 right-0 z-50 rounded-md border border-border bg-bg-card shadow-lg">
+                  <EmojiPicker
+                    onEmojiClick={handleEmojiClick}
+                    width={320}
+                    height={380}
+                    theme={Theme.AUTO}
+                    previewConfig={{ showPreview: false }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           <button
             type="button"
             onClick={handleCopy}
             title={copied ? "Copied" : "Copy Markdown"}
-            className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+            className={[
+              "inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors",
+              !isActivity && post.reactions.length > 0
+                ? "opacity-0 group-hover:opacity-100"
+                : "",
+            ].join(" ")}
           >
             {copied ? <Check size={11} /> : <Clipboard size={11} />}
           </button>
@@ -156,7 +272,12 @@ export function PostItem({
                 target="_blank"
                 rel="noreferrer"
                 title="Export DOCX"
-                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+                className={[
+                  "inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors",
+                  !isActivity && post.reactions.length > 0
+                    ? "opacity-0 group-hover:opacity-100"
+                    : "",
+                ].join(" ")}
               >
                 <FileText size={11} />
               </Link>
@@ -165,7 +286,12 @@ export function PostItem({
                 target="_blank"
                 rel="noreferrer"
                 title="Export PDF"
-                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+                className={[
+                  "inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors",
+                  !isActivity && post.reactions.length > 0
+                    ? "opacity-0 group-hover:opacity-100"
+                    : "",
+                ].join(" ")}
               >
                 <FileDown size={11} />
               </Link>
@@ -181,6 +307,7 @@ export function PostItem({
                 className={[
                   "inline-flex h-5 w-5 items-center justify-center rounded transition-colors hover:bg-bg-hover",
                   localPinned ? "text-accent hover:text-accent/70" : "text-text-tertiary hover:text-text-secondary",
+                  post.reactions.length > 0 ? "opacity-0 group-hover:opacity-100" : "",
                 ].join(" ")}
               >
                 <Pin size={11} />
@@ -190,7 +317,10 @@ export function PostItem({
                 disabled={pending}
                 onClick={() => setEditing(true)}
                 title="Edit"
-                className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+                className={[
+                  "inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors",
+                  post.reactions.length > 0 ? "opacity-0 group-hover:opacity-100" : "",
+                ].join(" ")}
               >
                 <Pencil size={11} />
               </button>
@@ -202,7 +332,10 @@ export function PostItem({
               disabled={pending}
               onClick={() => setConfirmDelete(true)}
               title="Delete"
-              className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-red-500 transition-colors"
+              className={[
+                "inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-red-500 transition-colors",
+                post.reactions.length > 0 ? "opacity-0 group-hover:opacity-100" : "",
+              ].join(" ")}
             >
               <Trash2 size={11} />
             </button>

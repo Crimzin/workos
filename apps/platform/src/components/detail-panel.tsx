@@ -48,7 +48,7 @@ export async function DetailPanel({
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
-    detail ? getNodePosts(nodeId) : Promise.resolve([]),
+    detail ? getNodePosts(nodeId, actor.id) : Promise.resolve([]),
     detail
       ? getNodeLinks(nodeId)
       : Promise.resolve({ related: [], blocks: [], blockedBy: [] } as NodeLinks),

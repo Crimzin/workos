@@ -25,6 +25,7 @@ function post(id: string, text: string, createdAt: string): PostRecord {
     created_at: createdAt,
     updated_at: createdAt,
     actor: { id: "will", name: "Will", kind: "human" },
+    reactions: [],
   };
 }
 

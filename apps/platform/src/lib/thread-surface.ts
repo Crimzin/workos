@@ -41,7 +41,7 @@ export async function getThreadSurface(
   const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors] =
     await Promise.all([
     mirrorTargetsPromise,
-    getNodePosts(nodeId),
+    getNodePosts(nodeId, actor.id),
     getNodeLinks(nodeId),
     getNodeMemoryPrimitives(nodeId),
     getAgentSettings(actor.instance_id),

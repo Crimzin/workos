@@ -1,4 +1,9 @@
 import { supabase } from "./supabase";
+import {
+  groupPostReactions,
+  type PostReactionSummary,
+  type RawPostReaction,
+} from "./post-reactions";
 
 export interface PostRecord {
   id: string;
@@ -12,10 +17,35 @@ export interface PostRecord {
   created_at: string;
   updated_at: string;
   actor: { id: string; name: string; kind: string } | null;
+  reactions: PostReactionSummary[];
 }
 
 export interface FeedPost extends PostRecord {
   node: { id: string; title: string; type: string };
+}
+
+const POST_WITH_RELATIONS_SELECT =
+  "*, actor:actors(id,name,kind), reactions:post_reactions(id,post_id,actor_id,emoji,created_at,actor:actors(id,name,kind))";
+
+const FEED_POST_WITH_RELATIONS_SELECT =
+  "*, actor:actors(id,name,kind), node:nodes!posts_node_id_fkey(id,title,type), reactions:post_reactions(id,post_id,actor_id,emoji,created_at,actor:actors(id,name,kind))";
+
+type PostWithRawReactions = Omit<PostRecord, "reactions"> & {
+  reactions?: RawPostReaction[] | null;
+};
+
+type FeedPostWithRawReactions = Omit<FeedPost, "reactions"> & {
+  reactions?: RawPostReaction[] | null;
+};
+
+function withGroupedReactions<T extends PostWithRawReactions>(
+  posts: T[],
+  currentActorId: string | null = null
+): Array<Omit<T, "reactions"> & { reactions: PostReactionSummary[] }> {
+  return posts.map((post) => ({
+    ...post,
+    reactions: groupPostReactions(post.reactions, currentActorId),
+  }));
 }
 
 /**
@@ -34,20 +64,27 @@ export interface FeedPost extends PostRecord {
  * Workspace feed (`getWorkspaceFeed` below) keeps SWR caching because it's
  * read-heavy and tolerates brief staleness.
  */
-export async function getNodePosts(nodeId: string): Promise<PostRecord[]> {
+export async function getNodePosts(
+  nodeId: string,
+  currentActorId: string | null = null
+): Promise<PostRecord[]> {
   const { data, error } = await supabase
     .from("posts")
-    .select("*, actor:actors(id,name,kind)")
+    .select(POST_WITH_RELATIONS_SELECT)
     .eq("node_id", nodeId)
     .order("created_at", { ascending: false });
   if (error) throw error;
   // Pure chronological sort; pinned decoration is handled client-side.
-  return (data ?? []) as PostRecord[];
+  return withGroupedReactions(
+    (data ?? []) as PostWithRawReactions[],
+    currentActorId
+  ) as PostRecord[];
 }
 
 export async function getWorkspaceFeed(
   workspaceId: string,
-  scope: "workspace" | "all"
+  scope: "workspace" | "all",
+  currentActorId: string | null = null
 ): Promise<FeedPost[]> {
   if (scope === "workspace") {
     // Fetch all node IDs in the workspace (workspace node itself + its children)
@@ -62,20 +99,39 @@ export async function getWorkspaceFeed(
 
     const { data, error } = await supabase
       .from("posts")
-      .select("*, actor:actors(id,name,kind), node:nodes!posts_node_id_fkey(id,title,type)")
+      .select(FEED_POST_WITH_RELATIONS_SELECT)
       .in("node_id", nodeIds)
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) throw error;
-    return (data ?? []) as FeedPost[];
+    return withGroupedReactions(
+      (data ?? []) as FeedPostWithRawReactions[],
+      currentActorId
+    ) as FeedPost[];
   }
 
   // scope === "all"
   const { data, error } = await supabase
     .from("posts")
-    .select("*, actor:actors(id,name,kind), node:nodes!posts_node_id_fkey(id,title,type)")
+    .select(FEED_POST_WITH_RELATIONS_SELECT)
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) throw error;
-  return (data ?? []) as FeedPost[];
+  return withGroupedReactions(
+    (data ?? []) as FeedPostWithRawReactions[],
+    currentActorId
+  ) as FeedPost[];
+}
+
+export async function getPostReactionSummaries(
+  postId: string,
+  currentActorId: string | null = null
+): Promise<PostReactionSummary[]> {
+  const { data, error } = await supabase
+    .from("post_reactions")
+    .select("id,post_id,actor_id,emoji,created_at,actor:actors(id,name,kind)")
+    .eq("post_id", postId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return groupPostReactions((data ?? []) as RawPostReaction[], currentActorId);
 }

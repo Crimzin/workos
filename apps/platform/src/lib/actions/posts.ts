@@ -8,7 +8,15 @@ import { getAgentSettings } from "../agent-settings";
 import { DEFAULT_AI_STANDARDS } from "../ai-standards";
 import { getEffectiveAIStandards } from "../ai-standards-server";
 import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
-import { getNodePosts, type PostRecord } from "../posts";
+import {
+  getNodePosts,
+  getPostReactionSummaries,
+  type PostRecord,
+} from "../posts";
+import {
+  isValidReactionEmoji,
+  type PostReactionSummary,
+} from "../post-reactions";
 import { findAgentMentions, type MentionedAgent } from "../agents/mention-detection";
 import { buildRequestedAgentMentions } from "../agents/response-selection";
 import {
@@ -42,7 +50,8 @@ import { processNextQueuedAgentRun } from "../agents/worker";
  * deliberately uncached (see the docstring there for rationale).
  */
 export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
-  return getNodePosts(nodeId);
+  const actor = await getCurrentActor();
+  return getNodePosts(nodeId, actor.id);
 }
 
 /** Cadence at which we flush the accumulated streaming text to Supabase
@@ -113,6 +122,7 @@ export async function createPost(
   const targetPost: PostRecord = {
     ...insertedPost,
     actor: { id: actor.id, name: actor.name, kind: "human" },
+    reactions: [],
   } as PostRecord;
 
   revalidateNodePosts(nodeId);
@@ -389,4 +399,56 @@ export async function pinPost(
 
   revalidateNodePosts(nodeId);
   revalidateWorkspaceFeed(workspaceId);
+}
+
+export async function togglePostReaction(
+  postId: string,
+  nodeId: string,
+  workspaceId: string,
+  emoji: string
+): Promise<PostReactionSummary[]> {
+  const normalizedEmoji = emoji.trim();
+  if (!isValidReactionEmoji(normalizedEmoji)) {
+    throw new Error("Invalid reaction emoji.");
+  }
+
+  const actor = await getCurrentActor();
+  const { data: post, error: postError } = await supabase
+    .from("posts")
+    .select("id,post_type")
+    .eq("id", postId)
+    .eq("node_id", nodeId)
+    .maybeSingle();
+  if (postError) throw postError;
+  if (!post || post.post_type !== "post") {
+    throw new Error("Reactions are only available on normal posts.");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("post_reactions")
+    .select("id")
+    .eq("post_id", postId)
+    .eq("actor_id", actor.id)
+    .eq("emoji", normalizedEmoji)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing) {
+    const { error } = await supabase
+      .from("post_reactions")
+      .delete()
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("post_reactions").insert({
+      post_id: postId,
+      actor_id: actor.id,
+      emoji: normalizedEmoji,
+    });
+    if (error) throw error;
+  }
+
+  revalidateNodePosts(nodeId);
+  revalidateWorkspaceFeed(workspaceId);
+  return getPostReactionSummaries(postId, actor.id);
 }
