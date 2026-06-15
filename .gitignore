@@ -42,6 +42,7 @@ brainshare-dev-store*.json
 # Claude Code local settings
 .claude/
 .claire/
+.superpowers/
 venv/
 
 # AiDex local code index (binary, not for version control)
