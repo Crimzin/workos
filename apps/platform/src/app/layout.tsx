@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider, themeInitScript } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
@@ -24,8 +24,26 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "WorkOS",
+  applicationName: "WorkOS",
   description:
     "The compression-conscious operating system for teams that think.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "WorkOS",
+    statusBarStyle: "default",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
+export const viewport: Viewport = {
+  colorScheme: "light dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FAF8F3" },
+    { media: "(prefers-color-scheme: dark)", color: "#14292B" },
+  ],
 };
 
 export default function RootLayout({

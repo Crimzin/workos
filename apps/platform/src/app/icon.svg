@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="WorkOS">
+  <rect width="512" height="512" rx="96" fill="#1F3A3D"/>
+  <path fill="#FAF8F3" d="M126 158h60l35 162 42-162h50l43 162 35-162h58l-62 232h-62l-37-143-38 143h-61L126 158Z"/>
+  <circle cx="393" cy="128" r="28" fill="#C4622D"/>
+</svg>
