@@ -2,7 +2,7 @@
 
 ## Summary
 
-Add Slack-style emoji reactions to normal posts in WorkOS Core. The first version uses grouped emoji chips with counts, current-actor highlighting, actor-name tooltips, and an add-emoji action that opens a full outsourced emoji picker. Activity posts such as `card_created`, `link_created`, and sub-thread events do not support reactions.
+Add Slack-style emoji reactions to normal posts in WorkOS Core. The first version shows grouped emoji chips with counts, current-actor highlighting, actor-name tooltips, and an add-emoji action inside the existing post action/icon row. Activity posts such as `card_created`, `link_created`, and sub-thread events do not support reactions.
 
 The implementation will outsource only the comprehensive emoji picker to `emoji-picker-react`. Reaction storage, grouping, and chip rendering stay native to WorkOS so the feature follows the existing post surface, actor model, design tokens, and Supabase patterns.
 
@@ -19,6 +19,7 @@ The implementation will outsource only the comprehensive emoji picker to `emoji-
 
 - No reactions on activity posts.
 - No quick-reaction hover toolbar in the first version.
+- No new reaction row, no under-post reaction strip, and no added vertical space.
 - No custom emoji management.
 - No rich reaction details popover.
 - No changes to post editing, pinning, deletion, export, or agent streaming behavior beyond preserving reaction data in post reads.
@@ -91,21 +92,21 @@ Invalid emoji input is rejected with a clear error. The picker passes the native
 
 Update `PostItem` for normal posts:
 
-- Render a reaction row below the post body when the post is not an activity post and has at least one reaction.
-- Show one chip per grouped emoji: emoji plus count.
+- Reuse the existing bottom-right post action row as the entire reaction surface.
+- Show one compact chip per grouped emoji in that existing action row: emoji plus count.
 - Highlight chips where `reactedByCurrentActor` is true using accent token styling.
 - Use the chip `title` attribute to show actor names.
 - Clicking a chip calls `togglePostReaction` for that emoji.
-- Add the emoji-picker trigger to the existing bottom-right post action row beside copy, export, pin, edit, and delete.
+- Add the emoji-picker trigger to the same action row beside copy, export, pin, edit, and delete.
 - Render the trigger as a compact generic emoji-plus icon button, for example a smile icon with a `+` affordance.
-- When a post already has one or more reactions, also render the same compact add-emoji control after the reaction chips.
-- Clicking either add-emoji trigger opens `emoji-picker-react` in a small popover anchored near the trigger.
+- Use the same compact add-emoji trigger for posts with zero reactions and posts with existing reactions.
+- Clicking the add-emoji trigger opens `emoji-picker-react` in a small popover anchored near the trigger.
 - Selecting an emoji toggles that reaction and closes the picker.
 - Close the picker on outside click or Escape.
 
-The reaction row uses existing CSS custom properties and Tailwind utilities. It is visually compact enough to sit naturally under short posts and does not overlap the existing bottom-right hover actions.
+Reaction controls use existing CSS custom properties and Tailwind utilities. They must not create new rows, increase the post's resting height, or add any vertical chrome. Existing reactions appear inline with the post action icons.
 
-Activity posts render no reaction row and no add control.
+Activity posts render no reaction controls and no add control.
 
 ## Dependency
 
@@ -134,6 +135,7 @@ Add focused tests for pure grouping/toggle-adjacent helpers rather than broad UI
 - Mark `reactedByCurrentActor` correctly.
 - Preserve actor names for tooltips.
 - Ensure activity posts do not render reaction controls.
+- Ensure normal posts do not render a separate reaction row.
 
 Manual verification:
 
