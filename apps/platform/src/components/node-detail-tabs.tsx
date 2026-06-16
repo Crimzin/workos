@@ -268,7 +268,7 @@ export function NodeDetailTabs({
         <div className="fixed inset-0 z-[60] md:hidden">
           <button
             type="button"
-            aria-label="Close details"
+            aria-label="Dismiss details"
             className="absolute inset-0 bg-black/25"
             onClick={() => setMobileDetailsOpen(false)}
           />

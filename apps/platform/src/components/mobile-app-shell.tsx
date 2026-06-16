@@ -102,7 +102,7 @@ export function MobileAppShell({
         {mobileNavOpen && (
           <button
             type="button"
-            aria-label="Close chat list"
+            aria-label="Dismiss chat list"
             className="fixed inset-0 z-40 bg-black/20 md:hidden"
             onClick={closeMobileNav}
           />
