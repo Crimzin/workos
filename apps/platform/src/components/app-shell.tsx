@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { getSidebarPins, getSidebarTree } from "@/lib/nodes";
 import { MobileAppShell } from "./mobile-app-shell";
 
@@ -9,6 +10,12 @@ import { MobileAppShell } from "./mobile-app-shell";
  * shown as user-facing projects; children render nested beneath them.
  */
 export async function AppShell({ children }: { children: React.ReactNode }) {
+  const requestHeaders = await headers();
+  const pathname = requestHeaders.get("x-workos-pathname");
+  if (pathname === "/login" || pathname === "/login/") {
+    return <>{children}</>;
+  }
+
   const projectTree = await getSidebarTree();
   const pinnedNodes = await getSidebarPins(projectTree);
 
