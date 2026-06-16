@@ -542,7 +542,7 @@ export function PostsTabContent({
           type="button"
           aria-label="Resize composer"
           title="Drag to resize composer"
-          className="mx-auto -mt-2 mb-1 flex h-4 w-12 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary cursor-ns-resize transition-colors"
+          className="mx-auto -mt-2 mb-1 hidden h-4 w-12 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary cursor-ns-resize transition-colors md:flex"
           onPointerDown={handleComposerResizeStart}
           onPointerMove={handleComposerResizeMove}
           onPointerUp={handleComposerResizeEnd}
@@ -555,6 +555,7 @@ export function PostsTabContent({
           ref={composerEditorRef}
           className="post-composer-editor rounded-xl border border-border bg-bg-card overflow-hidden focus-within:ring-1 focus-within:ring-accent"
           data-fixed-height={effectiveComposerHeight ? "true" : undefined}
+          data-mobile-composer="true"
           data-compact={composerCompact ? "true" : undefined}
           style={composerEditorStyle}
           onFocusCapture={revealComposer}
@@ -583,7 +584,15 @@ export function PostsTabContent({
           />
         </div>
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-[11px] text-text-tertiary">
+          <button
+            type="button"
+            disabled={pending || !hasContent}
+            onClick={submitWithoutAiResponse}
+            className="inline-flex h-8 items-center justify-center rounded-md px-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40 md:hidden"
+          >
+            Post
+          </button>
+          <span className="hidden text-[11px] text-text-tertiary md:inline">
             / for blocks · ⌘↵ to send · ⇧⌘↵ without AI
           </span>
           <div className="flex items-center gap-2">
@@ -591,7 +600,7 @@ export function PostsTabContent({
               type="button"
               disabled={pending || !hasContent}
               onClick={submitWithoutAiResponse}
-              className="rounded px-2 py-1 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40"
+              className="hidden rounded px-2 py-1 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40 md:inline-flex"
             >
               Post without AI response
             </button>

@@ -272,6 +272,23 @@ samp {
   max-height: none;
 }
 
+@media (max-width: 767px) {
+  .post-composer-editor[data-mobile-composer="true"] {
+    height: auto !important;
+  }
+
+  .post-composer-editor[data-mobile-composer="true"] .bn-post-editor {
+    height: auto !important;
+  }
+
+  .post-composer-editor[data-mobile-composer="true"] .bn-post-editor .bn-editor {
+    height: auto !important;
+    min-height: 42px;
+    max-height: 132px;
+    overflow-y: auto;
+  }
+}
+
 /* Viewer mode (editable=false): tighter padding, no min-height */
 .prose-post .bn-post-editor .bn-editor {
   padding: 0;

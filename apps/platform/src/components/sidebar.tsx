@@ -52,6 +52,9 @@ import { ConfirmModal } from "./confirm-modal";
 interface SidebarProps {
   projectTree: SidebarTreeNode[];
   pinnedNodes: PinnedSidebarNode[];
+  variant?: "desktop" | "mobile-drawer";
+  onNavigate?: () => void;
+  onMobileClose?: () => void;
 }
 
 const COLLAPSED_KEY = "workos-sidebar-collapsed";
@@ -81,7 +84,13 @@ interface SidebarDragCandidate extends SidebarDragState {
   active: boolean;
 }
 
-export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
+export function Sidebar({
+  projectTree,
+  pinnedNodes,
+  variant = "desktop",
+  onNavigate,
+  onMobileClose,
+}: SidebarProps) {
   const [projectTreeState, setProjectTreeState] = useState({
     source: projectTree,
     tree: projectTree,
@@ -117,6 +126,9 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
     () => collapsed ? flatRows.filter((row) => row.depth === 0) : flatRows,
     [collapsed, flatRows]
   );
+  const effectiveCollapsed = variant === "mobile-drawer" ? false : collapsed;
+  const effectiveProjectRows =
+    variant === "mobile-drawer" ? flatRows : visibleProjectRows;
   const sortedPins = useMemo(() => getPinnedNodes(pinnedNodes), [pinnedNodes]);
   const pinnedIds = useMemo(
     () => new Set(sortedPins.map((pin) => pin.node.id)),
@@ -355,13 +367,18 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
     <aside
       className={[
         "relative shrink-0 bg-bg-secondary/95 border-r border-border flex flex-col shadow-sm",
+        variant === "mobile-drawer" ? "h-full w-full" : "",
         resizing ? "" : "transition-[width] duration-200 ease-out",
         hydrated ? "" : "invisible",
       ].join(" ")}
-      style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
+      style={
+        variant === "mobile-drawer"
+          ? undefined
+          : { width: collapsed ? COLLAPSED_WIDTH : width }
+      }
     >
       <div className="flex h-14 items-center justify-between border-b border-border/70 px-3">
-        {!collapsed && (
+        {!effectiveCollapsed && (
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-full bg-accent shadow-sm ring-1 ring-border" />
             <span className="font-serif text-base font-semibold text-text-primary">
@@ -371,25 +388,36 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
         )}
         <button
           type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={variant === "mobile-drawer" ? onMobileClose : toggleCollapsed}
+          aria-label={
+            variant === "mobile-drawer"
+              ? "Close chat list"
+              : collapsed
+                ? "Expand sidebar"
+                : "Collapse sidebar"
+          }
           className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          <ChevronLeft
-            size={14}
-            className={collapsed ? "rotate-180" : ""}
-            strokeWidth={2.2}
-          />
+          {variant === "mobile-drawer" ? (
+            <X size={14} strokeWidth={2.2} />
+          ) : (
+            <ChevronLeft
+              size={14}
+              className={collapsed ? "rotate-180" : ""}
+              strokeWidth={2.2}
+            />
+          )}
         </button>
       </div>
 
-      <SidebarSection collapsed={collapsed}>
+      <SidebarSection collapsed={effectiveCollapsed}>
         <NavLink
           href="/feed"
           label="Feed"
           icon={<Rss size={15} />}
           active={pathname === "/feed"}
-          collapsed={collapsed}
+          collapsed={effectiveCollapsed}
+          onNavigate={onNavigate}
         />
         <button
           type="button"
@@ -400,11 +428,11 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
           className={[
             "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm",
             "text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            collapsed ? "justify-center" : "",
+            effectiveCollapsed ? "justify-center" : "",
           ].join(" ")}
         >
           <Search size={15} strokeWidth={2} />
-          {!collapsed && <span>Search</span>}
+          {!effectiveCollapsed && <span>Search</span>}
         </button>
       </SidebarSection>
 
@@ -414,6 +442,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
           onClose={() => setSearchOpen(false)}
           onSelect={(result) => {
             setSearchOpen(false);
+            onNavigate?.();
             router.push(result.href);
           }}
         />
@@ -421,14 +450,15 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {sortedPins.length > 0 && (
-          <SidebarSection label="Pinned" collapsed={collapsed}>
+          <SidebarSection label="Pinned" collapsed={effectiveCollapsed}>
             {sortedPins.map((pin) => (
               <PinnedNodeRow
                 key={pin.node.id}
                 node={pin.node}
-                collapsed={collapsed}
+                collapsed={effectiveCollapsed}
                 isActive={pathname === `/n/${pin.node.id}`}
                 router={router}
+                onNavigate={onNavigate}
                 dragState={dragState}
                 onDragPointerDown={(event) =>
                   startSidebarDrag("pin", pin.node.id, event)
@@ -441,9 +471,9 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
 
         <SidebarSection
           label="Projects"
-          collapsed={collapsed}
+          collapsed={effectiveCollapsed}
           action={
-            !collapsed && !creatingRoot ? (
+            !effectiveCollapsed && !creatingRoot ? (
               <button
                 type="button"
                 onClick={() => setCreatingRoot(true)}
@@ -455,17 +485,17 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
             ) : null
           }
         >
-          {projectTree.length === 0 && !collapsed && !creatingRoot && (
+          {projectTree.length === 0 && !effectiveCollapsed && !creatingRoot && (
             <div className="px-1 py-1 text-xs text-text-tertiary">
               No projects yet.
             </div>
           )}
 
-          {visibleProjectRows.map((node) => (
+          {effectiveProjectRows.map((node) => (
             <div key={node.id}>
               <ProjectTreeNodeRow
                 node={node}
-                collapsed={collapsed}
+                collapsed={effectiveCollapsed}
                 isActive={pathname === `/n/${node.id}`}
                 isExpanded={visibleExpandedIds.has(node.id)}
                 hasChildren={node.children.length > 0}
@@ -477,6 +507,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
                   setCreatingChildOf(node.id);
                 }}
                 router={router}
+                onNavigate={onNavigate}
                 isPinned={pinnedIds.has(node.id)}
                 dragState={dragState}
                 onDragPointerDown={(event) =>
@@ -485,7 +516,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
                 consumeSuppressedNavigationClick={consumeSuppressedNavigationClick}
               />
 
-              {!collapsed && creatingChildOf === node.id && (
+              {!effectiveCollapsed && creatingChildOf === node.id && (
                 <div className="py-1" style={{ paddingLeft: 18 + (node.depth + 1) * 12 }}>
                   <InlineCreate
                     label="New chat"
@@ -494,6 +525,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
                     onCreated={(id) => {
                       setCreatingChildOf(null);
                       setExpanded(node.id, true);
+                      onNavigate?.();
                       router.push(`/n/${id}`);
                       router.refresh();
                     }}
@@ -505,7 +537,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
               )}
             </div>
           ))}
-          {!collapsed && creatingRoot && (
+          {!effectiveCollapsed && creatingRoot && (
             <div className="px-2 py-1">
               <InlineCreate
                 label="New project"
@@ -516,6 +548,7 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
                   return res;
                 }}
                 onCreated={(id) => {
+                  onNavigate?.();
                   router.push(`/n/${id}`);
                   router.refresh();
                 }}
@@ -534,19 +567,20 @@ export function Sidebar({ projectTree, pinnedNodes }: SidebarProps) {
           label="Settings"
           icon={<Settings size={15} />}
           active={isSettingsPathActive(pathname)}
-          collapsed={collapsed}
+          collapsed={effectiveCollapsed}
+          onNavigate={onNavigate}
         />
       </div>
 
       <div
         className={[
           "border-t border-border px-2 py-2 flex items-center",
-          collapsed ? "justify-center" : "justify-end",
+          effectiveCollapsed ? "justify-center" : "justify-end",
         ].join(" ")}
       >
         <ThemeToggle />
       </div>
-      {!collapsed && (
+      {variant === "desktop" && !collapsed && (
         <div
           role="separator"
           aria-orientation="vertical"
@@ -691,6 +725,7 @@ function PinnedNodeRow({
   collapsed,
   isActive,
   router,
+  onNavigate,
   dragState,
   onDragPointerDown,
   consumeSuppressedNavigationClick,
@@ -699,6 +734,7 @@ function PinnedNodeRow({
   collapsed: boolean;
   isActive: boolean;
   router: ReturnType<typeof useRouter>;
+  onNavigate?: () => void;
   dragState: SidebarDragState | null;
   onDragPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   consumeSuppressedNavigationClick: () => boolean;
@@ -726,6 +762,7 @@ function PinnedNodeRow({
   const navigateToNode = () => {
     if (consumeSuppressedNavigationClick()) return;
     clickTimerRef.current = setTimeout(() => {
+      onNavigate?.();
       router.push(`/n/${node.id}`);
       clickTimerRef.current = null;
     }, SINGLE_CLICK_DELAY_MS);
@@ -745,6 +782,7 @@ function PinnedNodeRow({
         style={dragStyle}
         data-sidebar-pin-id={node.id}
         onPointerDown={onDragPointerDown}
+        onClick={onNavigate}
         className={[
           "flex items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
@@ -821,6 +859,7 @@ function ProjectTreeNodeRow({
   onToggle,
   onCreateChild,
   router,
+  onNavigate,
   isPinned,
   dragState,
   onDragPointerDown,
@@ -836,6 +875,7 @@ function ProjectTreeNodeRow({
   onToggle: () => void;
   onCreateChild: () => void;
   router: ReturnType<typeof useRouter>;
+  onNavigate?: () => void;
   isPinned: boolean;
   dragState: SidebarDragState | null;
   onDragPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
@@ -897,7 +937,10 @@ function ProjectTreeNodeRow({
     setMenuOpen(false);
     startTransition(async () => {
       await archiveNode(node.id, node.rootId, node.parent_id);
-      if (isActive) router.push(closeHref);
+      if (isActive) {
+        onNavigate?.();
+        router.push(closeHref);
+      }
       router.refresh();
     });
   };
@@ -907,7 +950,10 @@ function ProjectTreeNodeRow({
     setMenuOpen(false);
     startTransition(async () => {
       await deleteNode(node.id, node.rootId, node.parent_id);
-      if (isActive) router.push(closeHref);
+      if (isActive) {
+        onNavigate?.();
+        router.push(closeHref);
+      }
       router.refresh();
     });
   };
@@ -929,6 +975,7 @@ function ProjectTreeNodeRow({
   const navigateToNode = () => {
     if (consumeSuppressedNavigationClick()) return;
     clickTimerRef.current = setTimeout(() => {
+      onNavigate?.();
       router.push(`/n/${node.id}`);
       clickTimerRef.current = null;
     }, SINGLE_CLICK_DELAY_MS);
@@ -952,6 +999,7 @@ function ProjectTreeNodeRow({
         style={dragStyle}
         data-sidebar-node-id={node.id}
         onPointerDown={onDragPointerDown}
+        onClick={onNavigate}
         className={[
           "flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
@@ -1171,17 +1219,20 @@ function NavLink({
   icon,
   active,
   collapsed,
+  onNavigate,
 }: {
   href: string;
   label: string;
   icon: ReactNode;
   active: boolean;
   collapsed: boolean;
+  onNavigate?: () => void;
 }) {
   return (
     <Link
       href={href}
       title={label}
+      onClick={onNavigate}
       className={[
         "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
         active
