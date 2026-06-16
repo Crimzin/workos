@@ -2,6 +2,8 @@
 
 import {
   createContext,
+  useCallback,
+  useEffect,
   useContext,
   useRef,
   useState,
@@ -9,7 +11,10 @@ import {
 } from "react";
 import type { SidebarTreeNode } from "@/lib/sidebar-tree";
 import type { PinnedSidebarNode } from "@/lib/sidebar-tree-dnd";
-import { getMobileDrawerSwipeIntent } from "@/lib/mobile-shell";
+import {
+  DEFAULT_MOBILE_NAV_OPEN,
+  getMobileDrawerSwipeIntent,
+} from "@/lib/mobile-shell";
 import { Sidebar } from "./sidebar";
 
 interface MobileShellContextValue {
@@ -20,8 +25,11 @@ interface MobileShellContextValue {
 const MobileShellContext = createContext<MobileShellContextValue | null>(null);
 
 interface MobileGestureStart {
+  source: "pointer" | "touch";
   x: number;
   y: number;
+  currentX: number;
+  currentY: number;
   target: EventTarget | null;
 }
 
@@ -38,17 +46,104 @@ export function MobileAppShell({
   pinnedNodes: PinnedSidebarNode[];
   children: ReactNode;
 }) {
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(DEFAULT_MOBILE_NAV_OPEN);
   const gestureStartRef = useRef<MobileGestureStart | null>(null);
+  const mobileNavOpenRef = useRef(mobileNavOpen);
 
-  const openMobileNav = () => setMobileNavOpen(true);
-  const closeMobileNav = () => setMobileNavOpen(false);
+  const openMobileNav = useCallback(() => {
+    mobileNavOpenRef.current = true;
+    setMobileNavOpen(true);
+  }, []);
+  const closeMobileNav = useCallback(() => {
+    mobileNavOpenRef.current = false;
+    setMobileNavOpen(false);
+  }, []);
+
+  useEffect(() => {
+    mobileNavOpenRef.current = mobileNavOpen;
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    function onTouchStart(event: TouchEvent) {
+      const touch = event.touches[0];
+      if (!touch) return;
+
+      gestureStartRef.current = {
+        source: "touch",
+        x: touch.clientX,
+        y: touch.clientY,
+        currentX: touch.clientX,
+        currentY: touch.clientY,
+        target: event.target,
+      };
+    }
+
+    function onTouchMove(event: TouchEvent) {
+      const start = gestureStartRef.current;
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      if (!start || !touch) return;
+
+      start.currentX = touch.clientX;
+      start.currentY = touch.clientY;
+    }
+
+    function onTouchEnd(event: TouchEvent) {
+      const start = gestureStartRef.current;
+      const touch = event.changedTouches[0];
+      gestureStartRef.current = null;
+
+      if (!start) return;
+      if (isInteractiveTextTarget(start.target)) return;
+
+      applyGestureIntent(
+        start,
+        touch?.clientX ?? start.currentX,
+        touch?.clientY ?? start.currentY,
+        mobileNavOpenRef.current,
+        openMobileNav,
+        closeMobileNav
+      );
+    }
+
+    function onTouchCancel() {
+      if (gestureStartRef.current?.source === "touch") {
+        gestureStartRef.current = null;
+      }
+    }
+
+    document.addEventListener("touchstart", onTouchStart, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("touchend", onTouchEnd, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("touchmove", onTouchMove, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("touchcancel", onTouchCancel, {
+      capture: true,
+      passive: true,
+    });
+
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart, true);
+      document.removeEventListener("touchend", onTouchEnd, true);
+      document.removeEventListener("touchmove", onTouchMove, true);
+      document.removeEventListener("touchcancel", onTouchCancel, true);
+    };
+  }, [closeMobileNav, openMobileNav]);
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.pointerType === "mouse") return;
     gestureStartRef.current = {
+      source: "pointer",
       x: event.clientX,
       y: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
       target: event.target,
     };
   }
@@ -57,17 +152,17 @@ export function MobileAppShell({
     const start = gestureStartRef.current;
     gestureStartRef.current = null;
     if (!start || event.pointerType === "mouse") return;
+    if (start.source !== "pointer") return;
     if (isInteractiveTextTarget(start.target)) return;
 
-    const intent = getMobileDrawerSwipeIntent({
-      drawerOpen: mobileNavOpen,
-      startX: start.x,
-      deltaX: event.clientX - start.x,
-      deltaY: event.clientY - start.y,
-    });
-
-    if (intent === "open") openMobileNav();
-    if (intent === "close") closeMobileNav();
+    applyGestureIntent(
+      start,
+      event.clientX,
+      event.clientY,
+      mobileNavOpen,
+      openMobileNav,
+      closeMobileNav
+    );
   }
 
   return (
@@ -77,7 +172,9 @@ export function MobileAppShell({
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
-          gestureStartRef.current = null;
+          if (gestureStartRef.current?.source === "pointer") {
+            gestureStartRef.current = null;
+          }
         }}
       >
         <div className="hidden md:flex md:shrink-0">
@@ -114,6 +211,25 @@ export function MobileAppShell({
       </div>
     </MobileShellContext.Provider>
   );
+}
+
+function applyGestureIntent(
+  start: MobileGestureStart,
+  clientX: number,
+  clientY: number,
+  drawerOpen: boolean,
+  openMobileNav: () => void,
+  closeMobileNav: () => void
+) {
+  const intent = getMobileDrawerSwipeIntent({
+    drawerOpen,
+    startX: start.x,
+    deltaX: clientX - start.x,
+    deltaY: clientY - start.y,
+  });
+
+  if (intent === "open") openMobileNav();
+  if (intent === "close") closeMobileNav();
 }
 
 function isInteractiveTextTarget(target: EventTarget | null): boolean {
