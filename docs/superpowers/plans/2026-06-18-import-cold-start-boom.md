@@ -1110,7 +1110,7 @@ git commit -m "feat(import): add AI history import review UI"
 - Modify only if needed after testing: files touched in Tasks 2-6
 - Do not commit raw private exports.
 
-- [ ] **Step 1: Normalize a real export locally**
+- [x] **Step 1: Normalize a real export locally**
 
 Use the existing BrainShare CLI path:
 
@@ -1121,7 +1121,7 @@ cd apps/brainshare
 
 Expected: BrainShare returns a conversation id and stores Episodes. Do not add the export to git.
 
-- [ ] **Step 2: Synthesize the conversation**
+- [x] **Step 2: Synthesize the conversation**
 
 Run:
 
@@ -1131,7 +1131,7 @@ Run:
 
 Expected: response includes `conversation_brief`, `topics`, and `primitives`. If Claude provider key is configured and cost is acceptable, repeat with `--provider claude`.
 
-- [ ] **Step 3: Build preview**
+- [x] **Step 3: Build preview**
 
 Run:
 
@@ -1145,13 +1145,13 @@ curl -s -X POST http://localhost:3100/imports/ai-conversations/preview \
 
 Expected: `/tmp/workos-import-preview.json` contains clusters with Starting Context payloads.
 
-- [ ] **Step 4: Import into WorkOS**
+- [x] **Step 4: Import into WorkOS**
 
 Open `/import`, paste `/tmp/workos-import-preview.json`, exclude one irrelevant cluster, and import.
 
 Expected: WorkOS creates one workspace named `Imported AI Context`, one thread per included cluster, pinned Starting Context posts, and decision/assumption memory primitives where available.
 
-- [ ] **Step 5: Verify imported context reaches an agent**
+- [x] **Step 5: Verify imported context reaches an agent**
 
 Open one imported thread and mention `@Claude` with:
 
@@ -1161,7 +1161,7 @@ Based on the Starting Context in this thread, what should I do next?
 
 Expected: the agent response uses the Starting Context without the user copy-pasting raw export content.
 
-- [ ] **Step 6: Tune and commit fixes**
+- [x] **Step 6: Tune and commit fixes**
 
 If the spike reveals small deterministic fixes, commit them with focused messages:
 
@@ -1171,6 +1171,18 @@ git commit -m "fix(import): tune starting context preview"
 ```
 
 If the spike reveals broad UX or model-quality issues, write them into a follow-up plan instead of expanding this slice.
+
+Result note (2026-06-18):
+
+- Source export was a Claude batch directory; `conversations.json` contained 111 conversations. The first spike used the highest-signal WorkOS match, `Swarm, Brainshare` (50 messages).
+- The existing normalizer successfully detected `$.chat_messages` with confidence `1.0`, so no parser fix was needed.
+- BrainShare ingestion stored conversation `b8e8554e-cfe9-4f38-8845-5917e7c1d176` as 8 Episodes.
+- Dev-rule synthesis produced 2 preview clusters: `Financial runway` and `WorkOS / BrainShare / Swarm build`.
+- The WorkOS cluster was imported; the financial-runway cluster was excluded.
+- WorkOS materialized workspace `e1d51e24-282a-4ee4-ac40-27ec7728a996`, thread `7c3711d5-3339-4ea0-9b70-3d8e25bfcee5`, one pinned Starting Context post, and one decision primitive.
+- `/n/e1d51e24-282a-4ee4-ac40-27ec7728a996` server-rendered the imported workspace/thread titles; `/n/7c3711d5-3339-4ea0-9b70-3d8e25bfcee5` server-rendered the Starting Context.
+- A BlockNote `@Claude` question post was inserted into the imported thread, and `/api/agents/debug?...&dryRun=1` returned `ok: true` with 2 own-thread posts gathered and a Claude reply preview grounded in the imported context.
+- No deterministic code fixes were required. The only UX blocker remains the unrelated mobile drawer backdrop in the dirty tree, which prevented full `/import` click-through in Browser Use at a mobile viewport.
 
 ---
 
