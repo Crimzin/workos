@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "app"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 from app import app  # noqa: E402
+from conversation_synthesis import claude_synthesis_prompt  # noqa: E402
 
 
 AUTH = {"Authorization": "Bearer bs_team_abc123"}
@@ -175,6 +176,28 @@ def test_context_assembly_prefers_synthesis_briefing_over_primitive_blob():
     assert "source_provenance" in payload["items"][0]
 
 
+def test_claude_synthesis_prompt_requests_freeform_starting_context_memo():
+    prompt = claude_synthesis_prompt(
+        "claude:recipes-and-feelings",
+        "Recipes and feelings",
+        [
+            {
+                "id": "ep_1",
+                "source_location": "conversation#chunk-1",
+                "raw_content": "Will: I am testing pasta sauces and also noticing I cook when anxious.",
+            }
+        ],
+    )
+
+    assert "starting_context_memo_markdown" in prompt
+    assert "Choose the memo structure freely" in prompt
+    assert "Do not expose BrainShare extraction categories" in prompt
+    assert "recipes" in prompt
+    assert "emotional reflection" in prompt
+    assert "creative writing" in prompt
+
+
 if __name__ == "__main__":
     test_conversation_synthesis_returns_topic_map_brief_and_why_chain()
     test_context_assembly_prefers_synthesis_briefing_over_primitive_blob()
+    test_claude_synthesis_prompt_requests_freeform_starting_context_memo()

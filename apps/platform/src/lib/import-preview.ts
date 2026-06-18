@@ -2,6 +2,7 @@ import { markdownToBlockNote } from "./agents/markdown-to-blocknote";
 
 export interface StartingContext {
   summary: string;
+  memo_markdown?: string;
   overview?: string[];
   key_decisions: string[];
   open_questions: string[];
@@ -75,6 +76,9 @@ function cleanList(items: string[] | undefined): string[] {
 }
 
 export function renderStartingContextMarkdown(context: StartingContext): string {
+  const memoMarkdown = context.memo_markdown?.trim();
+  if (memoMarkdown) return memoMarkdown;
+
   const sections = [
     "# Starting Context",
     "",

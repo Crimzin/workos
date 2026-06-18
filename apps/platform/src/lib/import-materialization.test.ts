@@ -19,6 +19,14 @@ const preview: ImportPreview = {
       },
       starting_context: {
         summary: "Included",
+        memo_markdown: [
+          "# WorkOS Build Memo",
+          "",
+          "WorkOS is the visible product surface for a deeper context and orchestration system.",
+          "",
+          "## Live Tension",
+          "The next move is proving the experience without exposing internal ontology.",
+        ].join("\n"),
         overview: ["One suite with BrainShare as the hidden context layer."],
         key_decisions: ["One product."],
         open_questions: ["What import review controls are needed before writeback?"],
@@ -91,9 +99,9 @@ assert.doesNotThrow(() => JSON.parse(plan.threads[0].startingContextPostBody));
 const startingContextMarkdown = postBodyToMarkdown(
   plan.threads[0].startingContextPostBody
 );
-assert.match(startingContextMarkdown, /Starting Context/);
-assert.match(startingContextMarkdown, /One suite with BrainShare/);
-assert.match(startingContextMarkdown, /handoff document/);
+assert.match(startingContextMarkdown, /WorkOS Build Memo/);
+assert.match(startingContextMarkdown, /Live Tension/);
+assert.doesNotMatch(startingContextMarkdown, /Assumptions And Constraints/);
 assert.equal(plan.threads[0].sourceRefs[0].conversation_id, "claude:1");
 assert.equal(plan.threads[0].memoryPrimitives[0].externalEpisodeId, "ep_1");
 assert.equal(plan.excludedClusterIds[0], "cluster_2");

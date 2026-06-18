@@ -335,6 +335,17 @@ def validate_synthesis_shape(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+STARTING_CONTEXT_MEMO_INSTRUCTIONS = """Starting Context memo rules:
+- Each topic must include starting_context_memo_markdown.
+- Write it as a simple memo that could be sent to a thoughtful person or AI agent to get them ready to engage.
+- Choose the memo structure freely based on the subject matter. Use the smallest set of headings that makes the context clear.
+- Do not expose BrainShare extraction categories as visible headings unless they are genuinely natural for the subject.
+- Do not force project-management sections onto non-project material.
+- Suitable structures may look very different for product strategy, recipes, emotional reflection, creative writing, research, personal planning, or technical debugging.
+- The memo should explain what this is about, why it matters, what is already established, what is still alive or unresolved, and how to engage next.
+- Use citations and source spans as background evidence, not as the main visible payload unless provenance is directly useful to the reader."""
+
+
 def claude_synthesis_prompt(conversation_id: str, title: str, episodes: list[dict[str, Any]]) -> str:
     transcript = "\n\n".join(
         f"EPISODE {episode['id']} ({episode.get('source_location')}):\n{episode.get('raw_content', '')}"
@@ -351,7 +362,7 @@ Return ONLY valid JSON with this exact top-level shape:
   "source_episode_ids": ["..."],
   "source_provenance": {{}},
   "conversation_brief": {{"summary": "...", "status": "needs_review", "audience": "future_ai_session"}},
-  "topics": [{{"name": "...", "summary": "...", "narrative": "...", "status": "active|watch|needs_review", "source_spans": []}}],
+  "topics": [{{"name": "...", "summary": "...", "narrative": "...", "status": "active|watch|needs_review", "source_spans": [], "starting_context_memo_markdown": "# ..."}}],
   "why_chains": [{{"name": "...", "topic": "...", "nodes": [{{"type": "goal|assumption|risk|decision|action", "statement": "..."}}], "edges": [], "source_spans": []}}],
   "primitives": [{{"type": "decision|assumption|action|question|context_update|goal|signal", "statement": "...", "rationale": "...", "human_signal": "...", "conviction": 0.0, "topic": "...", "relationships": [], "citations": []}}],
   "metadata": {{"synthesis_version": "ai_conversation_synthesis_v0", "provider": "claude"}}
@@ -363,6 +374,8 @@ Rules:
 - Capture hard-to-vary rationales: specific reasons that would break if swapped out.
 - Include citations/source spans as drill-down metadata, not the main cognitive payload.
 - Do not store approval fragments like "I agree" as memories.
+
+{STARTING_CONTEXT_MEMO_INSTRUCTIONS}
 
 Conversation:
 {transcript}

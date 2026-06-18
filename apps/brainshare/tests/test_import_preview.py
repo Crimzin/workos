@@ -184,6 +184,72 @@ def test_import_preview_preserves_rich_starting_context_fields():
     )
 
 
+def test_import_preview_uses_freeform_starting_context_memo_when_present():
+    memo = "\n".join(
+        [
+            "# Sunday Sauce Notes",
+            "",
+            "This thread is a loose cooking notebook, not a project plan.",
+            "",
+            "## Flavor Thread",
+            "Tomato, fennel, and enough acid to keep the sauce awake.",
+            "",
+            "## Next Batch",
+            "Try roasting the tomatoes before blending.",
+        ]
+    )
+    synthesis = {
+        "id": "synth_recipes",
+        "conversation_id": "claude:recipes",
+        "title": "Recipe experiments",
+        "source_episode_ids": ["ep_recipe"],
+        "source_provenance": {"source_tool": "claude"},
+        "conversation_brief": {
+            "summary": "A set of cooking notes about tomato sauces.",
+            "status": "needs_review",
+            "audience": "future_ai_session",
+        },
+        "topics": [
+            {
+                "name": "Sunday sauce experiments",
+                "summary": "The user is experimenting with tomato sauce variations.",
+                "narrative": "The conversation is about taste, technique, and next experiments.",
+                "status": "active",
+                "source_spans": [],
+                "starting_context_memo_markdown": memo,
+            }
+        ],
+        "why_chains": [],
+        "primitives": [
+            {
+                "type": "decision",
+                "statement": "Do not expose this as a project decision section.",
+                "rationale": "The recipe thread needs a cooking-note shape.",
+                "human_signal": "explicit recipe context",
+                "conviction": 0.8,
+                "topic": "Sunday sauce experiments",
+                "citations": [],
+            }
+        ],
+    }
+
+    preview = build_import_preview(
+        [synthesis],
+        ImportPreviewRequestData(
+            conversation_ids=["claude:recipes"],
+            default_include=True,
+        ),
+    )
+
+    context = preview["clusters"][0]["starting_context"]
+    assert context["memo_markdown"] == memo
+    assert "Flavor Thread" in context["memo_markdown"]
+    assert context["key_decisions"] == [
+        "Do not expose this as a project decision section."
+    ]
+
+
 if __name__ == "__main__":
     test_import_preview_groups_synthesized_topics_into_workos_threads()
     test_import_preview_preserves_rich_starting_context_fields()
+    test_import_preview_uses_freeform_starting_context_memo_when_present()

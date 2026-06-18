@@ -112,6 +112,7 @@ def starting_context_for_topic(
     ], 3)
 
     summary = _topic_summary(topic, synthesis) or f"Imported context about {topic_name}."
+    memo_markdown = str(topic.get("starting_context_memo_markdown") or "").strip()
     narrative = _clean_text(topic.get("narrative"))
     overview = _dedupe_texts(
         [narrative if narrative and narrative.lower() != summary.lower() else ""],
@@ -148,7 +149,7 @@ def starting_context_for_topic(
             )
         )
     )
-    return {
+    context = {
         "summary": summary,
         "overview": overview,
         "key_decisions": decisions,
@@ -159,6 +160,9 @@ def starting_context_for_topic(
         "evidence_notes": evidence_notes,
         "pick_up_here": pick_up_here,
     }
+    if memo_markdown:
+        context["memo_markdown"] = memo_markdown
+    return context
 
 
 def build_import_preview(

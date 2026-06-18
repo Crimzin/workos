@@ -74,3 +74,25 @@ assert.match(roundTrippedMarkdown, /# Starting Context/);
 assert.match(roundTrippedMarkdown, /## Overview/);
 assert.match(roundTrippedMarkdown, /## Reflection/);
 assert.match(roundTrippedMarkdown, /Build the import\/cold-start boom/);
+
+const freeformMemo = [
+  "# Sauce Experiments",
+  "",
+  "This is a cooking notebook about dialing in weeknight sauces.",
+  "",
+  "## Flavor Pattern",
+  "- Bright acid and browned butter keep showing up.",
+  "",
+  "## Next Cook",
+  "Try the lemon-caper version on roast cauliflower.",
+].join("\n");
+const freeformMarkdown = renderStartingContextMarkdown({
+  summary: "A cooking notebook.",
+  memo_markdown: freeformMemo,
+  key_decisions: ["This should not become a visible Decisions section."],
+  open_questions: [],
+  assumptions_or_constraints: [],
+  pick_up_here: "Cook next.",
+});
+assert.equal(freeformMarkdown, freeformMemo);
+assert.doesNotMatch(freeformMarkdown, /Key Decisions/);
