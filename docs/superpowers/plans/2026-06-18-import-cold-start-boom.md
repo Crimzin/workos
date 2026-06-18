@@ -585,7 +585,7 @@ git commit -m "feat(import): add preview contract helpers"
 - Create: `apps/platform/src/lib/import-materialization.ts`
 - Create: `apps/platform/src/lib/import-materialization.test.ts`
 
-- [ ] **Step 1: Write failing materialization test**
+- [x] **Step 1: Write failing materialization test**
 
 Create `apps/platform/src/lib/import-materialization.test.ts`:
 
@@ -646,7 +646,7 @@ assert.equal(plan.threads[0].memoryPrimitives[0].type, "decision");
 assert.match(plan.threads[0].startingContextMarkdown, /Starting Context/);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -656,7 +656,7 @@ npx tsx apps/platform/src/lib/import-materialization.test.ts
 
 Expected: FAIL because the helper file does not exist.
 
-- [ ] **Step 3: Create materialization helper**
+- [x] **Step 3: Create materialization helper**
 
 Create `apps/platform/src/lib/import-materialization.ts`:
 
@@ -729,7 +729,7 @@ export function buildAcceptedImportPlan(preview: ImportPreview): AcceptedImportP
 }
 ```
 
-- [ ] **Step 4: Run materialization test**
+- [x] **Step 4: Run materialization test**
 
 Run:
 
@@ -739,7 +739,7 @@ npx tsx apps/platform/src/lib/import-materialization.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/platform/src/lib/import-materialization.ts apps/platform/src/lib/import-materialization.test.ts
