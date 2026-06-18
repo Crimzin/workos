@@ -127,7 +127,9 @@ Each question should have:
 - affected conversations
 - preview of the action
 
-Toggling a question should move chips automatically. Users can still override by dragging chips afterward.
+Each question defaults to `No`, and the user is not required to answer any of them. The happy path is doing nothing: unanswered questions remain `No` and the current proposal stays intact.
+
+Toggling a question to `Yes` should move chips automatically. Toggling it back to `No` should reverse that suggested move where possible. Users can still override by dragging chips afterward.
 
 ## Chat Chips
 
@@ -136,16 +138,19 @@ Each conversation is represented as a chip.
 Collapsed chip content:
 
 - title
-- message count
-- confidence or relevance badge
-- optional date
 
 Example:
 
 ```text
 Work OS - investigation
-378 msgs · high · Jun 18
 ```
+
+Hover preview content:
+
+- message count
+- confidence or relevance
+- optional date
+- short summary
 
 Expanded or selected chip detail:
 
