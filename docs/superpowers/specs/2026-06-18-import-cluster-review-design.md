@@ -6,6 +6,8 @@ WorkOS should let a user review and correct AI-discovered conversation clusters 
 
 This is the step between export upload and starter-context generation.
 
+The main review area should feel like an interactive chat/post, not like the WorkOS Board tab. Do not use a kanban board, swimlanes, stack rows, card tiles, or workspace-board visual grammar for this experience.
+
 ## Product Principle
 
 The clustering engine should make a strong first proposal, but the user should not have to trust it blindly or hand-edit JSON. The user should be able to correct the proposed import structure in three ways:
@@ -27,7 +29,7 @@ The interface should make the AI's current understanding visible and editable.
    - suggested yes/no questions
    - a bottom composer for instructions
 4. User answers questions, drags chips, or types corrections.
-5. WorkOS updates the cluster board immediately.
+5. WorkOS updates the interactive review surface immediately.
 6. User clicks a generation action for one cluster or the whole approved import.
 7. WorkOS generates starter context from the approved cluster state.
 
@@ -49,9 +51,9 @@ The header shows:
 
 ### Main Review Surface
 
-The main panel is an interactive cluster board.
+The main panel is an interactive review post: a structured, editable memo-like surface with cluster sections, inline controls, and draggable chat chips. It should read top-to-bottom like a WorkOS post or thread artifact, not left-to-right like a kanban board.
 
-Each cluster appears as a section or column with:
+Each cluster appears as a flowing section with:
 
 - cluster title
 - confidence badge
@@ -60,14 +62,22 @@ Each cluster appears as a section or column with:
 - visible chat chips
 - action menu for rename, split, merge, exclude, or generate memo for this cluster
 
-The board also includes special holding areas:
+The surface also includes special holding sections:
 
 - `Ambiguous`
 - `One-Offs`
 - `Excluded`
 - `New Cluster`
 
-The holding areas are first-class drop zones, not side notes.
+The holding sections are first-class editable regions, not side notes.
+
+Design constraints:
+
+- Use a single-column or document-like layout by default.
+- Clusters should feel like editable sections inside a post, not board columns.
+- Chat chips may wrap within sections, but they should not resemble WorkOS card tiles.
+- Do not reuse Board tab stack/card styling, column headers, lifecycle columns, or board drag handles.
+- The page should feel closer to "AI-generated memo that I can correct" than "project board that I organize."
 
 ### Bottom Composer
 
@@ -95,7 +105,7 @@ Create a new cluster for Vegas bachelor party planning and move the craps chat i
 Exclude the empty untitled conversations.
 ```
 
-The composer should update the board, not create a normal post.
+The composer should update the review surface, not create a normal post.
 
 ## Suggested Questions
 
@@ -167,7 +177,7 @@ The UI should not require pixel-perfect dragging. Clusters and holding areas sho
 
 ## Natural-Language Instruction Engine
 
-The bottom composer sends the current cluster board state plus the user's instruction to an instruction interpreter.
+The bottom composer sends the current review-state snapshot plus the user's instruction to an instruction interpreter.
 
 The interpreter returns a structured patch, not prose.
 
@@ -212,7 +222,7 @@ The instruction engine should:
 - report when no matching conversation or cluster was found
 - never generate starter context as a side effect of a correction instruction
 
-This preserves the user's trust: the board changes because the user asked for a structural edit, not because the model silently reinterpreted the whole export.
+This preserves the user's trust: the review surface changes because the user asked for a structural edit, not because the model silently reinterpreted the whole export.
 
 ## State Model
 
@@ -288,7 +298,7 @@ The review page succeeds if a user can:
 - answer the obvious questions with toggles
 - fix mistakes by dragging chips
 - issue natural-language structural corrections
-- see the board update immediately
+- see the review surface update immediately
 - approve a cluster for starter-context generation without editing JSON
 
 The page should feel like WorkOS is asking for a few high-leverage corrections, not making the user organize an archive from scratch.
@@ -300,4 +310,4 @@ The page should feel like WorkOS is asking for a few high-leverage corrections, 
 - Saved import review sessions.
 - Diff view between original AI proposal and user-corrected cluster state.
 - Bulk keyboard shortcuts for power users.
-- Conversation search/filter within the review board.
+- Conversation search/filter within the review surface.
