@@ -18,6 +18,7 @@ import {
   Search,
   Settings,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import type { SidebarTreeNode } from "@/lib/sidebar-tree";
@@ -562,6 +563,14 @@ export function Sidebar({
       </div>
 
       <div className="border-t border-border px-2 py-2">
+        <NavLink
+          href="/import"
+          label="Import"
+          icon={<Upload size={15} />}
+          active={pathname === "/import"}
+          collapsed={effectiveCollapsed}
+          onNavigate={onNavigate}
+        />
         <NavLink
           href="/settings"
           label="Settings"

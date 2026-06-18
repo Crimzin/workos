@@ -923,7 +923,7 @@ git commit -m "feat(import): materialize imported AI context"
 - Create: `apps/platform/src/components/import/import-workspace.tsx`
 - Modify: `apps/platform/src/components/sidebar.tsx`
 
-- [ ] **Step 1: Create import page**
+- [x] **Step 1: Create import page**
 
 Create `apps/platform/src/app/import/page.tsx`:
 
@@ -935,7 +935,7 @@ export default function ImportPage() {
 }
 ```
 
-- [ ] **Step 2: Create minimal client component**
+- [x] **Step 2: Create minimal client component**
 
 Create `apps/platform/src/components/import/import-workspace.tsx`:
 
@@ -1066,11 +1066,11 @@ export function ImportWorkspace() {
 }
 ```
 
-- [ ] **Step 3: Add sidebar access**
+- [x] **Step 3: Add sidebar access**
 
 In `apps/platform/src/components/sidebar.tsx`, add a simple `/import` navigation item near Settings or workspace actions. Use existing sidebar row patterns and the label `Import`.
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 Run:
 
@@ -1085,7 +1085,17 @@ Expected: TypeScript passes; lint passes or reports only repo-existing warnings 
 
 Run the dev server and open `/import`. Paste the preview JSON returned by Task 2's manual curl, click Preview, exclude one cluster, click Import, and verify redirect to `/n/<workspaceId>` with imported threads in the tree/board.
 
-- [ ] **Step 6: Commit**
+Progress note: `/import` rendered in the in-app browser and exposed the `Import` sidebar entry. Full click-through smoke is deferred because the current dirty tree has the mobile drawer backdrop open by default at the Browser Use viewport (`DEFAULT_MOBILE_NAV_OPEN = true`), which intercepts Preview/Import clicks. Code-level verification passed with:
+
+```bash
+cd apps/platform
+npx tsc --noEmit
+npx eslint src/app/import/page.tsx src/components/import/import-workspace.tsx src/components/sidebar.tsx
+npx tsx src/lib/import-preview.test.ts
+npx tsx src/lib/import-materialization.test.ts
+```
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/platform/src/app/import/page.tsx apps/platform/src/components/import/import-workspace.tsx apps/platform/src/components/sidebar.tsx
