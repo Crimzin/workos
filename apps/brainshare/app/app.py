@@ -27,7 +27,7 @@ from import_preview import ImportPreviewRequestData, build_import_preview
 APP_DIR = Path(__file__).resolve().parent
 STORE_FILE = Path(os.getenv("BRAINSHARE_STORE_FILE", APP_DIR / "brainshare-dev-store.json"))
 VALID_TOKEN = os.getenv("BRAINSHARE_DEV_TOKEN", "bs_team_abc123")
-DEFAULT_CLAUDE_MODEL = os.getenv("BRAINSHARE_CLAUDE_MODEL", "claude-sonnet-4-20250514")
+DEFAULT_CLAUDE_MODEL = os.getenv("BRAINSHARE_CLAUDE_MODEL", "claude-sonnet-4-6")
 PROVIDER_KEY_SECRET = os.getenv(
     "BRAINSHARE_PROVIDER_KEY_SECRET",
     VALID_TOKEN,

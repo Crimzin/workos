@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))
 
 from fastapi.testclient import TestClient  # noqa: E402
-from app import app  # noqa: E402
+from app import DEFAULT_CLAUDE_MODEL, app  # noqa: E402
 from conversation_synthesis import claude_synthesis_prompt  # noqa: E402
 
 
@@ -205,7 +205,12 @@ def test_claude_synthesis_prompt_requests_freeform_starting_context_memo():
     assert "self-audit" in prompt
 
 
+def test_default_claude_model_uses_active_sonnet_replacement():
+    assert DEFAULT_CLAUDE_MODEL == "claude-sonnet-4-6"
+
+
 if __name__ == "__main__":
     test_conversation_synthesis_returns_topic_map_brief_and_why_chain()
     test_context_assembly_prefers_synthesis_briefing_over_primitive_blob()
     test_claude_synthesis_prompt_requests_freeform_starting_context_memo()
+    test_default_claude_model_uses_active_sonnet_replacement()
