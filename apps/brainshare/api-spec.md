@@ -295,6 +295,56 @@ Synthesize all Episodes from one AI conversation into a first-class BrainShare m
 }
 ```
 
+### POST /imports/ai-conversations/preview
+Build a WorkOS import preview from stored AI conversation syntheses. This endpoint does not create WorkOS nodes. It returns topic clusters, proposed thread titles, Starting Context payloads, candidate primitives, and provenance references for WorkOS to review and materialize.
+
+**Request:**
+```json
+{
+  "conversation_ids": ["claude:abc123"],
+  "default_include": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "import_job_id": "import_abc123",
+  "clusters": [
+    {
+      "id": "cluster_1",
+      "title": "WorkOS unified direction",
+      "summary": "WorkOS is now one user-facing product.",
+      "include": true,
+      "proposed_thread": {
+        "title": "WorkOS unified direction",
+        "description": "WorkOS is now one user-facing product.",
+        "parent_cluster_id": null
+      },
+      "starting_context": {
+        "summary": "WorkOS is now one user-facing product.",
+        "key_decisions": [],
+        "open_questions": [],
+        "assumptions_or_constraints": [],
+        "pick_up_here": "Continue from the latest useful thread of work on WorkOS unified direction."
+      },
+      "candidate_primitives": [],
+      "source_refs": [
+        {
+          "conversation_id": "claude:abc123",
+          "synthesis_id": "syn_123",
+          "source_episode_ids": ["ep_123"],
+          "source_provenance": {"source_tool": "claude"}
+        }
+      ]
+    }
+  ],
+  "excluded_cluster_ids": [],
+  "metadata": {"preview_version": "workos_import_preview_v0"}
+}
+```
+
 ### POST /workos/target-resolution
 Score a BrainShare primitive against candidate WorkOS nodes and return the best reviewable target. This endpoint does not write to WorkOS; it is the deterministic bridge before writeback.
 

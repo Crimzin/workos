@@ -123,7 +123,7 @@ git commit -m "docs: canonicalize unified WorkOS direction"
 - Modify: `apps/brainshare/app/app.py`
 - Modify: `apps/brainshare/api-spec.md`
 
-- [ ] **Step 1: Write failing BrainShare preview test**
+- [x] **Step 1: Write failing BrainShare preview test**
 
 Create `apps/brainshare/tests/test_import_preview.py`:
 
@@ -210,18 +210,18 @@ def test_import_preview_groups_synthesized_topics_into_workos_threads():
     assert first_cluster["source_refs"][0]["conversation_id"] == "claude:boom-test"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
 ```bash
 cd apps/brainshare
-python tests/test_import_preview.py
+uv run python tests/test_import_preview.py
 ```
 
 Expected: FAIL with 404 for `/imports/ai-conversations/preview`.
 
-- [ ] **Step 3: Create pure import preview module**
+- [x] **Step 3: Create pure import preview module**
 
 Create `apps/brainshare/app/import_preview.py`:
 
@@ -337,7 +337,7 @@ def build_import_preview(
     }
 ```
 
-- [ ] **Step 4: Add Pydantic models and endpoint**
+- [x] **Step 4: Add Pydantic models and endpoint**
 
 In `apps/brainshare/app/app.py`, import:
 
@@ -377,7 +377,7 @@ async def preview_ai_conversation_import(request: AIConversationImportPreviewReq
     )
 ```
 
-- [ ] **Step 5: Document endpoint**
+- [x] **Step 5: Document endpoint**
 
 Add to `apps/brainshare/api-spec.md`:
 
@@ -386,20 +386,20 @@ Add to `apps/brainshare/api-spec.md`:
 Build a WorkOS import preview from stored AI conversation syntheses. This endpoint does not create WorkOS nodes. It returns topic clusters, proposed thread titles, Starting Context payloads, candidate primitives, and provenance references for WorkOS to review/materialize.
 ```
 
-- [ ] **Step 6: Run BrainShare tests**
+- [x] **Step 6: Run BrainShare tests**
 
 Run:
 
 ```bash
 cd apps/brainshare
-python tests/test_import_preview.py
-python tests/test_conversation_synthesis.py
-python tests/test_cli_ai_session_continuity.py
+uv run python tests/test_import_preview.py
+uv run python tests/test_conversation_synthesis.py
+uv run python tests/test_cli_ai_session_continuity.py
 ```
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/brainshare/app/import_preview.py apps/brainshare/app/app.py apps/brainshare/tests/test_import_preview.py apps/brainshare/api-spec.md
