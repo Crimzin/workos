@@ -195,6 +195,14 @@ def test_claude_synthesis_prompt_requests_freeform_starting_context_memo():
     assert "recipes" in prompt
     assert "emotional reflection" in prompt
     assert "creative writing" in prompt
+    assert "coverage dossier" in prompt
+    assert "origin narrative" in prompt
+    assert "major named concepts" in prompt
+    assert "target users" in prompt
+    assert "tests, prototypes, and evidence" in prompt
+    assert "anti-recency" in prompt
+    assert "tables, bullets, numbered lists, timelines, or checklists" in prompt
+    assert "self-audit" in prompt
 
 
 if __name__ == "__main__":
