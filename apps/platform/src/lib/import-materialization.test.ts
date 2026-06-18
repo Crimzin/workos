@@ -80,3 +80,6 @@ assert.equal(plan.threads[0].title, "WorkOS");
 assert.equal(plan.threads[0].memoryPrimitives.length, 1);
 assert.equal(plan.threads[0].memoryPrimitives[0].type, "decision");
 assert.match(plan.threads[0].startingContextMarkdown, /Starting Context/);
+assert.equal(plan.threads[0].sourceRefs[0].conversation_id, "claude:1");
+assert.equal(plan.threads[0].memoryPrimitives[0].externalEpisodeId, "ep_1");
+assert.equal(plan.excludedClusterIds[0], "cluster_2");

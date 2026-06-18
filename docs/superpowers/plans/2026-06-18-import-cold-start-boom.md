@@ -755,7 +755,7 @@ git commit -m "feat(import): plan WorkOS thread materialization"
 - Modify: `apps/platform/src/lib/import-materialization.ts`
 - Test: `apps/platform/src/lib/import-materialization.test.ts`
 
-- [ ] **Step 1: Extend test for post body and primitive metadata**
+- [x] **Step 1: Extend test for post body and primitive metadata**
 
 Append to `apps/platform/src/lib/import-materialization.test.ts`:
 
@@ -765,7 +765,7 @@ assert.equal(plan.threads[0].memoryPrimitives[0].externalEpisodeId, "ep_1");
 assert.equal(plan.excludedClusterIds[0], "cluster_2");
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run:
 
@@ -775,7 +775,7 @@ npx tsx apps/platform/src/lib/import-materialization.test.ts
 
 Expected: PASS. This confirms the pure plan is ready before DB work.
 
-- [ ] **Step 3: Add server action**
+- [x] **Step 3: Add server action**
 
 Create `apps/platform/src/lib/actions/imports.ts`:
 
@@ -895,19 +895,19 @@ export async function materializeImportPreview(rawPreview: unknown): Promise<Mat
 }
 ```
 
-- [ ] **Step 4: Run focused tests and typecheck**
+- [x] **Step 4: Run focused tests and typecheck**
 
 Run:
 
 ```bash
 npx tsx apps/platform/src/lib/import-materialization.test.ts
 npx tsx apps/platform/src/lib/import-preview.test.ts
-npx tsc --noEmit
+cd apps/platform && npx tsc --noEmit
 ```
 
 Expected: tests pass and TypeScript passes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/platform/src/lib/actions/imports.ts apps/platform/src/lib/import-materialization.test.ts

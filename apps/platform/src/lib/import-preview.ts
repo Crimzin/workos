@@ -54,7 +54,7 @@ export function validateImportPreview(value: unknown): ImportPreview {
   if (!Array.isArray(value.clusters)) {
     throw new Error("clusters must be an array");
   }
-  return value as ImportPreview;
+  return value as unknown as ImportPreview;
 }
 
 function renderList(items: string[], emptyText: string): string {
