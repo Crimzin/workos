@@ -414,7 +414,7 @@ git commit -m "feat(brainshare): add AI conversation import preview"
 - Create: `apps/platform/src/lib/import-preview.ts`
 - Create: `apps/platform/src/lib/import-preview.test.ts`
 
-- [ ] **Step 1: Write failing WorkOS helper test**
+- [x] **Step 1: Write failing WorkOS helper test**
 
 Create `apps/platform/src/lib/import-preview.test.ts`:
 
@@ -469,7 +469,7 @@ assert.match(markdown, /Build the import\/cold-start boom/);
 assert.doesNotMatch(markdown, /undefined/);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -479,7 +479,7 @@ npx tsx apps/platform/src/lib/import-preview.test.ts
 
 Expected: FAIL because `apps/platform/src/lib/import-preview.ts` does not exist.
 
-- [ ] **Step 3: Create import preview types/helper**
+- [x] **Step 3: Create import preview types/helper**
 
 Create `apps/platform/src/lib/import-preview.ts`:
 
@@ -560,7 +560,7 @@ export function renderStartingContextMarkdown(context: StartingContext): string 
 }
 ```
 
-- [ ] **Step 4: Run helper test**
+- [x] **Step 4: Run helper test**
 
 Run:
 
@@ -570,7 +570,7 @@ npx tsx apps/platform/src/lib/import-preview.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/platform/src/lib/import-preview.ts apps/platform/src/lib/import-preview.test.ts
