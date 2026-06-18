@@ -2,9 +2,15 @@
 
 ## What This Project Is
 
-Work OS is a work management platform — the execution surface for a larger ecosystem that includes BrainShare (AI memory layer) and Swarm (AI orchestration layer). Phase 1 is the core work management app: workspaces, stacks, cards, a 2D board view, post streams, data fields, and context linking. It replaces Factor.ai for personal and team use.
+WorkOS is a thread-first AI productivity product for non-engineer knowledge workers who want serious AI leverage without manually managing context, models, priorities, and repeatable workflows.
 
-Work OS is designed from the ground up as the coordination layer for teams of humans and AI agents. Agents are first-class actors — they can own cards, post in streams, and show up alongside humans in every view.
+The user-facing product is WorkOS. BrainShare, Swarm, and Finiti are internal capability layers, not separate user-facing products:
+
+- BrainShare powers memory, provenance, context assembly, and import synthesis.
+- Swarm powers Focus: ranked, reasoned attention over existing threads.
+- Finiti powers Workflows: reusable guided processes created and run inside WorkOS.
+
+The near-term priority is the import/cold-start "boom": a user drops in Claude/ChatGPT exports, reviews topic clusters, and WorkOS creates a clean nested-thread structure with Starting Context posts. Boards, fields, memory primitives, agents, and model routing remain important, but the primary mental model is now thread-first WorkOS.
 
 ## Tech Stack
 
@@ -20,7 +26,9 @@ Work OS is designed from the ground up as the coordination layer for teams of hu
 
 ## Key Documents
 
-- `ai-ecosystem-roadmap.md` — Build roadmap + architecture decisions log. Phase 1 (WorkOS v0) is the current build target.
+- `docs/strategy/workos-unified-vision-and-build-direction.md` - Canonical strategic direction for the current unified WorkOS phase.
+- `docs/superpowers/plans/2026-06-18-import-cold-start-boom.md` - Tactical plan for the import/cold-start build.
+- `ai-ecosystem-roadmap-v1.2.md` - Historical build roadmap + architecture decisions log.
 - `AGENTS.md` — Notes for AI agents working on this codebase.
 
 ## Mandatory Agent Startup

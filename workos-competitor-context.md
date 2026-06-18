@@ -2,6 +2,8 @@
 
 > Context document for Claude Code. Captures the product architecture, dual-entry GTM model, competitive landscape, and moat gaps as of April 2026.
 
+> June 2026 update: this document preserves useful competitive analysis, but the v1 product strategy has shifted from a visible three-product/dual-entry ecosystem to one user-facing WorkOS product. Swarm wedge, agent marketplace, and team/enterprise expansion remain possible later paths, not the immediate v1 narrative.
+
 ## 1. The system
 
 Three products, one substrate. The integration is the strategic bet.

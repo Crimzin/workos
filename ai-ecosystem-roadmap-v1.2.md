@@ -10,6 +10,9 @@
 
 - Decisions made as we build. Most recent on top.
 
+- **2026-06-18 - Unified WorkOS direction: import/cold-start is next.**
+- The canonical product direction is now one user-facing WorkOS product with BrainShare, Swarm, and Finiti as internal capability layers. The immediate build priority is the import/cold-start "boom": Claude/ChatGPT exports -> topic clusters -> include/exclude review -> generated nested threads -> Starting Context posts with provenance. See `docs/strategy/workos-unified-vision-and-build-direction.md` and `docs/superpowers/plans/2026-06-18-import-cold-start-boom.md`.
+
 - **2026-04-29 — 1.11 Inline AI in Posts carved out.**
 - Three AI surfaces in WorkOS now: (a) **1.11 Inline AI in Posts** — Claude as newsfeed teammate, replies in post threads when @-mentioned on a card/stack, with that node's context; (b) **2.6 BrainShare Chat Surface** — bottom AI panel for general workspace conversation, BrainShare-grounded; (c) **2.2.5 External AI MCP** — Claude.app/ChatGPT/Codex pull WorkOS+BrainShare context outward. (a) is the spec §2.1.5 "AI as newsfeed participant" pattern; built on existing @mention infrastructure (1.9); doesn't require BrainShare for v1. v1 minimum ships ahead of Phase 2 to give Will an immediate Claude.ai-projects-replacement workflow organized by card/stack; v1.5 routes through BrainShare for graph-augmented context once 2.0/2.1 are firm.
 

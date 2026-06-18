@@ -6,6 +6,16 @@ This file defines agent roles for Claude Code and Codex sessions on the WorkOS p
 
 The project is a monorepo: `apps/platform` (WorkOS Core — Next.js/TypeScript), `apps/brainshare` (BrainShare service — Python/FastAPI/Graphiti), `apps/swarm` (Swarm — future).
 
+## User-Facing Naming Discipline
+
+WorkOS is the only user-facing product name for the current phase. BrainShare, Swarm, and Finiti are internal architecture names. Use plain surface names in UI copy and product docs:
+
+- BrainShare -> Context, Memory, Sources, Starting Context
+- Swarm -> Focus
+- Finiti -> Workflows
+
+Internal specs may still use BrainShare/Swarm/Finiti where architecture boundaries matter.
+
 ### Routing: Which Agent Am I?
 
 Determine the role based on what the task touches:
