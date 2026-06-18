@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "app"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 from app import app  # noqa: E402
+from import_preview import ImportPreviewRequestData, build_import_preview  # noqa: E402
 
 
 AUTH = {"Authorization": "Bearer bs_team_abc123"}
@@ -81,5 +82,108 @@ def test_import_preview_groups_synthesized_topics_into_workos_threads():
     assert first_cluster["source_refs"][0]["conversation_id"] == "claude:boom-test"
 
 
+def test_import_preview_preserves_rich_starting_context_fields():
+    synthesis = {
+        "id": "synth_1",
+        "conversation_id": "claude:workos-suite",
+        "title": "WorkOS suite thinking",
+        "source_episode_ids": ["ep_1"],
+        "source_provenance": {"source_tool": "claude"},
+        "conversation_brief": {
+            "summary": "WorkOS, BrainShare, and Swarm are converging into one suite.",
+            "status": "needs_review",
+            "audience": "future_ai_session",
+        },
+        "topics": [
+            {
+                "name": "WorkOS unified product direction",
+                "summary": "WorkOS is the user-facing product; BrainShare and Swarm are internal layers.",
+                "narrative": (
+                    "The conversation frames WorkOS as the visible operating surface, "
+                    "BrainShare as durable context/memory, and Swarm as orchestration. "
+                    "The important product move is a unified workflow rather than three "
+                    "separate applications."
+                ),
+                "status": "active",
+                "source_spans": [
+                    {
+                        "episode_id": "ep_1",
+                        "content_preview": (
+                            "I do not want three apps. WorkOS should be the surface, "
+                            "BrainShare should carry context, and Swarm should coordinate agents."
+                        ),
+                    }
+                ],
+            }
+        ],
+        "why_chains": [
+            {
+                "topic": "WorkOS unified product direction",
+                "nodes": [
+                    {
+                        "type": "assumption",
+                        "statement": "Users will not manually maintain the structure BrainShare needs.",
+                    },
+                    {
+                        "type": "risk",
+                        "statement": "A separate BrainShare UI could distract from the WorkOS wedge.",
+                    },
+                    {
+                        "type": "question",
+                        "statement": "What is the smallest import review loop that proves the wedge?",
+                    },
+                    {
+                        "type": "action",
+                        "statement": "Build an import review that creates a rich Starting Context thread.",
+                    },
+                ],
+            }
+        ],
+        "primitives": [
+            {
+                "type": "decision",
+                "statement": "Treat WorkOS, BrainShare, and Swarm as one product system.",
+                "rationale": (
+                    "The durable insight is that context and orchestration should be "
+                    "experienced through the same collaboration surface."
+                ),
+                "human_signal": "explicit human statement",
+                "conviction": 0.95,
+                "topic": "WorkOS unified product direction",
+                "citations": [],
+            }
+        ],
+    }
+
+    preview = build_import_preview(
+        [synthesis],
+        ImportPreviewRequestData(
+            conversation_ids=["claude:workos-suite"],
+            default_include=True,
+        ),
+    )
+
+    context = preview["clusters"][0]["starting_context"]
+    assert context["overview"]
+    assert context["detail_notes"]
+    assert context["reflection"]
+    assert context["evidence_notes"]
+    assert context["key_decisions"] == [
+        "Treat WorkOS, BrainShare, and Swarm as one product system."
+    ]
+    assert context["open_questions"] == [
+        "What is the smallest import review loop that proves the wedge?"
+    ]
+    assert (
+        "Users will not manually maintain the structure BrainShare needs."
+        in context["assumptions_or_constraints"]
+    )
+    assert "separate BrainShare UI" in context["assumptions_or_constraints"][1]
+    assert context["pick_up_here"] == (
+        "Build an import review that creates a rich Starting Context thread."
+    )
+
+
 if __name__ == "__main__":
     test_import_preview_groups_synthesized_topics_into_workos_threads()
+    test_import_preview_preserves_rich_starting_context_fields()

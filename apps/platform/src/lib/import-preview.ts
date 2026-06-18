@@ -1,8 +1,14 @@
+import { markdownToBlockNote } from "./agents/markdown-to-blocknote";
+
 export interface StartingContext {
   summary: string;
+  overview?: string[];
   key_decisions: string[];
   open_questions: string[];
   assumptions_or_constraints: string[];
+  detail_notes?: string[];
+  reflection?: string;
+  evidence_notes?: string[];
   pick_up_here: string;
 }
 
@@ -62,25 +68,63 @@ function renderList(items: string[], emptyText: string): string {
   return items.map((item) => `- ${item}`).join("\n");
 }
 
+function cleanList(items: string[] | undefined): string[] {
+  return (items ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 export function renderStartingContextMarkdown(context: StartingContext): string {
-  return [
+  const sections = [
     "# Starting Context",
     "",
     context.summary,
+  ];
+
+  const overview = cleanList(context.overview);
+  if (overview.length > 0) {
+    sections.push("", "## Overview", renderList(overview, ""));
+  }
+
+  sections.push(
     "",
     "## Key Decisions",
-    renderList(context.key_decisions, "No durable decisions detected yet."),
+    renderList(cleanList(context.key_decisions), "No durable decisions detected yet."),
     "",
     "## Open Questions",
-    renderList(context.open_questions, "No open questions detected yet."),
+    renderList(cleanList(context.open_questions), "No open questions detected yet."),
     "",
     "## Assumptions And Constraints",
     renderList(
-      context.assumptions_or_constraints,
+      cleanList(context.assumptions_or_constraints),
       "No explicit assumptions or constraints detected yet."
-    ),
+    )
+  );
+
+  const detailNotes = cleanList(context.detail_notes);
+  if (detailNotes.length > 0) {
+    sections.push("", "## Details", renderList(detailNotes, ""));
+  }
+
+  const reflection = context.reflection?.trim();
+  if (reflection) {
+    sections.push("", "## Reflection", reflection);
+  }
+
+  const evidenceNotes = cleanList(context.evidence_notes);
+  if (evidenceNotes.length > 0) {
+    sections.push("", "## Evidence Notes", renderList(evidenceNotes, ""));
+  }
+
+  sections.push(
     "",
     "## Pick Up Here",
-    context.pick_up_here,
-  ].join("\n");
+    context.pick_up_here.trim()
+  );
+
+  return sections.join("\n");
+}
+
+export function renderStartingContextPostBody(context: StartingContext): string {
+  return JSON.stringify(markdownToBlockNote(renderStartingContextMarkdown(context)));
 }

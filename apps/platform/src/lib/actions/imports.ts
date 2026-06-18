@@ -83,7 +83,7 @@ export async function materializeImportPreview(
         node_id: node.id,
         actor_id: actor.id,
         post_type: "post",
-        body: thread.startingContextMarkdown,
+        body: thread.startingContextPostBody,
         pinned: true,
         pinned_at: new Date().toISOString(),
         metadata: {

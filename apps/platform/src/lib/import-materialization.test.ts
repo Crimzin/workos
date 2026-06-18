@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { postBodyToMarkdown } from "./blocknote-markdown";
 import { buildAcceptedImportPlan } from "./import-materialization";
 import type { ImportPreview } from "./import-preview";
 
@@ -18,10 +19,17 @@ const preview: ImportPreview = {
       },
       starting_context: {
         summary: "Included",
+        overview: ["One suite with BrainShare as the hidden context layer."],
         key_decisions: ["One product."],
-        open_questions: [],
-        assumptions_or_constraints: [],
-        pick_up_here: "Continue WorkOS.",
+        open_questions: ["What import review controls are needed before writeback?"],
+        assumptions_or_constraints: [
+          "Imported context must be editable because synthesis will be imperfect.",
+        ],
+        detail_notes: ["The first materialized thread should be useful without opening the transcript."],
+        reflection:
+          "The import is a handoff document, not just a record of what was said.",
+        evidence_notes: ["The source conversation repeatedly frames WorkOS as the user-facing layer."],
+        pick_up_here: "Review the imported brief, correct any synthesis errors, then choose the first writeback workflow.",
       },
       candidate_primitives: [
         {
@@ -79,7 +87,13 @@ assert.equal(plan.threads.length, 1);
 assert.equal(plan.threads[0].title, "WorkOS");
 assert.equal(plan.threads[0].memoryPrimitives.length, 1);
 assert.equal(plan.threads[0].memoryPrimitives[0].type, "decision");
-assert.match(plan.threads[0].startingContextMarkdown, /Starting Context/);
+assert.doesNotThrow(() => JSON.parse(plan.threads[0].startingContextPostBody));
+const startingContextMarkdown = postBodyToMarkdown(
+  plan.threads[0].startingContextPostBody
+);
+assert.match(startingContextMarkdown, /Starting Context/);
+assert.match(startingContextMarkdown, /One suite with BrainShare/);
+assert.match(startingContextMarkdown, /handoff document/);
 assert.equal(plan.threads[0].sourceRefs[0].conversation_id, "claude:1");
 assert.equal(plan.threads[0].memoryPrimitives[0].externalEpisodeId, "ep_1");
 assert.equal(plan.excludedClusterIds[0], "cluster_2");

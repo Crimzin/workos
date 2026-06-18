@@ -1,5 +1,5 @@
 import {
-  renderStartingContextMarkdown,
+  renderStartingContextPostBody,
   type ImportPreview,
   type ImportPreviewCluster,
 } from "./import-preview";
@@ -18,7 +18,7 @@ export interface ImportThreadPlan {
   clusterId: string;
   title: string;
   description: string | null;
-  startingContextMarkdown: string;
+  startingContextPostBody: string;
   sourceRefs: ImportPreviewCluster["source_refs"];
   memoryPrimitives: ImportMemoryPrimitivePlan[];
 }
@@ -47,7 +47,7 @@ export function buildAcceptedImportPlan(
         clusterId: cluster.id,
         title: cluster.proposed_thread.title || cluster.title,
         description: cluster.proposed_thread.description,
-        startingContextMarkdown: renderStartingContextMarkdown(
+        startingContextPostBody: renderStartingContextPostBody(
           cluster.starting_context
         ),
         sourceRefs: cluster.source_refs,

@@ -16,6 +16,48 @@ def _safe_title(value: Any, fallback: str) -> str:
     return title if title else fallback
 
 
+def _clean_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _dedupe_texts(values: list[Any], limit: int) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = _clean_text(value)
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _trim_text(value: Any, limit: int = 420) -> str:
+    text = _clean_text(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3].rstrip()}..."
+
+
+def _why_chain_nodes_for_topic(
+    synthesis: dict[str, Any],
+    topic_name: str | None,
+) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for chain in synthesis.get("why_chains", []):
+        if chain.get("topic") != topic_name:
+            continue
+        for node in chain.get("nodes", []):
+            if isinstance(node, dict):
+                nodes.append(node)
+    return nodes
+
+
 def _topic_summary(topic: dict[str, Any], synthesis: dict[str, Any]) -> str:
     summary = str(topic.get("summary") or "").strip()
     if summary:
@@ -28,34 +70,94 @@ def starting_context_for_topic(
     synthesis: dict[str, Any],
 ) -> dict[str, Any]:
     topic_name = _safe_title(topic.get("name"), "Imported conversation")
+    topic_key = topic.get("name")
     primitives = [
         primitive
         for primitive in synthesis.get("primitives", [])
-        if primitive.get("topic") == topic.get("name")
+        if primitive.get("topic") == topic_key
     ]
-    decisions = [
+    why_nodes = _why_chain_nodes_for_topic(synthesis, topic_key)
+    decisions = _dedupe_texts([
         primitive.get("statement")
         for primitive in primitives
         if primitive.get("type") == "decision" and primitive.get("statement")
-    ]
-    open_questions = [
+    ], 6)
+    open_questions = _dedupe_texts([
         primitive.get("statement")
         for primitive in primitives
         if primitive.get("type") == "question" and primitive.get("statement")
-    ]
-    assumptions = [
+    ] + [
+        node.get("statement")
+        for node in why_nodes
+        if node.get("type") == "question" and node.get("statement")
+    ], 6)
+    assumptions = _dedupe_texts([
         primitive.get("statement")
         for primitive in primitives
         if primitive.get("type") == "assumption" and primitive.get("statement")
-    ]
+    ] + [
+        node.get("statement")
+        for node in why_nodes
+        if node.get("type") in {"assumption", "constraint", "risk"}
+        and node.get("statement")
+    ], 6)
+    actions = _dedupe_texts([
+        primitive.get("statement")
+        for primitive in primitives
+        if primitive.get("type") == "action" and primitive.get("statement")
+    ] + [
+        node.get("statement")
+        for node in why_nodes
+        if node.get("type") == "action" and node.get("statement")
+    ], 3)
 
     summary = _topic_summary(topic, synthesis) or f"Imported context about {topic_name}."
+    narrative = _clean_text(topic.get("narrative"))
+    overview = _dedupe_texts(
+        [narrative if narrative and narrative.lower() != summary.lower() else ""],
+        3,
+    )
+    detail_notes = _dedupe_texts(
+        [primitive.get("rationale") for primitive in primitives]
+        + [node.get("statement") for node in why_nodes if node.get("type") == "goal"],
+        6,
+    )
+    evidence_notes = _dedupe_texts(
+        [
+            _trim_text(span.get("content_preview"))
+            for span in topic.get("source_spans", [])
+            if isinstance(span, dict)
+        ]
+        + [primitive.get("human_signal") for primitive in primitives],
+        6,
+    )
+    reflection_source = (
+        detail_notes[0]
+        if detail_notes
+        else (overview[0] if overview else summary)
+    )
+    pick_up_here = (
+        actions[0]
+        if actions
+        else (
+            f"Resolve: {open_questions[0]}"
+            if open_questions
+            else (
+                "Review this imported context, confirm or correct the durable "
+                "decisions and assumptions, then choose the next concrete task."
+            )
+        )
+    )
     return {
         "summary": summary,
-        "key_decisions": decisions[:6],
-        "open_questions": open_questions[:6],
-        "assumptions_or_constraints": assumptions[:6],
-        "pick_up_here": f"Continue from the latest useful thread of work on {topic_name}.",
+        "overview": overview,
+        "key_decisions": decisions,
+        "open_questions": open_questions,
+        "assumptions_or_constraints": assumptions,
+        "detail_notes": detail_notes,
+        "reflection": f"Why this matters: {reflection_source}",
+        "evidence_notes": evidence_notes,
+        "pick_up_here": pick_up_here,
     }
 
 
