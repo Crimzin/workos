@@ -49,6 +49,25 @@ assert.deepEqual(minimalEvent, {
 });
 assert.equal("occurred_at" in minimalEvent, false);
 
+const postEvent = buildWorkOSEventInsert({
+  instanceId: "instance-1",
+  workspaceId: "workspace-1",
+  nodeId: "node-1",
+  actorId: "actor-1",
+  eventType: "post.created",
+  subjectType: "post",
+  subjectId: "post-1",
+  summary: "Will posted in Launch plan.",
+  metadata: { post_type: "post", body_preview: "Ship it." },
+});
+
+assert.equal(postEvent.event_type, "post.created");
+assert.equal(postEvent.subject_type, "post");
+assert.deepEqual(postEvent.metadata, {
+  post_type: "post",
+  body_preview: "Ship it.",
+});
+
 assert.deepEqual(
   buildFieldValueChangeMetadata({
     fieldId: "field-1",
