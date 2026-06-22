@@ -28,6 +28,52 @@ export type ThreadResolutionStatus =
   | "reopened"
   | "superseded";
 
+export type WorkOSEventType =
+  | "node.created"
+  | "node.updated"
+  | "node.archived"
+  | "node.unarchived"
+  | "node.deleted"
+  | "thread.resolved"
+  | "thread.reopened"
+  | "thread.superseded"
+  | "post.created"
+  | "post.updated"
+  | "post.deleted"
+  | "post.pinned"
+  | "post.unpinned"
+  | "post.reaction_added"
+  | "post.reaction_removed"
+  | "field.created"
+  | "field.updated"
+  | "field.deleted"
+  | "field.option_created"
+  | "field.option_updated"
+  | "field.option_deleted"
+  | "field.option_reordered"
+  | "field.value_changed"
+  | "link.created"
+  | "link.deleted"
+  | "import.materialized"
+  | "agent.reply_started"
+  | "agent.reply_completed"
+  | "agent.reply_failed";
+
+export interface WorkOSEvent {
+  id: string;
+  instance_id: string;
+  workspace_id: string | null;
+  node_id: string | null;
+  actor_id: string | null;
+  event_type: WorkOSEventType;
+  subject_type: string;
+  subject_id: string | null;
+  occurred_at: string;
+  summary: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface Instance {
   id: string;
   name: string;
