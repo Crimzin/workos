@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildFieldValueChangeMetadata,
   buildWorkOSEventInsert,
+  normalizeEventValueLabels,
 } from "./events.ts";
 
 const event = buildWorkOSEventInsert({
@@ -95,3 +96,9 @@ assert.deepEqual(
     next_values: [],
   }
 );
+
+assert.deepEqual(normalizeEventValueLabels([" Backlog ", "", null, "Done"]), [
+  "Backlog",
+  "Done",
+]);
+assert.deepEqual(normalizeEventValueLabels([]), []);

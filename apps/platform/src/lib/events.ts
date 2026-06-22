@@ -33,7 +33,7 @@ export interface FieldValueChangeMetadataInput {
   nextValues: string[];
 }
 
-export interface FieldValueChangeMetadata {
+export interface FieldValueChangeMetadata extends Record<string, unknown> {
   field_id: string;
   field_name?: string;
   previous_values: string[];
@@ -77,4 +77,12 @@ export function buildFieldValueChangeMetadata(
     previous_values: input.previousValues,
     next_values: input.nextValues,
   };
+}
+
+export function normalizeEventValueLabels(
+  values: Array<string | null | undefined>
+): string[] {
+  return values
+    .map((value) => (value ?? "").trim())
+    .filter((value) => value.length > 0);
 }

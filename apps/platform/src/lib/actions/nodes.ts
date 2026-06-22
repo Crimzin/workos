@@ -19,6 +19,7 @@ import {
   buildSubThreadResolvedMetadata,
   normalizeResolutionSummary,
 } from "../thread-status";
+import { recordWorkOSEvent } from "../events";
 import type { StackLifecycleStatus } from "../types";
 
 export async function archiveNode(
@@ -26,11 +27,24 @@ export async function archiveNode(
   workspaceId: string,
   parentId: string | null
 ): Promise<void> {
+  const actor = await getCurrentActor();
   const { error } = await supabase
     .from("nodes")
     .update({ archived_at: new Date().toISOString() })
     .eq("id", nodeId);
   if (error) throw error;
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId,
+    actorId: actor.id,
+    eventType: "node.archived",
+    subjectType: "node",
+    subjectId: nodeId,
+    summary: `${actor.name} archived a thread.`,
+    metadata: { node_id: nodeId },
+  });
 
   revalidateNode(nodeId, parentId);
   revalidateWorkspaceBoard(workspaceId);
@@ -46,11 +60,24 @@ export async function unarchiveNode(
   workspaceId: string,
   parentId: string | null
 ): Promise<void> {
+  const actor = await getCurrentActor();
   const { error } = await supabase
     .from("nodes")
     .update({ archived_at: null })
     .eq("id", nodeId);
   if (error) throw error;
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId,
+    actorId: actor.id,
+    eventType: "node.unarchived",
+    subjectType: "node",
+    subjectId: nodeId,
+    summary: `${actor.name} unarchived a thread.`,
+    metadata: { node_id: nodeId },
+  });
 
   revalidateNode(nodeId, parentId);
   revalidateWorkspaceBoard(workspaceId);
@@ -66,10 +93,39 @@ export async function deleteNode(
   workspaceId: string,
   parentId: string | null
 ): Promise<void> {
+  const actor = await getCurrentActor();
+  const { data: node, error: fetchErr } = await supabase
+    .from("nodes")
+    .select("id,title,type")
+    .eq("id", nodeId)
+    .single();
+  if (fetchErr) throw fetchErr;
+
   // ON DELETE CASCADE on parent_id means deleting a stack cascades to its cards.
   // ON DELETE CASCADE on node_id in node_field_values cleans up field values.
   const { error } = await supabase.from("nodes").delete().eq("id", nodeId);
   if (error) throw error;
+
+  const deletedWorkspaceId =
+    nodeId === workspaceId || (parentId === null && node.type === "workspace")
+      ? null
+      : workspaceId;
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId: deletedWorkspaceId,
+    nodeId: null,
+    actorId: actor.id,
+    eventType: "node.deleted",
+    subjectType: "node",
+    subjectId: nodeId,
+    summary: `${actor.name} deleted ${node.title}.`,
+    metadata: {
+      node_id: nodeId,
+      node_title: node.title,
+      node_type: node.type,
+    },
+  });
 
   revalidateNode(nodeId, parentId);
   revalidateWorkspaceBoard(workspaceId);
@@ -221,12 +277,36 @@ export async function updateNodeTitle(
 ): Promise<void> {
   const trimmed = title.trim();
   if (!trimmed) return;
+  const actor = await getCurrentActor();
+  const { data: node, error: fetchErr } = await supabase
+    .from("nodes")
+    .select("id,title,type")
+    .eq("id", nodeId)
+    .single();
+  if (fetchErr) throw fetchErr;
 
   const { error } = await supabase
     .from("nodes")
     .update({ title: trimmed })
     .eq("id", nodeId);
   if (error) throw error;
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId,
+    actorId: actor.id,
+    eventType: "node.updated",
+    subjectType: "node",
+    subjectId: nodeId,
+    summary: `${actor.name} renamed ${node.title}.`,
+    metadata: {
+      node_id: nodeId,
+      node_type: node.type,
+      previous_title: node.title,
+      next_title: trimmed,
+    },
+  });
 
   revalidateNode(nodeId, parentId);
   revalidateNodePath(nodeId);
@@ -865,12 +945,51 @@ export async function createCard(
     if (vErr) throw vErr;
   }
 
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId: card.id,
+    actorId: actor.id,
+    eventType: "node.created",
+    subjectType: "node",
+    subjectId: card.id,
+    summary: `${actor.name} created ${trimmed}.`,
+    metadata: {
+      node_id: card.id,
+      node_title: trimmed,
+      node_type: "card",
+      parent_id: stackId,
+    },
+  });
+
   // Log a card_created activity post on the parent stack.
-  await supabase.from("posts").insert({
-    node_id: stackId,
-    actor_id: actor.id,
-    post_type: "card_created",
-    metadata: { card_id: card.id, card_title: trimmed },
+  const { data: activityPost, error: activityPostErr } = await supabase
+    .from("posts")
+    .insert({
+      node_id: stackId,
+      actor_id: actor.id,
+      post_type: "card_created",
+      metadata: { card_id: card.id, card_title: trimmed },
+    })
+    .select("id,created_at")
+    .single();
+  if (activityPostErr) throw activityPostErr;
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId: stackId,
+    actorId: actor.id,
+    eventType: "post.created",
+    subjectType: "post",
+    subjectId: activityPost.id,
+    summary: `${actor.name} recorded card creation activity.`,
+    metadata: {
+      post_type: "card_created",
+      card_id: card.id,
+      card_title: trimmed,
+    },
+    occurredAt: activityPost.created_at,
   });
 
   revalidateWorkspaceBoard(workspaceId);
@@ -913,17 +1032,57 @@ export async function createSubThread(
     .single();
   if (error) throw error;
 
-  const { error: postErr } = await supabase.from("posts").insert({
-    node_id: parentThreadId,
-    actor_id: actor.id,
-    post_type: "sub_thread_created",
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId: subThread.id,
+    actorId: actor.id,
+    eventType: "node.created",
+    subjectType: "node",
+    subjectId: subThread.id,
+    summary: `${actor.name} created ${trimmed}.`,
     metadata: {
+      node_id: subThread.id,
+      node_title: trimmed,
+      node_type: "card",
+      parent_id: parentThreadId,
+      source_post_id: sourcePostId ?? null,
+    },
+  });
+
+  const { data: activityPost, error: postErr } = await supabase
+    .from("posts")
+    .insert({
+      node_id: parentThreadId,
+      actor_id: actor.id,
+      post_type: "sub_thread_created",
+      metadata: {
+        sub_thread_id: subThread.id,
+        sub_thread_title: trimmed,
+        source_post_id: sourcePostId ?? null,
+      },
+    })
+    .select("id,created_at")
+    .single();
+  if (postErr) throw postErr;
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId: parentThreadId,
+    actorId: actor.id,
+    eventType: "post.created",
+    subjectType: "post",
+    subjectId: activityPost.id,
+    summary: `${actor.name} recorded sub-thread creation activity.`,
+    metadata: {
+      post_type: "sub_thread_created",
       sub_thread_id: subThread.id,
       sub_thread_title: trimmed,
       source_post_id: sourcePostId ?? null,
     },
+    occurredAt: activityPost.created_at,
   });
-  if (postErr) throw postErr;
 
   revalidateNode(parentThreadId, null);
   revalidateNodeChildren(parentThreadId);
@@ -981,6 +1140,22 @@ export async function resolveSubThread(
   });
   if (postErr) throw postErr;
 
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId: subThreadId,
+    actorId: actor.id,
+    eventType: "thread.resolved",
+    subjectType: "node",
+    subjectId: subThreadId,
+    summary: `${actor.name} resolved ${subThread.title}.`,
+    metadata: buildSubThreadResolvedMetadata({
+      subThreadId,
+      subThreadTitle: subThread.title,
+      summary: normalizedSummary,
+    }),
+  });
+
   revalidateNode(subThreadId, parentThreadId);
   revalidateThreadSurface(parentThreadId);
   revalidateThreadSurface(subThreadId);
@@ -996,6 +1171,7 @@ export async function reopenSubThread(
   parentThreadId: string,
   workspaceId: string
 ): Promise<void> {
+  const actor = await getCurrentActor();
   const { error } = await supabase
     .from("nodes")
     .update({
@@ -1005,6 +1181,21 @@ export async function reopenSubThread(
     .eq("id", subThreadId)
     .eq("parent_id", parentThreadId);
   if (error) throw error;
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId,
+    nodeId: subThreadId,
+    actorId: actor.id,
+    eventType: "thread.reopened",
+    subjectType: "node",
+    subjectId: subThreadId,
+    summary: `${actor.name} reopened a thread.`,
+    metadata: {
+      sub_thread_id: subThreadId,
+      parent_thread_id: parentThreadId,
+    },
+  });
 
   revalidateNode(subThreadId, parentThreadId);
   revalidateThreadSurface(parentThreadId);

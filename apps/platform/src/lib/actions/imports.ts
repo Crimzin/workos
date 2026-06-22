@@ -13,6 +13,7 @@ import {
 } from "../cache";
 import { buildAcceptedImportPlan } from "../import-materialization";
 import { validateImportPreview, type ImportPreview } from "../import-preview";
+import { recordWorkOSEvent } from "../events";
 import { supabase } from "../supabase";
 
 export interface MaterializeImportResult {
@@ -77,6 +78,22 @@ export async function materializeImportPreview(
     if (nodeError) throw nodeError;
     threadIds.push(node.id);
 
+    await recordWorkOSEvent({
+      instanceId: actor.instance_id,
+      workspaceId: workspace.id,
+      nodeId: node.id,
+      actorId: actor.id,
+      eventType: "node.created",
+      subjectType: "node",
+      subjectId: node.id,
+      summary: `${actor.name} created ${thread.title}.`,
+      metadata: {
+        source: "import",
+        import_job_id: plan.importJobId,
+        import_cluster_id: thread.clusterId,
+      },
+    });
+
     const { data: post, error: postError } = await supabase
       .from("posts")
       .insert({
@@ -93,9 +110,27 @@ export async function materializeImportPreview(
           post_kind: "starting_context",
         },
       })
-      .select("id")
+      .select("id,created_at")
       .single();
     if (postError) throw postError;
+
+    await recordWorkOSEvent({
+      instanceId: actor.instance_id,
+      workspaceId: workspace.id,
+      nodeId: node.id,
+      actorId: actor.id,
+      eventType: "post.created",
+      subjectType: "post",
+      subjectId: post.id,
+      summary: `${actor.name} added starting context.`,
+      metadata: {
+        post_kind: "starting_context",
+        source: "import",
+        import_job_id: plan.importJobId,
+        import_cluster_id: thread.clusterId,
+      },
+      occurredAt: post.created_at,
+    });
 
     for (const primitive of thread.memoryPrimitives) {
       const { error: primitiveError } = await supabase
@@ -122,6 +157,23 @@ export async function materializeImportPreview(
     revalidateNodeMemoryPrimitives(node.id);
     revalidateThreadSurface(node.id);
   }
+
+  await recordWorkOSEvent({
+    instanceId: actor.instance_id,
+    workspaceId: workspace.id,
+    nodeId: workspace.id,
+    actorId: actor.id,
+    eventType: "import.materialized",
+    subjectType: "workspace",
+    subjectId: workspace.id,
+    summary: `${actor.name} materialized imported context.`,
+    metadata: {
+      import_job_id: plan.importJobId,
+      accepted_thread_count: plan.threads.length,
+      created_thread_count: threadIds.length,
+      thread_ids: threadIds,
+    },
+  });
 
   revalidateRootNodes();
   revalidateNode(workspace.id, null);
