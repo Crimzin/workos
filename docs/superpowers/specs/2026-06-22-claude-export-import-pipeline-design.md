@@ -90,7 +90,7 @@ This handles long or meandering conversations. Topic boundaries can come from ch
 - long pauses when timestamps are available
 - sudden movement from one project/person/domain to another
 
-The first implementation can use coarse chunking from human turns and sketches. Full transcript chunking can happen selectively.
+The first implementation can use coarse chunking from source turns and sketches. Full transcript chunking can happen selectively.
 
 ### Facet Candidate
 
@@ -172,13 +172,16 @@ Sketch fields:
 - one-paragraph source summary from export metadata or cheap extraction
 - first human turn
 - last human turn
-- candidate signal human turns
+- candidate signal turns from any speaker
+- human validation markers near AI-generated content
 - top human-mentioned entities and terms
 - attachment/file hints
 - noise flags
 - source project prior, if available
 
-Candidate signal turns are provisional. They are selected by local heuristics such as first and last substantive human turns, concrete named entities, correction markers, decision language, overlap with title/summary, and information density.
+Candidate signal turns are provisional. They are not limited to human turns. In AI conversations, the AI may generate the clearest formulation of a plan, framework, rationale, or distinction, while the human supplies the conviction signal by accepting, correcting, extending, or rejecting it. Cheap sketching should therefore retain promising AI-generated passages when nearby human turns indicate adoption or critique.
+
+Useful selection heuristics include first and last substantive human turns, concrete named entities, correction markers, decision language, overlap with title/summary, information density, explicit human validation such as agreement or approval, and multi-turn refinement patterns where the final accepted AI formulation is more informative than the user's brief confirmation.
 
 ### 3. Topic Chunk Proposal
 
