@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Clock3, GitBranch } from "lucide-react";
+import { formatAbsoluteDateTime } from "@/lib/time";
 import { getThreadStatusLabel } from "@/lib/thread-status";
 import type { WorkNode } from "@/lib/types";
 import {
@@ -58,6 +59,7 @@ function SubThreadRow({
   workspaceId: string;
 }) {
   const isResolved = thread.thread_resolution_status === "resolved";
+  const absoluteUpdatedAt = formatAbsoluteDateTime(thread.updated_at);
 
   return (
     <div className="group flex items-start gap-3 px-5 py-3 transition-colors hover:bg-bg-secondary/50">
@@ -79,9 +81,16 @@ function SubThreadRow({
           />
         </div>
 
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-text-tertiary">
+        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
           <Clock3 size={11} className="shrink-0" />
-          <time dateTime={thread.updated_at}>{formatTimestamp(thread.updated_at)}</time>
+          <time
+            dateTime={thread.updated_at}
+            title={absoluteUpdatedAt}
+            aria-label={absoluteUpdatedAt}
+            className="min-w-0 truncate"
+          >
+            {absoluteUpdatedAt}
+          </time>
         </div>
 
         {thread.resolution_summary && (
@@ -124,13 +133,4 @@ function StatusPill({ label, resolved }: { label: string; resolved: boolean }) {
       {label}
     </span>
   );
-}
-
-function formatTimestamp(value: string): string {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
 }

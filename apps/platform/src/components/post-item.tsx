@@ -29,6 +29,7 @@ import {
   postDocxDownloadPath,
   postPdfDownloadPath,
 } from "@/lib/post-export";
+import { formatAbsoluteDateTime, formatRelativeAge } from "@/lib/time";
 import { PostEditor, parsePostBody, serializePostBody } from "./post-editor";
 
 interface PostItemProps {
@@ -146,6 +147,7 @@ export function PostItem({
   const isAgent = post.actor?.kind === "agent";
   const initialContent = parsePostBody(post.body);
   const canExportPdf = canExportPostToPdf(post);
+  const absoluteCreatedAt = formatAbsoluteDateTime(post.created_at);
 
   return (
     <div className="group relative px-5 py-3 hover:bg-bg-hover/40 transition-colors">
@@ -167,7 +169,14 @@ export function PostItem({
           {initials}
         </div>
         <span className="text-xs font-medium text-text-primary">{actorName}</span>
-        <span className="text-[11px] text-text-tertiary">{formatRelative(post.created_at)}</span>
+        <time
+          dateTime={post.created_at}
+          title={absoluteCreatedAt}
+          aria-label={absoluteCreatedAt}
+          className="text-[11px] text-text-tertiary"
+        >
+          {formatRelativeAge(post.created_at)}
+        </time>
       </div>
 
       {/* Body */}
@@ -447,21 +456,4 @@ function ActivityBody({ post }: { post: PostRecord }) {
     );
   }
   return <p className="text-sm text-text-tertiary italic">{post.post_type}</p>;
-}
-
-function formatRelative(iso: string): string {
-  const now = Date.now();
-  const then = new Date(iso).getTime();
-  const diff = Math.floor((now - then) / 1000);
-
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 7 * 86400) return `${Math.floor(diff / 86400)}d ago`;
-
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: new Date(iso).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
-  });
 }

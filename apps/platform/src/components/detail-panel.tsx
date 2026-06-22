@@ -16,6 +16,7 @@ import {
   buildBoardDetailTrail,
   getHeaderBadges,
 } from "@/lib/detail-header";
+import { formatAbsoluteDateTime } from "@/lib/time";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
 import { NodeActions } from "./node-actions";
@@ -275,8 +276,8 @@ export function FieldsTabContent({
         {node.type === "stack" && (
           <SystemRow label="Lifecycle" value={formatLifecycle(node.stack_lifecycle_status)} />
         )}
-        <SystemRow label="Created" value={formatDate(node.created_at)} />
-        <SystemRow label="Updated" value={formatDate(node.updated_at)} />
+        <SystemRow label="Created" value={formatAbsoluteDateTime(node.created_at)} />
+        <SystemRow label="Updated" value={formatAbsoluteDateTime(node.updated_at)} />
         {fields.length === 0 && (
           <div className="px-3 py-3 text-xs text-text-tertiary">
             No custom fields yet.
@@ -316,23 +317,13 @@ export function FieldsTabContent({
 
 function SystemRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2">
-      <dt className="text-xs text-text-tertiary">{label}</dt>
-      <dd className="text-sm text-text-primary">{value}</dd>
+    <div className="flex items-start justify-between gap-3 px-3 py-2">
+      <dt className="shrink-0 text-xs text-text-tertiary">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-sm text-text-primary">{value}</dd>
     </div>
   );
 }
 
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function formatLifecycle(status: string): string {
   return status
