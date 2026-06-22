@@ -20,6 +20,11 @@ import {
 } from "./attachments";
 import { renderAIStandardsForPrompt } from "../ai-standards";
 import type { PostRecord } from "../posts";
+import {
+  formatPromptTimestamp,
+  formatTemporalContext,
+  getElapsedGapLabel,
+} from "../time";
 import type { AIStandard } from "../types";
 
 export interface ClaudePrompt {
@@ -36,6 +41,10 @@ export interface ClaudePromptOptions {
    */
   targetPostId?: string;
   /**
+   * Deterministic clock for prompt rendering. Defaults to wall-clock time.
+   */
+  now?: Date;
+  /**
    * Effective BrainShare inborn standards for this instance. These are
    * product-level defaults plus instance overrides.
    */
@@ -46,9 +55,11 @@ export function renderClaudePrompt(
   ctx: NodeContext,
   options: ClaudePromptOptions = {}
 ): ClaudePrompt {
+  const now = options.now ?? new Date();
+
   return {
-    systemPrompt: buildSystemPrompt(ctx, options),
-    userMessage: buildUserMessage(ctx, options),
+    systemPrompt: buildSystemPrompt(ctx, options, now),
+    userMessage: buildUserMessage(ctx, options, now),
     attachments: extractAgentAttachmentsFromNodeContext(ctx, {
       targetPostId: options.targetPostId,
     }),
@@ -75,12 +86,17 @@ export function renderClaudeNotFoundPrompt(): ClaudePrompt {
 
 function buildSystemPrompt(
   ctx: NodeContext,
-  options: ClaudePromptOptions
+  options: ClaudePromptOptions,
+  now: Date
 ): string {
   const lines: Array<string | null> = [
     `You are Claude, a teammate inside WorkOS — a work management platform where humans and AI agents collaborate as peers in card and stack post threads.`,
     ``,
+    formatTemporalContext(now),
+    ``,
     `You have been @-mentioned in a post thread. Your job is to be useful: think with the user, draft, analyze, summarize, plan, or push back honestly. Be concise. Ground every claim in the context below; if context is missing, ask. Do not turn ambiguous strategic, creative, planning, coaching, or "thought partner" requests into a complete finished artifact unless the target post explicitly asks for that; collaborate in small steps instead. Only respond to the post explicitly marked "TARGET @MENTION TO ANSWER". Do NOT answer earlier @-mentions or adjacent parent/sibling threads unless the target post asks you to use them. Do NOT @-mention yourself or other agents in your reply. Do NOT prefix your message with "Claude:" or your name — the post is already attributed to you.`,
+    ``,
+    `Temporal relevance: Before using prior thread context, compare its timestamp to the current WorkOS time. Ask a brief freshness question if the answer depends on whether it is still true. Treat temporary state as stale quickly, important plans/status as possibly stale unless recent or reaffirmed, durable project facts and decisions as more stable, and the target post as the highest-priority signal for what matters now.`,
     ``,
     options.standards && options.standards.length > 0
       ? `${renderAIStandardsForPrompt(options.standards)}\n`
@@ -124,7 +140,11 @@ function buildSystemPrompt(
 // User message — the conversational thread + family threads
 // ---------------------------------------------------------------------------
 
-function buildUserMessage(ctx: NodeContext, options: ClaudePromptOptions): string {
+function buildUserMessage(
+  ctx: NodeContext,
+  options: ClaudePromptOptions,
+  now: Date
+): string {
   const sections: string[] = [];
 
   // Parent stack thread, when applicable.
@@ -132,19 +152,24 @@ function buildUserMessage(ctx: NodeContext, options: ClaudePromptOptions): strin
     sections.push(
       renderRelativeSection(
         `# Stack thread (parent: "${ctx.parentThread.node.title}")`,
-        ctx.parentThread
+        ctx.parentThread,
+        now
       )
     );
   }
 
   // Sibling card threads.
   for (const s of ctx.siblingThreads) {
-    sections.push(renderRelativeSection(`# Sibling card: "${s.node.title}"`, s));
+    sections.push(
+      renderRelativeSection(`# Sibling card: "${s.node.title}"`, s, now)
+    );
   }
 
   // Child card threads (when @-mentioned on a stack).
   for (const c of ctx.childThreads) {
-    sections.push(renderRelativeSection(`# Child card: "${c.node.title}"`, c));
+    sections.push(
+      renderRelativeSection(`# Child card: "${c.node.title}"`, c, now)
+    );
   }
 
   const mentionedNodes = ctx.mentionedNodes ?? [];
@@ -152,7 +177,8 @@ function buildUserMessage(ctx: NodeContext, options: ClaudePromptOptions): strin
     sections.push(
       renderMentionedNodeSection(
         mentionedNodes,
-        ctx.omittedMentionedNodeCount ?? 0
+        ctx.omittedMentionedNodeCount ?? 0,
+        now
       )
     );
   }
@@ -165,7 +191,8 @@ function buildUserMessage(ctx: NodeContext, options: ClaudePromptOptions): strin
     renderThreadSection(
       `# Active thread on "${ctx.node.title}"`,
       ctx.ownThread,
-      options.targetPostId
+      options.targetPostId,
+      now
     )
   );
 
@@ -184,31 +211,41 @@ function buildUserMessage(ctx: NodeContext, options: ClaudePromptOptions): strin
 function renderThreadSection(
   heading: string,
   posts: PostRecord[],
-  targetPostId?: string
+  targetPostId: string | undefined,
+  now: Date
 ): string {
   const lines: string[] = [heading, ``];
-  // newest-first → chronological
-  const chronological = [...posts].reverse();
-  for (const p of chronological) {
-    lines.push(renderPost(p, targetPostId));
-    lines.push("");
-  }
+  lines.push(
+    ...renderChronologicalPosts({
+      posts,
+      now,
+      targetPostId,
+      includeGapMarkers: true,
+    })
+  );
   return lines.join("\n").trimEnd();
 }
 
-function renderRelativeSection(heading: string, thread: RelativeThread): string {
+function renderRelativeSection(
+  heading: string,
+  thread: RelativeThread,
+  now: Date
+): string {
   const lines: string[] = [heading, ``];
-  const chronological = [...thread.posts].reverse();
-  for (const p of chronological) {
-    lines.push(renderPost(p));
-    lines.push("");
-  }
+  lines.push(
+    ...renderChronologicalPosts({
+      posts: thread.posts,
+      now,
+      includeGapMarkers: true,
+    })
+  );
   return lines.join("\n").trimEnd();
 }
 
 function renderMentionedNodeSection(
   nodes: MentionedNodeContext[],
-  omittedCount: number
+  omittedCount: number,
+  now: Date
 ): string {
   const lines: string[] = ["# Mentioned Node Context", ""];
 
@@ -244,11 +281,13 @@ function renderMentionedNodeSection(
 
     if (item.posts.length > 0) {
       lines.push("Recent thread:");
-      const chronological = [...item.posts].reverse();
-      for (const post of chronological) {
-        lines.push(renderPost(post));
-        lines.push("");
-      }
+      lines.push(
+        ...renderChronologicalPosts({
+          posts: item.posts,
+          now,
+          includeGapMarkers: false,
+        })
+      );
     } else {
       lines.push("");
     }
@@ -278,9 +317,43 @@ function renderMentionedNodeMemory(item: MentionedNodeContext): string[] {
   return lines;
 }
 
-function renderPost(post: PostRecord, targetPostId?: string): string {
+function renderChronologicalPosts(input: {
+  posts: PostRecord[];
+  now: Date;
+  targetPostId?: string;
+  includeGapMarkers: boolean;
+}): string[] {
+  const lines: string[] = [];
+  const chronological = [...input.posts].reverse();
+  let previousPost: PostRecord | null = null;
+
+  for (const post of chronological) {
+    if (input.includeGapMarkers && previousPost) {
+      const gapLabel = getElapsedGapLabel(
+        previousPost.created_at,
+        post.created_at
+      );
+      if (gapLabel) {
+        lines.push(`--- ${gapLabel} ---`);
+        lines.push("");
+      }
+    }
+
+    lines.push(renderPost(post, input.now, input.targetPostId));
+    lines.push("");
+    previousPost = post;
+  }
+
+  return lines;
+}
+
+function renderPost(
+  post: PostRecord,
+  now: Date,
+  targetPostId?: string
+): string {
   const author = post.actor?.name ?? "Unknown";
-  const when = relativeTime(post.created_at);
+  const when = formatPromptTimestamp(post.created_at, now);
   const marker =
     targetPostId && post.id === targetPostId
       ? `>>> TARGET @MENTION TO ANSWER <<<\n`
@@ -297,15 +370,4 @@ function renderPost(post: PostRecord, targetPostId?: string): string {
 
   const body = plainTextFromBody(post.body ?? "");
   return `${marker}[${author} · ${when}]\n${body}`;
-}
-
-function relativeTime(iso: string): string {
-  const now = Date.now();
-  const then = new Date(iso).getTime();
-  const diff = Math.floor((now - then) / 1000);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 7 * 86400) return `${Math.floor(diff / 86400)}d ago`;
-  return new Date(iso).toISOString().slice(0, 10);
 }

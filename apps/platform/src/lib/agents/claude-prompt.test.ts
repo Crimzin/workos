@@ -157,7 +157,10 @@ const ctx: NodeContext = {
   omittedMentionedNodeCount: 2,
 };
 
-const prompt = renderClaudePrompt(ctx, { targetPostId: "target" });
+const prompt = renderClaudePrompt(ctx, {
+  targetPostId: "target",
+  now: new Date("2026-06-22T16:43:00.000Z"),
+});
 
 assert.match(
   prompt.systemPrompt,
@@ -166,6 +169,18 @@ assert.match(
 assert.match(
   prompt.systemPrompt,
   /Do not turn ambiguous strategic, creative, planning, coaching, or "thought partner" requests into a complete finished artifact/
+);
+assert.match(
+  prompt.systemPrompt,
+  /Current WorkOS time: Monday, June 22, 2026 at 12:43 PM America\/New_York\./
+);
+assert.match(
+  prompt.systemPrompt,
+  /Before using prior thread context, compare its timestamp to the current WorkOS time\./
+);
+assert.match(
+  prompt.systemPrompt,
+  /Ask a brief freshness question if the answer depends on whether it is still true\./
 );
 
 assert.ok(
@@ -196,7 +211,11 @@ assert.match(prompt.userMessage, /2 additional #node mentions omitted/);
 
 assert.match(
   prompt.userMessage,
-  />>> TARGET @MENTION TO ANSWER <<<\n\[Will · .*?\]\n@Claude boop/
+  /\[Will · Monday, May 18, 2026 at 10:12 PM America\/New_York - 34d ago\]\n@Claude what about the first diagnostic\?/
+);
+assert.match(
+  prompt.userMessage,
+  />>> TARGET @MENTION TO ANSWER <<<\n\[Will · Monday, May 18, 2026 at 10:14 PM America\/New_York - 34d ago\]\n@Claude boop/
 );
 assert.deepEqual(prompt.attachments, [
   {
@@ -217,8 +236,33 @@ assert.match(
   /Respond only to the post marked "TARGET @MENTION TO ANSWER"\.$/
 );
 
+const gapPrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    ownThread: [
+      post(
+        "today",
+        "@Claude what should we do now?",
+        "2026-06-22T16:43:00.000Z"
+      ),
+      post("old", "I am exhausted tonight.", "2026-03-21T16:43:00.000Z"),
+    ],
+  },
+  {
+    targetPostId: "today",
+    now: new Date("2026-06-22T16:43:00.000Z"),
+  }
+);
+
+assert.match(gapPrompt.userMessage, /--- 93 days pass ---/);
+assert.match(
+  gapPrompt.userMessage,
+  /I am exhausted tonight\.[\s\S]*--- 93 days pass ---[\s\S]*@Claude what should we do now\?/
+);
+
 const promptWithStandards = renderClaudePrompt(ctx, {
   targetPostId: "target",
+  now: new Date("2026-06-22T16:43:00.000Z"),
   standards: [
     {
       standard_key: "standard.output.pyramid_principle",
