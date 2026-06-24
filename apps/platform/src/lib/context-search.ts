@@ -121,8 +121,6 @@ function uniqueTokens(tokens: string[]): string[] {
 
 function tokenMatches(queryToken: string, candidateTokens: string[]): boolean {
   return candidateTokens.some(
-    (candidateToken) =>
-      candidateToken === queryToken ||
-      (queryToken.length >= 3 && candidateToken.includes(queryToken))
+    (candidateToken) => candidateToken === queryToken || candidateToken.includes(queryToken)
   );
 }
