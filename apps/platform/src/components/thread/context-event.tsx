@@ -24,7 +24,8 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
   const [pending, startActionTransition] = useTransition();
   const sourceNodeId = metadata.source_node_id;
   const sourcePostId = metadata.source_post_id;
-  const showAllow = metadata.action === "removed" || metadata.action === "ignored";
+  const showAddBack = metadata.action === "removed";
+  const showAllow = metadata.action === "ignored";
 
   const runAction = (action: () => Promise<void>) => {
     startActionTransition(() => {
@@ -73,6 +74,18 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             className={contextEventButtonClassName}
           >
             Ignore going forward
+          </button>
+        ) : null}
+        {sourceNodeId && showAddBack ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              runAction(() => allowThreadContext(threadId, sourceNodeId))
+            }
+            className={contextEventButtonClassName}
+          >
+            Add back to this thread
           </button>
         ) : null}
         {sourceNodeId && showAllow ? (
