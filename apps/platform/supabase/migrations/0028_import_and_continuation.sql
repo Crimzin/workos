@@ -2,7 +2,8 @@ create table if not exists import_sessions (
   id uuid primary key default gen_random_uuid(),
   instance_id uuid not null references instances(id) on delete cascade,
   actor_id uuid references actors(id) on delete set null,
-  source_apps text[] not null default '{}'::text[],
+  source_apps text[] not null default '{}'::text[]
+    check (source_apps <@ array['claude', 'chatgpt', 'unknown']::text[]),
   import_name text,
   status text not null default 'completed'
     check (status in ('pending', 'processing', 'completed', 'failed')),
@@ -59,9 +60,8 @@ create index if not exists nodes_imported_visibility_idx
   on nodes(instance_id, imported_visibility, updated_at desc)
   where source_kind = 'imported_ai_chat';
 
-create index if not exists nodes_source_conversation_idx
-  on nodes(instance_id, source_app, source_conversation_id)
-  where source_kind = 'imported_ai_chat';
+create unique index if not exists nodes_source_conversation_idx
+  on nodes(instance_id, source_app, source_conversation_id);
 
 create index if not exists thread_context_active_idx
   on thread_context_attachments(thread_id, status, created_at desc);

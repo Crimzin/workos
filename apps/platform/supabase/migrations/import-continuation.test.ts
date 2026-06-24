@@ -10,6 +10,10 @@ const sql = readFileSync(
 assert.match(sql, /create\s+table\s+if\s+not\s+exists\s+import_sessions/i);
 assert.match(
   sql,
+  /source_apps\s+text\[\]\s+not\s+null\s+default\s+'\{\}'::text\[\]\s+check\s+\(source_apps\s+<@\s+array\['claude',\s*'chatgpt',\s*'unknown'\]::text\[\]\)/i
+);
+assert.match(
+  sql,
   /create\s+table\s+if\s+not\s+exists\s+thread_context_attachments/i
 );
 assert.match(sql, /alter\s+table\s+nodes[\s\S]*source_kind/i);
@@ -25,6 +29,10 @@ assert.match(sql, /unique\s*\(thread_id,\s*context_source_node_id\)/i);
 assert.match(
   sql,
   /create\s+index\s+if\s+not\s+exists\s+nodes_imported_chats_idx/i
+);
+assert.match(
+  sql,
+  /create\s+unique\s+index\s+if\s+not\s+exists\s+nodes_source_conversation_idx\s+on\s+nodes\s*\(\s*instance_id,\s*source_app,\s*source_conversation_id\s*\)/i
 );
 assert.match(
   sql,

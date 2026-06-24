@@ -15,6 +15,8 @@ create table if not exists workos_events (
   check (length(trim(subject_type)) > 0)
 );
 
+alter table workos_events enable row level security;
+
 create index if not exists workos_events_instance_occurred_idx
   on workos_events(instance_id, occurred_at desc);
 
