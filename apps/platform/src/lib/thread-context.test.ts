@@ -121,6 +121,26 @@ assert.deepEqual(
 
 assert.deepEqual(
   chooseAutomaticContextCandidates({
+    userText: "@Claude Code continue working on the reporting SQL parser",
+    candidates: [
+      {
+        id: "split-match",
+        title: "Reporting script",
+        path: "Imported chats / Reporting script",
+        type: "stack",
+        href: "/n/split-match",
+        sourceApp: "claude",
+        updatedAt: "2026-06-23T12:00:00.000Z",
+        bodyPreview: "We debugged the SQL parser exports.",
+      },
+    ],
+    limit: 1,
+  }).map((candidate) => candidate.id),
+  ["split-match"]
+);
+
+assert.deepEqual(
+  chooseAutomaticContextCandidates({
     userText: "Tell Claude about the hotel options",
     candidates: automaticCandidates,
     limit: 5,

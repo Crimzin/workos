@@ -42,6 +42,7 @@ export interface ChooseAutomaticContextCandidatesInput {
 }
 
 const AUTOMATIC_CONTEXT_MIN_SCORE = 3_000;
+const AUTOMATIC_CONTEXT_MIN_CROSS_FIELD_TOKENS = 2;
 const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
   "a",
   "about",
@@ -116,7 +117,9 @@ export function chooseAutomaticContextCandidates(
   if (!query) return [];
 
   return buildContextSearchResults(input.candidates, query, input.limit).filter(
-    (candidate) => candidate.score >= AUTOMATIC_CONTEXT_MIN_SCORE
+    (candidate) =>
+      candidate.score >= AUTOMATIC_CONTEXT_MIN_SCORE ||
+      candidate.matchedTokens.length >= AUTOMATIC_CONTEXT_MIN_CROSS_FIELD_TOKENS
   );
 }
 
