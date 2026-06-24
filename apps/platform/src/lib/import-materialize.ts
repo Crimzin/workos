@@ -121,10 +121,13 @@ export function buildImportNodeWritePlan(
   const nodeIdByClientKey = new Map<string, string>();
   const inserts: Array<ImportNodeInsert & { client_key: string }> = [];
   const updates: ImportNodeSourceUpdate[] = [];
+  const plannedInsertClientKeys = new Set<string>();
 
   for (const node of nodes) {
     const existing = existingByClientKey.get(node.client_key);
     if (!existing) {
+      if (plannedInsertClientKeys.has(node.client_key)) continue;
+      plannedInsertClientKeys.add(node.client_key);
       inserts.push(node);
       continue;
     }

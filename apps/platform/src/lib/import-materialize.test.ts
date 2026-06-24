@@ -91,6 +91,24 @@ assert.equal(newNodeWrites.inserts.length, 1);
 assert.equal(newNodeWrites.updates.length, 0);
 assert.equal(newNodeWrites.inserts[0].title, "Campaign reporting script");
 
+const duplicateBatchNodeWrites = buildImportNodeWritePlan(
+  [
+    plan.nodes[0],
+    {
+      ...plan.nodes[0],
+      title: "Duplicate should not win",
+      position: 101,
+    },
+  ],
+  []
+);
+
+assert.equal(duplicateBatchNodeWrites.inserts.length, 1);
+assert.equal(
+  duplicateBatchNodeWrites.inserts[0].title,
+  "Campaign reporting script"
+);
+
 assert.throws(
   () => assertHasReadableImportedConversations([]),
   /No readable Claude or ChatGPT chats found\./
