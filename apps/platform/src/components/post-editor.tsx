@@ -110,6 +110,8 @@ const NodeMentionSpec = createReactInlineContentSpec(
       return (
         <a
           href={`/n/${id}`}
+          target="_blank"
+          rel="noreferrer"
           className="inline-flex items-center rounded-[3px] bg-accent/10 px-[3px] text-[0.9em] font-medium text-accent no-underline hover:bg-accent/15"
           data-node-mention-id={id}
         >

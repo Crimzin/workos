@@ -29,6 +29,12 @@ import {
   postDocxDownloadPath,
   postPdfDownloadPath,
 } from "@/lib/post-export";
+import {
+  messageAnchorId,
+  sourceAppFromMetadata,
+  sourceAppLabel,
+  sourceThreadHref,
+} from "@/lib/post-source-links";
 import { formatAbsoluteDateTime, formatRelativeAge } from "@/lib/time";
 import { PostEditor, parsePostBody, serializePostBody } from "./post-editor";
 
@@ -63,7 +69,8 @@ export function PostItem({
   const [reactionPending, startReactionTransition] = useTransition();
   const reactionPickerRef = useRef<HTMLDivElement>(null);
 
-  const isActivity = post.post_type !== "post";
+  const isImportHandoff = metadataBooleanTrue(post.metadata?.import_handoff);
+  const isActivity = post.post_type !== "post" || isImportHandoff;
 
   const handleSaveEdit = (blocks: Block[]) => {
     const newBody = serializePostBody(blocks);
@@ -137,7 +144,10 @@ export function PostItem({
     };
   }, [reactionPickerOpen]);
 
-  const actorName = post.actor?.name ?? "Unknown";
+  const sourceAuthor = metadataString(post.metadata?.source_author);
+  const isImportedMessage = metadataBooleanTrue(post.metadata?.imported_message);
+  const postSourceApp = sourceAppFromMetadata(post.metadata?.source_app);
+  const actorName = post.actor?.name ?? sourceAuthor ?? "Unknown";
   const initials = actorName
     .split(" ")
     .map((w) => w[0])
@@ -150,7 +160,10 @@ export function PostItem({
   const absoluteCreatedAt = formatAbsoluteDateTime(post.created_at);
 
   return (
-    <div className="group relative px-5 py-3 hover:bg-bg-hover/40 transition-colors">
+    <div
+      id={messageAnchorId(post.id)}
+      className="group relative scroll-mt-16 px-5 py-3 hover:bg-bg-hover/40 transition-colors"
+    >
       {/* Pin decoration */}
       {localPinned && (
         <div className="absolute right-4 top-3 text-accent/60">
@@ -177,6 +190,11 @@ export function PostItem({
         >
           {formatRelativeAge(post.created_at)}
         </time>
+        {isImportedMessage ? (
+          <span className="rounded-sm border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
+            {sourceAppLabel(postSourceApp)}
+          </span>
+        ) : null}
       </div>
 
       {/* Body */}
@@ -378,6 +396,9 @@ export function PostItem({
 }
 
 function copyTextForPost(post: PostRecord): string {
+  if (metadataBooleanTrue(post.metadata?.import_handoff)) {
+    return `Imported from ${sourceAppLabel(sourceAppFromMetadata(post.metadata?.source_app))} - Continued in WorkOS`;
+  }
   if (post.post_type === "post") return postBodyToMarkdown(post.body);
   if (post.post_type === "card_created" && post.metadata) {
     return `Created card: ${metadataString(post.metadata.card_title) ?? "Untitled"}`;
@@ -397,6 +418,19 @@ function copyTextForPost(post: PostRecord): string {
 }
 
 function ActivityBody({ post }: { post: PostRecord }) {
+  if (metadataBooleanTrue(post.metadata?.import_handoff)) {
+    const sourceApp = sourceAppFromMetadata(post.metadata?.source_app);
+    return (
+      <p className="text-sm text-text-secondary">
+        Imported from{" "}
+        <span className="text-text-primary font-medium">
+          {sourceAppLabel(sourceApp)}
+        </span>{" "}
+        · Continued in WorkOS
+      </p>
+    );
+  }
+
   if (post.post_type === "card_created" && post.metadata) {
     const cardId = metadataString(post.metadata.card_id);
     const cardTitle = metadataString(post.metadata.card_title) ?? "Untitled";
@@ -434,7 +468,9 @@ function ActivityBody({ post }: { post: PostRecord }) {
         Opened sub-thread ·{" "}
         {subThreadId ? (
           <Link
-            href={`/n/${subThreadId}`}
+            href={sourceThreadHref(subThreadId)}
+            target="_blank"
+            rel="noreferrer"
             className="text-text-primary font-medium hover:underline"
           >
             {subThreadTitle}
@@ -456,7 +492,9 @@ function ActivityBody({ post }: { post: PostRecord }) {
           Resolved sub-thread ·{" "}
           {subThreadId ? (
             <Link
-              href={`/n/${subThreadId}`}
+              href={sourceThreadHref(subThreadId)}
+              target="_blank"
+              rel="noreferrer"
               className="text-text-primary font-medium hover:underline"
             >
               {subThreadTitle}
@@ -480,4 +518,8 @@ function ActivityBody({ post }: { post: PostRecord }) {
 
 function metadataString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function metadataBooleanTrue(value: unknown): boolean {
+  return value === true;
 }
