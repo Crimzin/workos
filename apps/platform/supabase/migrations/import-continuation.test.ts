@@ -36,6 +36,10 @@ assert.match(
 );
 assert.match(
   sql,
+  /create\s+unique\s+index\s+if\s+not\s+exists\s+posts_imported_source_message_idx\s+on\s+posts\s*\(\s*node_id,\s*\(\(metadata->>'source_message_id'\)\)\s*\)\s+where\s+metadata\s+\?\s+'imported_message'/i
+);
+assert.match(
+  sql,
   /create\s+index\s+if\s+not\s+exists\s+thread_context_active_idx/i
 );
 assert.match(sql, /alter\s+table\s+import_sessions\s+enable\s+row\s+level\s+security/i);

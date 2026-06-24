@@ -380,17 +380,17 @@ export function PostItem({
 function copyTextForPost(post: PostRecord): string {
   if (post.post_type === "post") return postBodyToMarkdown(post.body);
   if (post.post_type === "card_created" && post.metadata) {
-    return `Created card: ${post.metadata.card_title ?? "Untitled"}`;
+    return `Created card: ${metadataString(post.metadata.card_title) ?? "Untitled"}`;
   }
   if (post.post_type === "link_created" && post.metadata) {
-    return `Linked: ${post.metadata.target_title ?? "Untitled"}`;
+    return `Linked: ${metadataString(post.metadata.target_title) ?? "Untitled"}`;
   }
   if (post.post_type === "sub_thread_created" && post.metadata) {
-    return `Opened sub-thread: ${post.metadata.sub_thread_title ?? "Untitled"}`;
+    return `Opened sub-thread: ${metadataString(post.metadata.sub_thread_title) ?? "Untitled"}`;
   }
   if (post.post_type === "sub_thread_resolved" && post.metadata) {
-    const title = post.metadata.sub_thread_title ?? "Untitled";
-    const summary = post.metadata.summary;
+    const title = metadataString(post.metadata.sub_thread_title) ?? "Untitled";
+    const summary = metadataString(post.metadata.summary);
     return summary ? `Resolved sub-thread: ${title} - ${summary}` : `Resolved sub-thread: ${title}`;
   }
   return post.post_type;
@@ -398,54 +398,74 @@ function copyTextForPost(post: PostRecord): string {
 
 function ActivityBody({ post }: { post: PostRecord }) {
   if (post.post_type === "card_created" && post.metadata) {
-    const { card_id, card_title } = post.metadata;
+    const cardId = metadataString(post.metadata.card_id);
+    const cardTitle = metadataString(post.metadata.card_title) ?? "Untitled";
     return (
       <p className="text-sm text-text-secondary">
         Created card ·{" "}
-        <Link
-          href={`/n/${card_id}`}
-          scroll={false}
-          className="text-text-primary font-medium hover:underline"
-        >
-          {card_title}
-        </Link>
+        {cardId ? (
+          <Link
+            href={`/n/${cardId}`}
+            scroll={false}
+            className="text-text-primary font-medium hover:underline"
+          >
+            {cardTitle}
+          </Link>
+        ) : (
+          <span className="text-text-primary font-medium">{cardTitle}</span>
+        )}
       </p>
     );
   }
   if (post.post_type === "link_created" && post.metadata) {
-    const { target_title } = post.metadata;
+    const targetTitle = metadataString(post.metadata.target_title) ?? "Untitled";
     return (
       <p className="text-sm text-text-secondary">
-        Linked · <span className="text-text-primary font-medium">{target_title}</span>
+        Linked · <span className="text-text-primary font-medium">{targetTitle}</span>
       </p>
     );
   }
   if (post.post_type === "sub_thread_created" && post.metadata) {
-    const { sub_thread_id, sub_thread_title } = post.metadata;
+    const subThreadId = metadataString(post.metadata.sub_thread_id);
+    const subThreadTitle =
+      metadataString(post.metadata.sub_thread_title) ?? "Untitled";
     return (
       <p className="text-sm text-text-secondary">
         Opened sub-thread ·{" "}
-        <Link
-          href={`/n/${sub_thread_id}`}
-          className="text-text-primary font-medium hover:underline"
-        >
-          {sub_thread_title ?? "Untitled"}
-        </Link>
+        {subThreadId ? (
+          <Link
+            href={`/n/${subThreadId}`}
+            className="text-text-primary font-medium hover:underline"
+          >
+            {subThreadTitle}
+          </Link>
+        ) : (
+          <span className="text-text-primary font-medium">{subThreadTitle}</span>
+        )}
       </p>
     );
   }
   if (post.post_type === "sub_thread_resolved" && post.metadata) {
-    const { sub_thread_id, sub_thread_title, summary } = post.metadata;
+    const subThreadId = metadataString(post.metadata.sub_thread_id);
+    const subThreadTitle =
+      metadataString(post.metadata.sub_thread_title) ?? "Untitled";
+    const summary = metadataString(post.metadata.summary);
     return (
       <div className="space-y-1 text-sm text-text-secondary">
         <p>
           Resolved sub-thread ·{" "}
-          <Link
-            href={`/n/${sub_thread_id}`}
-            className="text-text-primary font-medium hover:underline"
-          >
-            {sub_thread_title ?? "Untitled"}
-          </Link>
+          {subThreadId ? (
+            <Link
+              href={`/n/${subThreadId}`}
+              className="text-text-primary font-medium hover:underline"
+            >
+              {subThreadTitle}
+            </Link>
+          ) : (
+            <span className="text-text-primary font-medium">
+              {subThreadTitle}
+            </span>
+          )}
         </p>
         {summary ? (
           <p className="border-l-2 border-border-subtle pl-3 text-text-primary">
@@ -456,4 +476,8 @@ function ActivityBody({ post }: { post: PostRecord }) {
     );
   }
   return <p className="text-sm text-text-tertiary italic">{post.post_type}</p>;
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }

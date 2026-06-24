@@ -63,6 +63,10 @@ create index if not exists nodes_imported_visibility_idx
 create unique index if not exists nodes_source_conversation_idx
   on nodes(instance_id, source_app, source_conversation_id);
 
+create unique index if not exists posts_imported_source_message_idx
+  on posts(node_id, ((metadata->>'source_message_id')))
+  where metadata ? 'imported_message';
+
 create index if not exists thread_context_active_idx
   on thread_context_attachments(thread_id, status, created_at desc);
 

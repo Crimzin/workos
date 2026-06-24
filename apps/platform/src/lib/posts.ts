@@ -11,7 +11,7 @@ export interface PostRecord {
   actor_id: string | null;
   post_type: string; // 'post' | 'card_created' | 'link_created'
   body: string | null;
-  metadata: Record<string, string> | null;
+  metadata: Record<string, unknown> | null;
   pinned: boolean;
   pinned_at: string | null;
   created_at: string;

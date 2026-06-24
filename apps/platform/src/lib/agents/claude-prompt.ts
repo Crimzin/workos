@@ -360,14 +360,18 @@ function renderPost(
       : "";
 
   if (post.post_type === "card_created" && post.metadata) {
-    const title = (post.metadata as Record<string, string>).card_title ?? "(card)";
+    const title = metadataString(post.metadata.card_title) ?? "(card)";
     return `${marker}[${author} · ${when}] (activity) created card "${title}"`;
   }
   if (post.post_type === "link_created" && post.metadata) {
-    const target = (post.metadata as Record<string, string>).target_title ?? "(node)";
+    const target = metadataString(post.metadata.target_title) ?? "(node)";
     return `${marker}[${author} · ${when}] (activity) linked to "${target}"`;
   }
 
   const body = plainTextFromBody(post.body ?? "");
   return `${marker}[${author} · ${when}]\n${body}`;
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
