@@ -31,6 +31,21 @@ export async function getImportedChats(
   )();
 }
 
+export async function getImportedChatsForSettings(
+  instanceId: string
+): Promise<ImportedChatRow[]> {
+  const { supabase } = await import("./supabase");
+  const { data, error } = await supabase
+    .from("nodes")
+    .select("*")
+    .eq("instance_id", instanceId)
+    .eq("source_kind", "imported_ai_chat")
+    .order("source_updated_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return toImportedChatRows((data ?? []) as WorkNode[]);
+}
+
 export function toImportedChatRows(nodes: WorkNode[]): ImportedChatRow[] {
   return nodes.filter((node): node is ImportedChatRow => {
     return (

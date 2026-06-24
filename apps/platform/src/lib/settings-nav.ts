@@ -15,6 +15,11 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     label: "AI Standards",
     description: "Universal collaboration and output standards for AI teammates.",
   },
+  {
+    href: "/settings/sources",
+    label: "Sources",
+    description: "Imported chats, visibility, and context suggestion controls.",
+  },
 ];
 
 export const DEFAULT_SETTINGS_PATH = SETTINGS_SECTIONS[0].href;
