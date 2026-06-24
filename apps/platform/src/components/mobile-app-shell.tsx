@@ -9,8 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { SidebarTreeNode } from "@/lib/sidebar-tree";
-import type { PinnedSidebarNode } from "@/lib/sidebar-tree-dnd";
+import type { SidebarData } from "@/lib/nodes";
 import {
   DEFAULT_MOBILE_NAV_OPEN,
   getMobileDrawerSwipeIntent,
@@ -38,12 +37,10 @@ export function useMobileShell() {
 }
 
 export function MobileAppShell({
-  projectTree,
-  pinnedNodes,
+  sidebarData,
   children,
 }: {
-  projectTree: SidebarTreeNode[];
-  pinnedNodes: PinnedSidebarNode[];
+  sidebarData: SidebarData;
   children: ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(DEFAULT_MOBILE_NAV_OPEN);
@@ -178,7 +175,7 @@ export function MobileAppShell({
         }}
       >
         <div className="hidden md:flex md:shrink-0">
-          <Sidebar projectTree={projectTree} pinnedNodes={pinnedNodes} />
+          <Sidebar sidebarData={sidebarData} />
         </div>
 
         <div
@@ -188,8 +185,7 @@ export function MobileAppShell({
           ].join(" ")}
         >
           <Sidebar
-            projectTree={projectTree}
-            pinnedNodes={pinnedNodes}
+            sidebarData={sidebarData}
             variant="mobile-drawer"
             onNavigate={closeMobileNav}
             onMobileClose={closeMobileNav}

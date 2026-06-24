@@ -13,6 +13,7 @@ import {
   revalidateWorkspaceBoard,
   revalidateNodePosts,
   revalidateWorkspaceFeed,
+  revalidateImportedChats,
 } from "../cache";
 import { nextSidebarPosition } from "../sidebar-tree-dnd";
 import {
@@ -28,10 +29,12 @@ export async function archiveNode(
   parentId: string | null
 ): Promise<void> {
   const actor = await getCurrentActor();
-  const { error } = await supabase
+  const { data: node, error } = await supabase
     .from("nodes")
     .update({ archived_at: new Date().toISOString() })
-    .eq("id", nodeId);
+    .eq("id", nodeId)
+    .select("instance_id,source_kind")
+    .maybeSingle();
   if (error) throw error;
 
   await recordWorkOSEvent({
@@ -52,6 +55,9 @@ export async function archiveNode(
   if (!parentId) {
     revalidateRootNodes();
     revalidatePath("/", "layout");
+  }
+  if (node?.source_kind === "imported_ai_chat") {
+    revalidateImportedChats(node.instance_id);
   }
 }
 
@@ -96,7 +102,7 @@ export async function deleteNode(
   const actor = await getCurrentActor();
   const { data: node, error: fetchErr } = await supabase
     .from("nodes")
-    .select("id,title,type")
+    .select("id,title,type,instance_id,source_kind")
     .eq("id", nodeId)
     .single();
   if (fetchErr) throw fetchErr;
@@ -134,6 +140,36 @@ export async function deleteNode(
     revalidateRootNodes();
     revalidatePath("/", "layout");
   }
+  if (node.source_kind === "imported_ai_chat") {
+    revalidateImportedChats(node.instance_id);
+  }
+}
+
+export async function hideImportedChat(nodeId: string): Promise<void> {
+  const actor = await getCurrentActor();
+  const { error } = await supabase
+    .from("nodes")
+    .update({ imported_visibility: "hidden_from_imported_chats" })
+    .eq("id", nodeId)
+    .eq("source_kind", "imported_ai_chat");
+  if (error) throw error;
+  revalidateImportedChats(actor.instance_id);
+  revalidatePath("/", "layout");
+}
+
+export async function setImportedChatSuggestionStatus(
+  nodeId: string,
+  status: "allowed" | "ignored"
+): Promise<void> {
+  const actor = await getCurrentActor();
+  const { error } = await supabase
+    .from("nodes")
+    .update({ suggestion_status: status })
+    .eq("id", nodeId)
+    .eq("source_kind", "imported_ai_chat");
+  if (error) throw error;
+  revalidateImportedChats(actor.instance_id);
+  revalidatePath("/", "layout");
 }
 
 export async function moveStackUpDown(

@@ -2,6 +2,8 @@ import { unstable_cache } from "next/cache";
 import { supabase } from "./supabase";
 import { cacheTags } from "./cache";
 import type { WorkNode } from "./types";
+import { getCurrentActor } from "./actor";
+import { getImportedChats, type ImportedChatRow } from "./imported-chats";
 import { buildSidebarTree, type SidebarTreeNode } from "./sidebar-tree";
 import type { PinnedSidebarNode } from "./sidebar-tree-dnd";
 import {
@@ -97,10 +99,29 @@ export async function getSidebarTree(): Promise<SidebarTreeNode[]> {
   const { data, error } = await supabase
     .from("nodes")
     .select("*")
+    .or("source_kind.is.null,source_kind.eq.native")
     .is("archived_at", null)
     .order("position", { ascending: true });
   if (error) throw error;
   return buildSidebarTree((data ?? []) as WorkNode[]);
+}
+
+export interface SidebarData {
+  projectTree: SidebarTreeNode[];
+  pinnedNodes: PinnedSidebarNode[];
+  importedChats: ImportedChatRow[];
+}
+
+export async function getSidebarData(): Promise<SidebarData> {
+  const [projectTree, actor] = await Promise.all([
+    getSidebarTree(),
+    getCurrentActor(),
+  ]);
+  const [pinnedNodes, importedChats] = await Promise.all([
+    getSidebarPins(projectTree),
+    getImportedChats(actor.instance_id),
+  ]);
+  return { projectTree, pinnedNodes, importedChats };
 }
 
 interface PinRow {

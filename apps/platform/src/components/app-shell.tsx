@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { getSidebarPins, getSidebarTree } from "@/lib/nodes";
+import { getSidebarData } from "@/lib/nodes";
 import { MobileAppShell } from "./mobile-app-shell";
 
 /**
@@ -16,11 +16,10 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  const projectTree = await getSidebarTree();
-  const pinnedNodes = await getSidebarPins(projectTree);
+  const sidebarData = await getSidebarData();
 
   return (
-    <MobileAppShell projectTree={projectTree} pinnedNodes={pinnedNodes}>
+    <MobileAppShell sidebarData={sidebarData}>
       {children}
     </MobileAppShell>
   );

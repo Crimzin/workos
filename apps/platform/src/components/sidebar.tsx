@@ -8,7 +8,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  EyeOff,
   FileText,
+  Lightbulb,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -21,6 +23,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import type { SidebarData } from "@/lib/nodes";
+import type { ImportedChatRow as ImportedChatRowData } from "@/lib/imported-chats";
 import type { SidebarTreeNode } from "@/lib/sidebar-tree";
 import { buildAppSearchResults, type AppSearchResult } from "@/lib/app-search";
 import {
@@ -30,9 +34,11 @@ import {
   createWorkspace,
   archiveNode,
   deleteNode,
+  hideImportedChat,
   moveSidebarNode,
   pinNode,
   reorderPinnedNode,
+  setImportedChatSuggestionStatus,
   unpinNode,
   updateNodeTitle,
 } from "@/lib/actions/nodes";
@@ -43,7 +49,6 @@ import {
   moveSidebarTreeNode,
   type FlatSidebarTreeNode,
   type SidebarDropPlan,
-  type PinnedSidebarNode,
 } from "@/lib/sidebar-tree-dnd";
 import { isSettingsPathActive } from "@/lib/settings-nav";
 import { ThemeToggle } from "./theme-toggle";
@@ -51,8 +56,7 @@ import { InlineCreate } from "./inline-create";
 import { ConfirmModal } from "./confirm-modal";
 
 interface SidebarProps {
-  projectTree: SidebarTreeNode[];
-  pinnedNodes: PinnedSidebarNode[];
+  sidebarData: SidebarData;
   variant?: "desktop" | "mobile-drawer";
   onNavigate?: () => void;
   onMobileClose?: () => void;
@@ -86,12 +90,12 @@ interface SidebarDragCandidate extends SidebarDragState {
 }
 
 export function Sidebar({
-  projectTree,
-  pinnedNodes,
+  sidebarData,
   variant = "desktop",
   onNavigate,
   onMobileClose,
 }: SidebarProps) {
+  const { projectTree, pinnedNodes, importedChats } = sidebarData;
   const [projectTreeState, setProjectTreeState] = useState({
     source: projectTree,
     tree: projectTree,
@@ -568,6 +572,20 @@ export function Sidebar({
             </div>
           )}
         </SidebarSection>
+
+        {importedChats.length > 0 && (
+          <SidebarSection label="Imported Chats" collapsed={effectiveCollapsed}>
+            {importedChats.map((node) => (
+              <ImportedChatRow
+                key={node.id}
+                node={node}
+                collapsed={effectiveCollapsed}
+                isActive={pathname === `/n/${node.id}`}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </SidebarSection>
+        )}
       </div>
 
       <div className="border-t border-border px-2 py-2">
@@ -852,6 +870,204 @@ function PinnedNodeRow({
         >
           {node.title}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ImportedChatRow({
+  node,
+  collapsed,
+  isActive,
+  onNavigate,
+}: {
+  node: ImportedChatRowData;
+  collapsed: boolean;
+  isActive: boolean;
+  onNavigate?: () => void;
+}) {
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [, startTransition] = useTransition();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeHref = "/feed";
+  const nextSuggestionStatus =
+    node.suggestion_status === "ignored" ? "allowed" : "ignored";
+  const suggestionLabel =
+    node.suggestion_status === "ignored"
+      ? "Allow in suggestions"
+      : "Ignore in suggestions";
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  const navigateAwayIfActive = () => {
+    if (!isActive) return;
+    onNavigate?.();
+    router.push(closeHref);
+  };
+
+  const handleOpen = () => {
+    setMenuOpen(false);
+    onNavigate?.();
+    router.push(`/n/${node.id}`);
+  };
+
+  const handleHide = () => {
+    setMenuOpen(false);
+    startTransition(async () => {
+      await hideImportedChat(node.id);
+      navigateAwayIfActive();
+      router.refresh();
+    });
+  };
+
+  const handleSuggestionToggle = () => {
+    setMenuOpen(false);
+    startTransition(async () => {
+      await setImportedChatSuggestionStatus(node.id, nextSuggestionStatus);
+      router.refresh();
+    });
+  };
+
+  const handleArchive = () => {
+    setMenuOpen(false);
+    startTransition(async () => {
+      await archiveNode(node.id, node.id, node.parent_id);
+      navigateAwayIfActive();
+      router.refresh();
+    });
+  };
+
+  const handleDelete = () => {
+    setConfirmDelete(false);
+    setMenuOpen(false);
+    startTransition(async () => {
+      await deleteNode(node.id, node.id, node.parent_id);
+      navigateAwayIfActive();
+      router.refresh();
+    });
+  };
+
+  if (collapsed) {
+    return (
+      <Link
+        href={`/n/${node.id}`}
+        title={node.title}
+        onClick={onNavigate}
+        className={[
+          "flex items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors",
+          isActive
+            ? "bg-accent-subtle text-accent"
+            : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
+        ].join(" ")}
+      >
+        <SourceLogo sourceApp={node.source_app} />
+      </Link>
+    );
+  }
+
+  return (
+    <div className="group relative">
+      <Link
+        href={`/n/${node.id}`}
+        title={node.title}
+        onClick={onNavigate}
+        className={[
+          "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 pr-7 text-sm transition-colors",
+          isActive
+            ? "bg-accent-subtle text-accent"
+            : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
+        ].join(" ")}
+      >
+        <SourceLogo sourceApp={node.source_app} />
+        <span className="min-w-0 flex-1 truncate font-medium">{node.title}</span>
+      </Link>
+
+      <div className="absolute right-1 top-1" ref={menuRef}>
+        <button
+          type="button"
+          aria-label={`Actions for ${node.title}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            setMenuOpen((open) => !open);
+          }}
+          className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary opacity-0 transition hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
+        >
+          <MoreHorizontal size={11} />
+        </button>
+
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-full z-50 mt-1 min-w-[190px] rounded-md border border-border bg-bg-primary py-1 shadow-lg"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={handleOpen}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            >
+              <FileText size={11} />
+              Open
+            </button>
+            <button
+              type="button"
+              onClick={handleHide}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            >
+              <EyeOff size={11} />
+              Hide from Imported Chats
+            </button>
+            <button
+              type="button"
+              onClick={handleSuggestionToggle}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            >
+              <Lightbulb size={11} />
+              {suggestionLabel}
+            </button>
+            <button
+              type="button"
+              onClick={handleArchive}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            >
+              <Archive size={11} />
+              Archive
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                setConfirmDelete(true);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-500 transition-colors hover:bg-bg-hover"
+            >
+              <Trash2 size={11} />
+              Delete forever
+            </button>
+          </div>
+        )}
+      </div>
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete imported chat?"
+          body="This permanently deletes the imported chat and its transcript from WorkOS. This cannot be undone."
+          confirmLabel="Delete forever"
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
       )}
     </div>
   );
@@ -1195,6 +1411,24 @@ async function createChildNode(node: SidebarTreeNode, title: string) {
   if (node.type === "workspace") return createStack(node.id, title);
   if (node.type === "stack") return createCard(node.id, node.rootId, title);
   return createSubThread(node.id, node.rootId, title);
+}
+
+const sourceLogoLabels: Record<ImportedChatRowData["source_app"], string> = {
+  claude: "C",
+  chatgpt: "G",
+  unknown: "?",
+};
+
+function SourceLogo({
+  sourceApp,
+}: {
+  sourceApp: ImportedChatRowData["source_app"];
+}) {
+  return (
+    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-bg-card text-[10px] font-semibold text-text-tertiary">
+      {sourceLogoLabels[sourceApp] ?? "?"}
+    </span>
+  );
 }
 
 function SidebarSection({
