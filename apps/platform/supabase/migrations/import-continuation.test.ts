@@ -30,4 +30,9 @@ assert.match(
   sql,
   /create\s+index\s+if\s+not\s+exists\s+thread_context_active_idx/i
 );
+assert.match(sql, /alter\s+table\s+import_sessions\s+enable\s+row\s+level\s+security/i);
+assert.match(
+  sql,
+  /alter\s+table\s+thread_context_attachments\s+enable\s+row\s+level\s+security/i
+);
 assert.match(sql, /notify\s+pgrst,\s*'reload schema'/i);

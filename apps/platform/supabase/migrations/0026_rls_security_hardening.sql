@@ -27,8 +27,6 @@ alter table agent_provider_settings enable row level security;
 alter table agent_tool_settings enable row level security;
 alter table node_pins enable row level security;
 alter table post_reactions enable row level security;
-alter table import_sessions enable row level security;
-alter table thread_context_attachments enable row level security;
 
 revoke all privileges on all tables in schema public from anon, authenticated;
 revoke all privileges on all sequences in schema public from anon, authenticated;
