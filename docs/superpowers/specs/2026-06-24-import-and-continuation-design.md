@@ -290,6 +290,40 @@ Event quick actions should include, where applicable:
 
 These actions should also be available from semantically appropriate places such as the source chat, the side panel, and Settings/Sources. The product should not impose arbitrary limits on where a user can correct context behavior if the current place makes the object and action understandable.
 
+## Context Source Links And Deep Links
+
+Whenever a different thread is referenced as context in the current thread, the referenced thread should be clickable.
+
+This applies to:
+
+- timeline context events
+- citations in assistant replies
+- attached-context rows in the side panel
+- `#` mentions
+- conversational retrieval results
+- source snippets
+
+Opening a referenced thread should preserve the user's current place. On web, the default behavior should be to open the referenced thread in a new tab or equivalent secondary surface rather than replacing the current working thread.
+
+When WorkOS references a specific moment inside a source thread, the link should deep-link to the relevant message or message range whenever possible.
+
+Example:
+
+```text
+WorkOS: This looks like the same parsing issue from the SQL script thread.
+Source: Claude · Campaign reporting script · parsing issue
+```
+
+Clicking the source should open the source thread at the cited parsing-issue message, not at the top of a long transcript.
+
+Deep-link requirements:
+
+- imported and native messages need stable addressable IDs
+- source citations should store the thread id plus message id, source index, or source span
+- cited messages should be visually highlighted or scrolled into view on open
+- if exact message anchoring is unavailable, WorkOS should fall back to opening the source thread and showing the nearest available source snippet in the context panel
+- users should not have to manually scroll a long imported chat to verify a surfaced source
+
 ## Structured Context Panel
 
 The right panel should be persistent, structured, and horizontally resizable on desktop. On mobile it becomes a full-height drawer.
@@ -445,6 +479,8 @@ Everyday navigation and continuation remain in the left rail.
 - Context can be attached through automatic retrieval, conversational retrieval, `#`, and side-panel search.
 - Automatically attached context appears as a visible timeline event before the assistant response uses it.
 - Attached context persists for the whole thread.
+- Referenced context threads are clickable and open without losing the current working thread.
+- Specific source moments deep-link to the cited message or nearest available source span.
 - Users can open, remove, ignore, allow, and undo context choices from sensible places.
 - The structured context panel exposes attached context, sources, memory, open loops, fields, and related/child threads.
 - Board is available as a global top-left page.
