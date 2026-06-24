@@ -40,10 +40,10 @@ interface NodeDetailIdentity {
 interface NodeDetailTabsProps {
   identity?: NodeDetailIdentity;
   postsContent: ReactNode;
-  boardContent?: ReactNode;
   fieldsContent: ReactNode;
   memoryContent: ReactNode;
   treeContent?: ReactNode;
+  detailsPlacement?: "tabs" | "external";
   paddingClassName?: string;
 }
 
@@ -53,15 +53,21 @@ export function NodeDetailTabs({
   fieldsContent,
   memoryContent,
   treeContent,
+  detailsPlacement = "tabs",
   paddingClassName = "px-6",
 }: NodeDetailTabsProps) {
-  const tabs: { id: TabId; label: string; content: ReactNode }[] = [
+  const desktopTabs: { id: TabId; label: string; content: ReactNode }[] = [
     { id: "posts", label: "Chat", content: postsContent },
-    { id: "fields", label: "Fields", content: fieldsContent },
-    { id: "memory", label: "Memory", content: memoryContent },
-    ...(treeContent ? [{ id: "tree" as const, label: "Tree", content: treeContent }] : []),
+    ...(detailsPlacement === "tabs"
+      ? [
+          { id: "fields" as const, label: "Fields", content: fieldsContent },
+          { id: "memory" as const, label: "Memory", content: memoryContent },
+          ...(treeContent
+            ? [{ id: "tree" as const, label: "Tree", content: treeContent }]
+            : []),
+        ]
+      : []),
   ];
-
   const tabBaseId = useId();
   const [active, setActive] = useState<TabId>("posts");
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
@@ -82,17 +88,6 @@ export function NodeDetailTabs({
     return () => cancelAnimationFrame(frameId);
   }, []);
 
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
-    const syncMobileDefault = () => {
-      if (media.matches) setActive("posts");
-    };
-
-    syncMobileDefault();
-    media.addEventListener("change", syncMobileDefault);
-    return () => media.removeEventListener("change", syncMobileDefault);
-  }, []);
-
   function toggleChromeCollapsed() {
     const next = !chromeCollapsed;
     setChromeCollapsed(next);
@@ -110,23 +105,23 @@ export function NodeDetailTabs({
     event: KeyboardEvent<HTMLButtonElement>,
     currentTab: TabId
   ) {
-    const currentIndex = tabs.findIndex((tab) => tab.id === currentTab);
+    const currentIndex = desktopTabs.findIndex((tab) => tab.id === currentTab);
     let nextIndex: number | null = null;
 
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      nextIndex = (currentIndex + 1) % tabs.length;
+      nextIndex = (currentIndex + 1) % desktopTabs.length;
     } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      nextIndex = (currentIndex - 1 + desktopTabs.length) % desktopTabs.length;
     } else if (event.key === "Home") {
       nextIndex = 0;
     } else if (event.key === "End") {
-      nextIndex = tabs.length - 1;
+      nextIndex = desktopTabs.length - 1;
     }
 
     if (nextIndex === null) return;
 
     event.preventDefault();
-    activateTab(tabs[nextIndex].id);
+    activateTab(desktopTabs[nextIndex].id);
   }
 
   const chromeButton = identity ? (
@@ -146,7 +141,7 @@ export function NodeDetailTabs({
       role="tablist"
       className={compact ? "flex min-w-0 shrink-0 items-center gap-0" : "flex gap-0"}
     >
-      {tabs.map((tab) => {
+      {desktopTabs.map((tab) => {
         const isActive = active === tab.id;
         const tabId = `${tabBaseId}-${tab.id}-tab`;
         const panelId = `${tabBaseId}-${tab.id}-panel`;
@@ -226,7 +221,11 @@ export function NodeDetailTabs({
             members={identity.members}
             compact={!!showCollapsedChrome}
             leadingControl={chromeButton}
-            inlineControls={showCollapsedChrome ? tabList(true) : undefined}
+            inlineControls={
+              showCollapsedChrome && detailsPlacement === "tabs"
+                ? tabList(true)
+                : undefined
+            }
             actions={identity.actions}
             viewSwitcher={identity.viewSwitcher}
             paddingClassName={paddingClassName}
@@ -234,32 +233,36 @@ export function NodeDetailTabs({
         </div>
       )}
 
-      {!showCollapsedChrome && (
+      {!showCollapsedChrome && detailsPlacement === "tabs" && (
         <div className={`hidden shrink-0 overflow-x-auto border-b border-border md:block ${paddingClassName}`}>
           {tabList(false)}
         </div>
       )}
 
-      {tabs.map((tab) => {
-        const isActive = active === tab.id;
+      {detailsPlacement === "external" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">{postsContent}</div>
+      ) : (
+        desktopTabs.map((tab) => {
+          const isActive = active === tab.id;
 
-        return (
-          <div
-            key={tab.id}
-            id={`${tabBaseId}-${tab.id}-panel`}
-            role="tabpanel"
-            aria-labelledby={`${tabBaseId}-${tab.id}-tab`}
-            hidden={!isActive}
-            className={
-              tab.id === "posts"
-                ? "min-h-0 flex-1 overflow-hidden"
-                : "min-h-0 flex-1 overflow-auto"
-            }
-          >
-            {isActive && tab.content}
-          </div>
-        );
-      })}
+          return (
+            <div
+              key={tab.id}
+              id={`${tabBaseId}-${tab.id}-panel`}
+              role="tabpanel"
+              aria-labelledby={`${tabBaseId}-${tab.id}-tab`}
+              hidden={!isActive}
+              className={
+                tab.id === "posts"
+                  ? "min-h-0 flex-1 overflow-hidden"
+                  : "min-h-0 flex-1 overflow-auto"
+              }
+            >
+              {isActive && tab.content}
+            </div>
+          );
+        })
+      )}
 
       {identity && mobileDetailsOpen && (
         <div className="fixed inset-0 z-[60] md:hidden">

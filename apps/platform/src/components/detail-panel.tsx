@@ -10,8 +10,6 @@ import { getNodeLinks } from "@/lib/links";
 import type { NodeLinks } from "@/lib/links";
 import { getCurrentActor, getActors } from "@/lib/actor";
 import { getAgentSettings } from "@/lib/agent-settings";
-import { getNodeBoard } from "@/lib/board";
-import { getWorkspaceViews } from "@/lib/views";
 import {
   buildBoardDetailTrail,
   getHeaderBadges,
@@ -26,7 +24,6 @@ import { NodeLinksSection } from "./node-links-section";
 import { PostsTabContent } from "./posts-tab-content";
 import { MemoryPrimitivesTabContent } from "./memory-primitives-tab-content";
 import { NodeDetailTabs } from "./node-detail-tabs";
-import { Board } from "./board/board";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -45,7 +42,7 @@ export async function DetailPanel({
   ]);
 
   // Fetch mirror targets + posts + links + memory in parallel with detail panel render.
-  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors, board, views] = await Promise.all([
+  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
@@ -58,14 +55,12 @@ export async function DetailPanel({
       : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
     getAgentSettings(actor.instance_id),
     getActors(actor.instance_id),
-    detail ? getNodeBoard(nodeId) : Promise.resolve(null),
-    detail ? getWorkspaceViews(nodeId) : Promise.resolve([]),
   ]);
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-secondary/70">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} agentProviders={agentSettings.providers} board={board} views={views} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} agentProviders={agentSettings.providers} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -92,8 +87,6 @@ function DetailBody({
   actors,
   inlineClaudeEnabled,
   agentProviders,
-  board,
-  views,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
@@ -106,8 +99,6 @@ function DetailBody({
   actors: import("@/lib/actor").ActorForMention[];
   inlineClaudeEnabled: boolean;
   agentProviders: import("@/lib/types").AgentProviderSetting[];
-  board: Awaited<ReturnType<typeof getNodeBoard>>;
-  views: Awaited<ReturnType<typeof getWorkspaceViews>>;
 }) {
   const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
 
@@ -161,14 +152,6 @@ function DetailBody({
     />
   );
 
-  const boardContent = board ? (
-    <Board data={board} views={views} navigationMode="thread" />
-  ) : (
-    <div className="flex h-full items-center justify-center px-5 text-sm text-text-tertiary">
-      Board unavailable for this node.
-    </div>
-  );
-
   const cardsContent =
     node.type === "stack" ? (
       <CardsTabContent
@@ -209,7 +192,6 @@ function DetailBody({
           ),
         }}
         fieldsContent={fieldsContent}
-        boardContent={boardContent}
         memoryContent={memoryContent}
         postsContent={postsContent}
         treeContent={cardsContent}

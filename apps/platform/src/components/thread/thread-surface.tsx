@@ -130,6 +130,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
           fieldsContent={fieldsContent}
           memoryContent={memoryContent}
           treeContent={treeContent}
+          detailsPlacement="external"
           paddingClassName="px-6"
         />
       </div>
