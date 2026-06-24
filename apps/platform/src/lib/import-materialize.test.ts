@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  assertHasReadableImportedConversations,
   buildImportMaterializationPlan,
+  buildImportNodeWritePlan,
   importedMessageMetadata,
   handoffPostMetadata,
 } from "./import-materialize.ts";
@@ -60,3 +62,36 @@ assert.deepEqual(importedMessageMetadata(conversation, conversation.messages[0])
 });
 
 assert.equal(handoffPostMetadata("claude").import_handoff, true);
+
+const existingNodeWrites = buildImportNodeWritePlan(plan.nodes, [
+  {
+    id: "existing-node-1",
+    source_app: "claude",
+    source_conversation_id: "claude-1",
+  },
+]);
+
+assert.equal(existingNodeWrites.inserts.length, 0);
+assert.equal(existingNodeWrites.updates.length, 1);
+assert.equal(
+  existingNodeWrites.nodeIdByClientKey.get("claude:claude-1"),
+  "existing-node-1"
+);
+assert.deepEqual(Object.keys(existingNodeWrites.updates[0]).sort(), [
+  "client_key",
+  "id",
+  "source_created_at",
+  "source_hash",
+  "source_title",
+  "source_updated_at",
+]);
+
+const newNodeWrites = buildImportNodeWritePlan(plan.nodes, []);
+assert.equal(newNodeWrites.inserts.length, 1);
+assert.equal(newNodeWrites.updates.length, 0);
+assert.equal(newNodeWrites.inserts[0].title, "Campaign reporting script");
+
+assert.throws(
+  () => assertHasReadableImportedConversations([]),
+  /No readable Claude or ChatGPT chats found\./
+);

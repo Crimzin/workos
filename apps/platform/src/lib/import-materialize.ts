@@ -6,6 +6,9 @@ import type {
 import { stableConversationHash } from "./import-sources";
 import type { SourceApp } from "./types";
 
+export const NO_READABLE_IMPORTED_CHATS_ERROR =
+  "No readable Claude or ChatGPT chats found.";
+
 export interface ImportNodeInsert {
   instance_id: string;
   parent_id: string | null;
@@ -37,6 +40,35 @@ export interface ImportPostInsert {
 export interface ImportMaterializationPlan {
   nodes: Array<ImportNodeInsert & { client_key: string }>;
   posts: ImportPostInsert[];
+}
+
+export interface ExistingImportedNode {
+  id: string;
+  source_app: ImportSourceApp;
+  source_conversation_id: string;
+}
+
+export interface ImportNodeSourceUpdate {
+  id: string;
+  client_key: string;
+  source_title: string;
+  source_hash: string;
+  source_created_at: string | null;
+  source_updated_at: string | null;
+}
+
+export interface ImportNodeWritePlan {
+  inserts: Array<ImportNodeInsert & { client_key: string }>;
+  updates: ImportNodeSourceUpdate[];
+  nodeIdByClientKey: Map<string, string>;
+}
+
+export function assertHasReadableImportedConversations(
+  conversations: NormalizedImportedConversation[]
+): void {
+  if (conversations.length === 0) {
+    throw new Error(NO_READABLE_IMPORTED_CHATS_ERROR);
+  }
 }
 
 export function buildImportMaterializationPlan(input: {
@@ -79,6 +111,38 @@ export function buildImportMaterializationPlan(input: {
   return { nodes, posts };
 }
 
+export function buildImportNodeWritePlan(
+  nodes: Array<ImportNodeInsert & { client_key: string }>,
+  existingNodes: ExistingImportedNode[]
+): ImportNodeWritePlan {
+  const existingByClientKey = new Map(
+    existingNodes.map((node) => [sourceIdentityKey(node), node])
+  );
+  const nodeIdByClientKey = new Map<string, string>();
+  const inserts: Array<ImportNodeInsert & { client_key: string }> = [];
+  const updates: ImportNodeSourceUpdate[] = [];
+
+  for (const node of nodes) {
+    const existing = existingByClientKey.get(node.client_key);
+    if (!existing) {
+      inserts.push(node);
+      continue;
+    }
+
+    nodeIdByClientKey.set(node.client_key, existing.id);
+    updates.push({
+      id: existing.id,
+      client_key: node.client_key,
+      source_title: node.source_title,
+      source_hash: node.source_hash,
+      source_created_at: node.source_created_at,
+      source_updated_at: node.source_updated_at,
+    });
+  }
+
+  return { inserts, updates, nodeIdByClientKey };
+}
+
 export function importedMessageMetadata(
   conversation: NormalizedImportedConversation,
   message: NormalizedImportedMessage
@@ -104,4 +168,11 @@ export function handoffPostMetadata(sourceApp: SourceApp): Record<string, unknow
 
 function conversationKey(conversation: NormalizedImportedConversation): string {
   return `${conversation.sourceApp}:${conversation.sourceConversationId}`;
+}
+
+function sourceIdentityKey(identity: {
+  source_app: ImportSourceApp;
+  source_conversation_id: string;
+}): string {
+  return `${identity.source_app}:${identity.source_conversation_id}`;
 }
