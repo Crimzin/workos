@@ -58,6 +58,13 @@ assert.deepEqual(
   buildContextSearchResults(
     [
       {
+        id: "cost",
+        title: "Cost Review",
+        path: "Finance / Cost Review",
+        type: "card",
+        href: "/n/cost",
+      },
+      {
         id: "workos",
         title: "WorkOS",
         path: "WorkOS",
@@ -69,6 +76,31 @@ assert.deepEqual(
     5
   ).map((item) => item.id),
   ["workos"]
+);
+
+assert.deepEqual(
+  buildContextSearchResults(
+    [
+      {
+        id: "body-match",
+        title: "Reference Notes",
+        path: "WorkOS / Reference Notes",
+        type: "card",
+        href: "/n/body-match",
+        bodyPreview: "Marketing roadmap",
+      },
+      {
+        id: "unordered-path-match",
+        title: "June Roadmap",
+        path: "Marketing / Launch Work / June Roadmap",
+        type: "card",
+        href: "/n/unordered-path-match",
+      },
+    ],
+    "marketing roadmap",
+    5
+  ).map((item) => item.id),
+  ["unordered-path-match", "body-match"]
 );
 
 const rankedCandidates: ContextSearchCandidate[] = [
@@ -113,4 +145,28 @@ const rankedCandidates: ContextSearchCandidate[] = [
 assert.deepEqual(
   buildContextSearchResults(rankedCandidates, "campaign", 5).map((item) => item.id),
   ["exact-title", "all-title-tokens", "title-substring", "path-match", "preview-match"]
+);
+
+assert.deepEqual(
+  buildContextSearchResults(
+    [
+      {
+        id: "path-match",
+        title: "Planning",
+        path: "WorkOS / Campaign Reporting",
+        type: "card",
+        href: "/n/path-match",
+      },
+      {
+        id: "title-substring",
+        title: "Campaign Reporting Cleanup",
+        path: "WorkOS / Campaign Reporting Cleanup",
+        type: "card",
+        href: "/n/title-substring",
+      },
+    ],
+    "reporting cleanup",
+    5
+  ).map((item) => item.id),
+  ["title-substring"]
 );

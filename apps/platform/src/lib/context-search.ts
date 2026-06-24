@@ -33,8 +33,19 @@ export function normalizeSearchText(value: string): string {
 }
 
 export function tokenizeSearchText(value: string): string[] {
-  const normalized = normalizeSearchText(value);
-  return normalized ? normalized.split(" ") : [];
+  const words = normalizeSearchTextPreservingCase(value).split(" ").filter(Boolean);
+  const tokens: string[] = [];
+
+  for (const word of words) {
+    tokens.push(normalizeSearchText(word));
+
+    for (const part of splitWordBoundaries(word)) {
+      const normalized = normalizeSearchText(part);
+      if (normalized) tokens.push(normalized);
+    }
+  }
+
+  return uniqueTokens(tokens);
 }
 
 export function buildContextSearchResults(
@@ -77,19 +88,24 @@ function scoreCandidate(
   const path = normalizeSearchText(candidate.path);
   const bodyPreview = normalizeSearchText(candidate.bodyPreview ?? "");
   const titleTokens = tokenizeSearchText(candidate.title);
+  const pathTokens = tokenizeSearchText(candidate.path);
+  const previewTokens = tokenizeSearchText(candidate.bodyPreview ?? "");
   const searchableTokens = [
     ...titleTokens,
-    ...tokenizeSearchText(candidate.path),
-    ...tokenizeSearchText(candidate.bodyPreview ?? ""),
+    ...pathTokens,
+    ...previewTokens,
   ];
   const matchedTokens = queryTokens.filter((token) => tokenMatches(token, searchableTokens));
 
   if (matchedTokens.length !== queryTokens.length) return null;
 
-  const allTitleTokensMatch = queryTokens.every((token) => tokenMatches(token, titleTokens));
+  const allTitleTokensMatch = queryTokens.every((token) => exactTokenMatches(token, titleTokens));
   const titleSubstringMatch = title.includes(normalizedQuery);
-  const pathSubstringMatch = path.includes(normalizedQuery);
-  const previewSubstringMatch = bodyPreview.includes(normalizedQuery);
+  const pathMatch =
+    path.includes(normalizedQuery) || queryTokens.every((token) => tokenMatches(token, pathTokens));
+  const previewMatch =
+    bodyPreview.includes(normalizedQuery) ||
+    queryTokens.every((token) => tokenMatches(token, previewTokens));
 
   let score = 1_000;
   if (title === normalizedQuery) {
@@ -98,9 +114,9 @@ function scoreCandidate(
     score = 8_000;
   } else if (titleSubstringMatch) {
     score = 6_000;
-  } else if (pathSubstringMatch) {
+  } else if (pathMatch) {
     score = 4_000;
-  } else if (previewSubstringMatch) {
+  } else if (previewMatch) {
     score = 3_000;
   }
 
@@ -119,8 +135,31 @@ function uniqueTokens(tokens: string[]): string[] {
   return [...new Set(tokens)];
 }
 
+function normalizeSearchTextPreservingCase(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(DASHES_AND_QUOTES, " ")
+    .replace(PUNCTUATION, " ")
+    .replace(WHITESPACE, " ")
+    .trim();
+}
+
+function splitWordBoundaries(value: string): string[] {
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(" ")
+    .filter((part) => part !== value);
+}
+
+function exactTokenMatches(queryToken: string, candidateTokens: string[]): boolean {
+  return candidateTokens.includes(queryToken);
+}
+
 function tokenMatches(queryToken: string, candidateTokens: string[]): boolean {
   return candidateTokens.some(
-    (candidateToken) => candidateToken === queryToken || candidateToken.includes(queryToken)
+    (candidateToken) =>
+      candidateToken === queryToken ||
+      (queryToken.length >= 3 && candidateToken.includes(queryToken))
   );
 }
