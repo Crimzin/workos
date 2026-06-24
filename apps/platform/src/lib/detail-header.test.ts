@@ -20,8 +20,8 @@ assert.deepEqual(
 );
 assert.equal(boardTrail.at(-1)?.isCurrent, true);
 assert.equal(boardTrail.at(-1)?.href, null);
-assert.equal(boardTrail[0]?.href, "/n/workspace-1?view=board");
-assert.equal(boardTrail[1]?.href, "/n/workspace-1?view=board&d=stack-1");
+assert.equal(boardTrail[0]?.href, "/board");
+assert.equal(boardTrail[1]?.href, "/board?d=stack-1");
 
 const threadTrail = buildThreadIdentityTrail({
   path: [

@@ -37,7 +37,6 @@ export interface HeaderFieldBadge {
 export function buildBoardDetailTrail({
   ancestors,
   current,
-  workspaceId,
 }: {
   ancestors: DetailTrailNode[];
   current: DetailTrailNode;
@@ -48,8 +47,8 @@ export function buildBoardDetailTrail({
       ...ancestor,
       href:
         ancestor.type === "workspace"
-          ? `/n/${workspaceId}?view=board`
-          : `/n/${workspaceId}?view=board&d=${ancestor.id}`,
+          ? "/board"
+          : `/board?d=${ancestor.id}`,
       isCurrent: false,
     })),
     {

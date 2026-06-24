@@ -10,6 +10,7 @@ import {
   ChevronRight,
   EyeOff,
   FileText,
+  LayoutGrid,
   Lightbulb,
   MoreHorizontal,
   Pencil,
@@ -421,6 +422,14 @@ export function Sidebar({
           label="Feed"
           icon={<Rss size={15} />}
           active={pathname === "/feed"}
+          collapsed={effectiveCollapsed}
+          onNavigate={onNavigate}
+        />
+        <NavLink
+          href="/board"
+          label="Board"
+          icon={<LayoutGrid size={15} />}
+          active={pathname === "/board"}
           collapsed={effectiveCollapsed}
           onNavigate={onNavigate}
         />

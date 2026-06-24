@@ -152,7 +152,7 @@ function NodeIdentityPath({
 
       {!compact && trail.length === 1 && trail[0]?.id !== workspaceId && (
         <Link
-          href={`/n/${workspaceId}?view=board`}
+          href="/board"
           scroll={false}
           className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >

@@ -172,7 +172,7 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
     <>
       <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="touch-none">
         <Link
-          href={navigationMode === "thread" ? `/n/${card.id}` : `/n/${workspaceId}?view=board&d=${card.id}`}
+          href={navigationMode === "thread" ? `/n/${card.id}` : `/board?d=${card.id}`}
           scroll={false}
           aria-current={isActive ? "true" : undefined}
           className={[

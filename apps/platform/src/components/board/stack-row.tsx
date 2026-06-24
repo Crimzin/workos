@@ -465,7 +465,7 @@ function StackHeader({
           </div>
         ) : (
           <Link
-            href={navigationMode === "thread" ? `/n/${stack.id}` : `/n/${workspaceId}?view=board&d=${stack.id}`}
+            href={navigationMode === "thread" ? `/n/${stack.id}` : `/board?d=${stack.id}`}
             scroll={false}
             className="min-w-0 flex-1 group"
           >
