@@ -17,7 +17,7 @@ import type { WorkNode } from "@/lib/types";
 import { useMobileShell } from "./mobile-app-shell";
 import { NodeIdentityRail } from "./node-identity-rail";
 
-type TabId = "posts" | "board" | "fields" | "memory" | "tree";
+type TabId = "posts" | "fields" | "memory" | "tree";
 type MobileDetailsTabId = "fields" | "memory" | "tree";
 
 interface NodeDetailIdentityActor {
@@ -50,7 +50,6 @@ interface NodeDetailTabsProps {
 export function NodeDetailTabs({
   identity,
   postsContent,
-  boardContent,
   fieldsContent,
   memoryContent,
   treeContent,
@@ -58,7 +57,6 @@ export function NodeDetailTabs({
 }: NodeDetailTabsProps) {
   const tabs: { id: TabId; label: string; content: ReactNode }[] = [
     { id: "posts", label: "Chat", content: postsContent },
-    ...(boardContent ? [{ id: "board" as const, label: "Board", content: boardContent }] : []),
     { id: "fields", label: "Fields", content: fieldsContent },
     { id: "memory", label: "Memory", content: memoryContent },
     ...(treeContent ? [{ id: "tree" as const, label: "Tree", content: treeContent }] : []),
@@ -166,7 +164,6 @@ export function NodeDetailTabs({
             onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
             className={[
               "border-b-2 -mb-px whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary",
-              tab.id === "board" ? "hidden md:inline-flex" : "",
               compact ? "px-2 py-1 text-xs" : "px-3 py-1.5 text-sm",
               isActive
                 ? "border-accent text-text-primary"
@@ -254,7 +251,7 @@ export function NodeDetailTabs({
             aria-labelledby={`${tabBaseId}-${tab.id}-tab`}
             hidden={!isActive}
             className={
-              tab.id === "posts" || tab.id === "board"
+              tab.id === "posts"
                 ? "min-h-0 flex-1 overflow-hidden"
                 : "min-h-0 flex-1 overflow-auto"
             }
