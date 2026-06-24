@@ -77,7 +77,10 @@ const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
   "claude",
   "codex",
   "workos",
+  "code",
 ]);
+
+const AGENT_MENTION_TEXT = /@(claude code|claude|codex|workos)\b/giu;
 
 export function normalizeSourceApp(value: unknown): SourceApp {
   if (
@@ -153,7 +156,8 @@ export function contextEventSummary(metadata: ContextEventMetadata): string {
 }
 
 function buildAutomaticContextQuery(userText: string): string {
-  const tokens = tokenizeSearchText(userText).filter(
+  const textWithoutMentions = userText.replace(AGENT_MENTION_TEXT, " ");
+  const tokens = tokenizeSearchText(textWithoutMentions).filter(
     (token) =>
       token.length >= 3 && !AUTOMATIC_CONTEXT_STOP_WORDS.has(token)
   );
