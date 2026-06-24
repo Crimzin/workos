@@ -28,13 +28,9 @@ import type {
   DetailField,
   DetailFieldValue,
   NodeAncestor,
+  NodeDetail,
 } from "../node-detail";
-import { getNodeDetail } from "../node-detail";
-import { getNodePosts } from "../posts";
 import type { PostRecord } from "../posts";
-import { getNodeLinks } from "../links";
-import { getNodeMemoryPrimitives } from "../memory-primitives";
-import { getChildren } from "../nodes";
 import type { Actor, MemoryPrimitive, WorkNode } from "../types";
 import {
   findNodeMentions,
@@ -45,6 +41,7 @@ import {
 
 const PARENT_POST_LIMIT = 30;
 const RELATIVE_POST_LIMIT = 10; // per sibling / per child
+const ATTACHED_CONTEXT_POST_LIMIT = 10;
 const RELATIVE_THREAD_LIMIT = 15; // total siblings + children
 
 // ---------------------------------------------------------------------------
@@ -117,6 +114,7 @@ export interface NodeContext {
   ownThread: PostRecord[];
 
   // Family threads — empty arrays / nulls when not applicable
+  attachedContexts: RelativeThread[];
   parentThread: RelativeThread | null;
   siblingThreads: RelativeThread[];
   childThreads: RelativeThread[];
@@ -146,6 +144,19 @@ export interface NodeContext {
 export async function gatherNodeContext(
   nodeId: string
 ): Promise<NodeContext | null> {
+  const [
+    { getNodeDetail },
+    { getNodePosts },
+    { getNodeLinks },
+    { getNodeMemoryPrimitives },
+    { getChildren },
+  ] = await Promise.all([
+    import("../node-detail"),
+    import("../posts"),
+    import("../links"),
+    import("../memory-primitives"),
+    import("../nodes"),
+  ]);
   const detail = await getNodeDetail(nodeId);
   if (!detail) return null;
 
@@ -217,6 +228,7 @@ export async function gatherNodeContext(
     parentPosts,
     siblingPostsArr,
     childPostsArr,
+    attachedContexts,
     links,
     memory,
   ] = await Promise.all([
@@ -226,6 +238,7 @@ export async function gatherNodeContext(
       : Promise.resolve([] as PostRecord[]),
     Promise.all(siblingNodes.map((s) => getNodePosts(s.id))),
     Promise.all(childNodes.map((c) => getNodePosts(c.id))),
+    getAttachedContextThreads(nodeId),
     getNodeLinks(nodeId),
     getNodeMemoryPrimitives(nodeId),
   ]);
@@ -348,6 +361,7 @@ export async function gatherNodeContext(
     fields: renderedFields,
     memory: memoryShape,
     ownThread: ownPosts,
+    attachedContexts,
     parentThread,
     siblingThreads,
     childThreads,
@@ -379,6 +393,12 @@ export async function gatherMentionedNodeContextsFromBody(
 async function gatherMentionedNodeContext(
   mention: NodeMentionRef
 ): Promise<MentionedNodeContext> {
+  const [{ getNodeDetail }, { getNodePosts }, { getNodeMemoryPrimitives }] =
+    await Promise.all([
+      import("../node-detail"),
+      import("../posts"),
+      import("../memory-primitives"),
+    ]);
   const detail = await getNodeDetail(mention.id);
   if (!detail || detail.node.archived_at) {
     return missingMentionedNodeContext(mention);
@@ -405,6 +425,74 @@ async function gatherMentionedNodeContext(
     memory: memoryToContextShape(memory),
     posts: posts.slice(0, MENTIONED_NODE_POST_LIMIT),
   };
+}
+
+interface ActiveContextAttachmentRow {
+  context_source_node_id: string;
+  created_at: string;
+  source_node:
+    | {
+        id: string;
+        title: string;
+        type: string;
+      }
+    | Array<{
+        id: string;
+        title: string;
+        type: string;
+      }>
+    | null;
+}
+
+async function getAttachedContextThreads(
+  nodeId: string
+): Promise<RelativeThread[]> {
+  const [{ supabase }, { getNodePosts }] = await Promise.all([
+    import("../supabase"),
+    import("../posts"),
+  ]);
+  const { data, error } = await supabase
+    .from("thread_context_attachments")
+    .select(
+      "context_source_node_id,created_at,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type)"
+    )
+    .eq("thread_id", nodeId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as ActiveContextAttachmentRow[];
+  const seen = new Set<string>();
+  const sourceNodes: Array<{ id: string; title: string; type: string }> = [];
+
+  for (const row of rows) {
+    if (row.context_source_node_id === nodeId) continue;
+    if (seen.has(row.context_source_node_id)) continue;
+
+    const source = Array.isArray(row.source_node)
+      ? row.source_node[0]
+      : row.source_node;
+    if (!source) continue;
+
+    seen.add(row.context_source_node_id);
+    sourceNodes.push({
+      id: source.id,
+      title: source.title,
+      type: source.type,
+    });
+  }
+
+  const postsBySource = await Promise.all(
+    sourceNodes.map((source) => getNodePosts(source.id))
+  );
+
+  const threads: RelativeThread[] = [];
+  for (let i = 0; i < sourceNodes.length; i++) {
+    const posts = postsBySource[i].slice(0, ATTACHED_CONTEXT_POST_LIMIT);
+    if (posts.length === 0) continue;
+    threads.push({ node: sourceNodes[i], posts });
+  }
+  return threads;
 }
 
 function missingMentionedNodeContext(
@@ -454,7 +542,7 @@ function emptyMemoryShape(): NodeContextMemory {
 }
 
 function workspaceTitleForDetail(
-  detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>
+  detail: NodeDetail
 ): string {
   const homePlacement = detail.mirrorPlacements.find((p) => p.is_home);
   return (
@@ -465,7 +553,7 @@ function workspaceTitleForDetail(
 }
 
 function breadcrumbForDetail(
-  detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>
+  detail: NodeDetail
 ): string {
   return detail.ancestors.length > 0
     ? detail.ancestors.map((a) => a.title).join(" / ") +

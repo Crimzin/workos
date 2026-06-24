@@ -147,6 +147,17 @@ function buildUserMessage(
 ): string {
   const sections: string[] = [];
 
+  // Explicitly attached context comes before inferred family context.
+  for (const attached of ctx.attachedContexts) {
+    sections.push(
+      renderRelativeSection(
+        `# Attached context: "${attached.node.title}"`,
+        attached,
+        now
+      )
+    );
+  }
+
   // Parent stack thread, when applicable.
   if (ctx.parentThread) {
     sections.push(

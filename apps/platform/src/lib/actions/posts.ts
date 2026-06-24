@@ -44,6 +44,13 @@ import { routeAgentMentions } from "../agents/router";
 import { isAgentRunConfirmation } from "../agents/confirmation";
 import { queueAwaitingRunsForConfirmation } from "../agents/runs";
 import { processNextQueuedAgentRun } from "../agents/worker";
+import { attachThreadContext } from "./thread-context";
+import {
+  chooseAutomaticContextCandidates,
+  normalizeSourceApp,
+} from "../thread-context";
+import type { ContextSearchCandidate } from "../context-search";
+import type { NodeType } from "../types";
 
 /**
  * Server action used by the 1.11 streaming-agent polling effect. Returns the
@@ -60,6 +67,8 @@ export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
  *  At 400ms + the client's 750ms poll cadence the user sees new text every
  *  ~1.2s on average — close enough to feel real-time. */
 const STREAM_FLUSH_INTERVAL_MS = 400;
+const AUTOMATIC_CONTEXT_CANDIDATE_LIMIT = 50;
+const AUTOMATIC_CONTEXT_POST_PREVIEW_LIMIT = 150;
 
 async function getNodeInstanceId(nodeId: string): Promise<string> {
   const { data, error } = await supabase
@@ -197,6 +206,16 @@ export async function createPost(
 
   if (mentions.length === 0) return;
 
+  try {
+    await attachAutomaticContextForPost({
+      nodeId,
+      actorInstanceId: actor.instance_id,
+      plainText,
+    });
+  } catch (err) {
+    console.error("[thread-context] automatic attach failed:", err);
+  }
+
   const standards = await getEffectiveAIStandards(actor.instance_id).catch(
     (err) => {
       console.error("[1.11] ai standards fallback:", err);
@@ -243,6 +262,100 @@ export async function createPost(
   } catch (err) {
     console.error("[1.11] agent mention routing failed:", err);
   }
+}
+
+async function attachAutomaticContextForPost(input: {
+  nodeId: string;
+  actorInstanceId: string;
+  plainText: string;
+}): Promise<void> {
+  const [{ data: existingRows, error: existingError }, { data: nodeRows, error: nodeError }] =
+    await Promise.all([
+      supabase
+        .from("thread_context_attachments")
+        .select("context_source_node_id,status")
+        .eq("thread_id", input.nodeId)
+        .in("status", ["active", "removed", "ignored_for_suggestions"]),
+      supabase
+        .from("nodes")
+        .select("id,title,type,source_app,updated_at")
+        .eq("instance_id", input.actorInstanceId)
+        .is("archived_at", null)
+        .eq("suggestion_status", "allowed")
+        .neq("id", input.nodeId)
+        .order("updated_at", { ascending: false })
+        .limit(AUTOMATIC_CONTEXT_CANDIDATE_LIMIT),
+    ]);
+  if (existingError) throw existingError;
+  if (nodeError) throw nodeError;
+
+  const excludedSourceIds = new Set(
+    (existingRows ?? []).map((row) => row.context_source_node_id as string)
+  );
+  const candidateRows = (nodeRows ?? []).filter(
+    (row) => !excludedSourceIds.has(row.id as string) && isNodeType(row.type)
+  );
+  if (candidateRows.length === 0) return;
+
+  const previewsByNodeId = await getLatestPostPreviewsByNodeId(
+    candidateRows.map((row) => row.id as string)
+  );
+  const candidates: ContextSearchCandidate[] = candidateRows.map((row) => {
+    const id = row.id as string;
+    const title = row.title as string;
+    return {
+      id,
+      title,
+      path: title,
+      type: row.type as NodeType,
+      href: `/n/${id}`,
+      sourceApp: normalizeSourceApp(row.source_app),
+      updatedAt: (row.updated_at as string | null) ?? null,
+      bodyPreview: previewsByNodeId.get(id) ?? null,
+    };
+  });
+
+  const [best] = chooseAutomaticContextCandidates({
+    userText: input.plainText,
+    candidates,
+    limit: 1,
+  });
+  if (!best) return;
+
+  await attachThreadContext({
+    threadId: input.nodeId,
+    sourceNodeId: best.id,
+    attachedBy: "automatic",
+    reason: `Matched ${best.matchedTokens.join(", ")}.`,
+  });
+}
+
+async function getLatestPostPreviewsByNodeId(
+  nodeIds: string[]
+): Promise<Map<string, string>> {
+  if (nodeIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("node_id,body")
+    .in("node_id", nodeIds)
+    .eq("post_type", "post")
+    .not("body", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(AUTOMATIC_CONTEXT_POST_PREVIEW_LIMIT);
+  if (error) throw error;
+
+  const previews = new Map<string, string>();
+  for (const row of data ?? []) {
+    const nodeId = row.node_id as string;
+    if (previews.has(nodeId)) continue;
+    previews.set(nodeId, plainTextFromBody((row.body as string | null) ?? "").slice(0, 500));
+  }
+  return previews;
+}
+
+function isNodeType(value: unknown): value is NodeType {
+  return value === "workspace" || value === "stack" || value === "card";
 }
 
 async function streamInlineClaudeReply(input: {

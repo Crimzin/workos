@@ -47,6 +47,7 @@ const nodeContext: NodeContext = {
   fields: [],
   memory: { rationale: null, assumptions: [], decisions: [] },
   ownThread: [],
+  attachedContexts: [],
   parentThread: null,
   siblingThreads: [],
   childThreads: [],

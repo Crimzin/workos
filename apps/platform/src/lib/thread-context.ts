@@ -1,4 +1,10 @@
 import { sourceAppLabel } from "./post-source-links";
+import {
+  buildContextSearchResults,
+  tokenizeSearchText,
+  type ContextSearchCandidate,
+  type ContextSearchResult,
+} from "./context-search";
 import type { SourceApp } from "./types";
 
 export type ContextEventAction = "attached" | "removed" | "ignored" | "allowed";
@@ -29,6 +35,47 @@ export interface ContextEventPostLike {
   metadata: Record<string, unknown> | null;
 }
 
+export interface ChooseAutomaticContextCandidatesInput {
+  userText: string;
+  candidates: ContextSearchCandidate[];
+  limit: number;
+}
+
+const AUTOMATIC_CONTEXT_MIN_SCORE = 3_000;
+const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
+  "a",
+  "about",
+  "again",
+  "an",
+  "and",
+  "are",
+  "back",
+  "can",
+  "continue",
+  "do",
+  "for",
+  "help",
+  "i",
+  "in",
+  "into",
+  "it",
+  "keep",
+  "me",
+  "my",
+  "of",
+  "on",
+  "please",
+  "the",
+  "this",
+  "to",
+  "want",
+  "we",
+  "with",
+  "work",
+  "working",
+  "you",
+]);
+
 export function normalizeSourceApp(value: unknown): SourceApp {
   if (
     value === "workos" ||
@@ -54,6 +101,17 @@ export function buildContextEventMetadata(
     ...(input.sourceMessageId ? { source_message_id: input.sourceMessageId } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
   };
+}
+
+export function chooseAutomaticContextCandidates(
+  input: ChooseAutomaticContextCandidatesInput
+): ContextSearchResult[] {
+  const query = buildAutomaticContextQuery(input.userText);
+  if (!query) return [];
+
+  return buildContextSearchResults(input.candidates, query, input.limit).filter(
+    (candidate) => candidate.score >= AUTOMATIC_CONTEXT_MIN_SCORE
+  );
 }
 
 export function isContextEventMetadata(
@@ -89,6 +147,14 @@ export function contextEventSummary(metadata: ContextEventMetadata): string {
     case "allowed":
       return `Allowed ${sourceApp} in suggestions: ${title}`;
   }
+}
+
+function buildAutomaticContextQuery(userText: string): string {
+  const tokens = tokenizeSearchText(userText).filter(
+    (token) =>
+      token.length >= 3 && !AUTOMATIC_CONTEXT_STOP_WORDS.has(token)
+  );
+  return tokens.join(" ");
 }
 
 function isContextEventAction(value: unknown): value is ContextEventAction {

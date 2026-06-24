@@ -96,6 +96,22 @@ const ctx: NodeContext = {
       ),
     ],
   },
+  attachedContexts: [
+    {
+      node: {
+        id: "attached-source",
+        title: "Campaign reporting script",
+        type: "stack",
+      },
+      posts: [
+        post(
+          "attached-context",
+          "The campaign reporting SQL parser expects campaign_id aliases.",
+          "2026-05-19T02:13:20.000Z"
+        ),
+      ],
+    },
+  ],
   siblingThreads: [
     {
       node: {
@@ -181,6 +197,28 @@ assert.match(
 assert.match(
   prompt.systemPrompt,
   /Ask a brief freshness question if the answer depends on whether it is still true\./
+);
+
+assert.ok(
+  prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
+    prompt.userMessage.indexOf('# Stack thread (parent: "AI coaching business")')
+);
+
+assert.ok(
+  prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
+    prompt.userMessage.indexOf('# Sibling card: "First AI diagnostic"')
+);
+
+assert.ok(
+  prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
+    prompt.userMessage.indexOf(
+      '# Active thread on "AI Diagnostic 2.0: Contextual assessment"'
+    )
+);
+
+assert.match(
+  prompt.userMessage,
+  /The campaign reporting SQL parser expects campaign_id aliases\./
 );
 
 assert.ok(
