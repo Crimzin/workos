@@ -1,5 +1,6 @@
 import type { NodeType } from "./types";
 import type { SidebarTreeNode } from "./sidebar-tree";
+import { buildContextSearchResults, type ContextSearchCandidate } from "./context-search";
 
 export interface AppSearchResult {
   id: string;
@@ -14,38 +15,37 @@ export function buildAppSearchResults(
   query: string,
   limit: number
 ): AppSearchResult[] {
-  const trimmed = query.trim().toLocaleLowerCase();
-  if (!trimmed || limit <= 0) return [];
+  if (!query.trim() || limit <= 0) return [];
 
-  const results: AppSearchResult[] = [];
+  const candidates: ContextSearchCandidate[] = [];
 
   function visit(node: SidebarTreeNode, ancestors: string[]) {
-    if (results.length >= limit) return;
-
     const pathParts = [...ancestors, node.title];
     const path = pathParts.join(" / ");
-    const haystack = `${node.title} ${path}`.toLocaleLowerCase();
 
-    if (haystack.includes(trimmed)) {
-      results.push({
-        id: node.id,
-        title: node.title,
-        type: node.type,
-        href: `/n/${node.id}`,
-        path,
-      });
-    }
+    candidates.push({
+      id: node.id,
+      title: node.title,
+      type: node.type,
+      href: `/n/${node.id}`,
+      path,
+      sourceApp: "workos",
+    });
 
     for (const child of node.children) {
       visit(child, pathParts);
-      if (results.length >= limit) return;
     }
   }
 
   for (const node of tree) {
     visit(node, []);
-    if (results.length >= limit) break;
   }
 
-  return results;
+  return buildContextSearchResults(candidates, query, limit).map((result) => ({
+    id: result.id,
+    title: result.title,
+    type: result.type,
+    href: result.href,
+    path: result.path,
+  }));
 }

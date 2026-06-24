@@ -76,3 +76,17 @@ assert.deepEqual(
   buildNodeMentionCandidates(rows, "", 2).map((candidate) => candidate.id),
   ["workspace", "stack"]
 );
+
+const mentionRows: NodeMentionSearchRow[] = [
+  { id: "script", title: "Campaign Reporting SQL Cleanup", type: "stack", parent_id: null },
+  { id: "other-script", title: "SQL Export Draft", type: "stack", parent_id: null },
+];
+
+assert.equal(
+  buildNodeMentionCandidates(mentionRows, "cleanup campaign", 5)[0].id,
+  "script"
+);
+assert.equal(
+  buildNodeMentionCandidates(mentionRows, "SQL Campaign Reporting Cleanup", 5)[0].id,
+  "script"
+);

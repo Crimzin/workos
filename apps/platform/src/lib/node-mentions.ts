@@ -1,4 +1,5 @@
 import type { NodeType } from "./types";
+import { buildContextSearchResults, type ContextSearchCandidate } from "./context-search";
 
 export interface NodeMentionRef {
   id: string;
@@ -61,24 +62,30 @@ export function buildNodeMentionCandidates(
   query: string,
   limit: number
 ): NodeMentionCandidate[] {
-  const normalizedQuery = query.trim().toLowerCase();
   const pathsById = buildPathMap(rows);
+  const candidates: ContextSearchCandidate[] = rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    type: row.type,
+    path: pathsById.get(row.id) ?? row.title,
+    href: `/n/${row.id}`,
+  }));
 
-  return rows
-    .map((row) => ({
-      id: row.id,
-      title: row.title,
-      type: row.type,
-      path: pathsById.get(row.id) ?? row.title,
-    }))
-    .filter((candidate) => {
-      if (!normalizedQuery) return true;
-      const haystack = `${candidate.title} ${candidate.path}`.toLowerCase();
-      return normalizedQuery
-        .split(/\s+/)
-        .every((term) => haystack.includes(term));
-    })
-    .slice(0, limit);
+  if (!query.trim()) {
+    return candidates.slice(0, limit).map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      type: candidate.type,
+      path: candidate.path,
+    }));
+  }
+
+  return buildContextSearchResults(candidates, query, limit).map((candidate) => ({
+    id: candidate.id,
+    title: candidate.title,
+    type: candidate.type,
+    path: candidate.path,
+  }));
 }
 
 function walkBlockForNodeMentions(
