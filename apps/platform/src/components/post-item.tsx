@@ -35,8 +35,14 @@ import {
   sourceAppLabel,
   sourceThreadHref,
 } from "@/lib/post-source-links";
+import {
+  contextEventSummary,
+  isContextEventMetadata,
+  isContextEventPost,
+} from "@/lib/thread-context";
 import { formatAbsoluteDateTime, formatRelativeAge } from "@/lib/time";
 import { PostEditor, parsePostBody, serializePostBody } from "./post-editor";
+import { ContextEvent } from "./thread/context-event";
 
 interface PostItemProps {
   post: PostRecord;
@@ -198,7 +204,9 @@ export function PostItem({
       </div>
 
       {/* Body */}
-      {isActivity ? (
+      {isContextEventPost(post) && isContextEventMetadata(post.metadata) ? (
+        <ContextEvent threadId={nodeId} metadata={post.metadata} />
+      ) : isActivity ? (
         <ActivityBody post={post} />
       ) : editing ? (
         <div className="rounded-md border border-accent bg-bg-card overflow-hidden">
@@ -396,6 +404,9 @@ export function PostItem({
 }
 
 function copyTextForPost(post: PostRecord): string {
+  if (isContextEventPost(post) && isContextEventMetadata(post.metadata)) {
+    return contextEventSummary(post.metadata);
+  }
   if (metadataBooleanTrue(post.metadata?.import_handoff)) {
     return `Imported from ${sourceAppLabel(sourceAppFromMetadata(post.metadata?.source_app))} - Continued in WorkOS`;
   }
