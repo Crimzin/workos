@@ -891,6 +891,8 @@ function ImportedChatRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [, startTransition] = useTransition();
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const menuContentRef = useRef<HTMLDivElement>(null);
   const closeHref = "/feed";
   const nextSuggestionStatus =
     node.suggestion_status === "ignored" ? "allowed" : "ignored";
@@ -911,6 +913,53 @@ function ImportedChatRow({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const frameId = requestAnimationFrame(() => {
+      menuContentRef.current
+        ?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [menuOpen]);
+
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    );
+    const activeIndex = items.findIndex((item) => item === document.activeElement);
+    const focusItem = (index: number) => {
+      if (items.length === 0) return;
+      items[(index + items.length) % items.length]?.focus();
+    };
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setMenuOpen(false);
+      menuTriggerRef.current?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusItem(activeIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusItem(activeIndex <= 0 ? items.length - 1 : activeIndex - 1);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusItem(0);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusItem(items.length - 1);
+    }
+  };
 
   const navigateAwayIfActive = () => {
     if (!isActive) return;
@@ -997,6 +1046,7 @@ function ImportedChatRow({
 
       <div className="absolute right-1 top-1" ref={menuRef}>
         <button
+          ref={menuTriggerRef}
           type="button"
           aria-label={`Actions for ${node.title}`}
           aria-haspopup="menu"
@@ -1013,11 +1063,13 @@ function ImportedChatRow({
 
         {menuOpen && (
           <div
+            ref={menuContentRef}
             role="menu"
             aria-label={`Actions for ${node.title}`}
             className="absolute right-0 top-full z-50 mt-1 min-w-[190px] rounded-md border border-border bg-bg-primary py-1 shadow-lg"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={handleMenuKeyDown}
           >
             <button
               type="button"
