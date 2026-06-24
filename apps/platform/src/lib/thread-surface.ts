@@ -19,6 +19,7 @@ export interface ThreadContextAttachmentWithSource
     title: string;
     type: string;
     source_app: SourceApp | null;
+    archived_at: string | null;
   } | null;
 }
 
@@ -105,7 +106,7 @@ async function getThreadContextAttachments(
   const { data, error } = await supabase
     .from("thread_context_attachments")
     .select(
-      "id,instance_id,thread_id,context_source_node_id,attached_by,status,reason,source_post_id,source_message_id,source_span,metadata,created_at,updated_at,removed_at,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,source_app)"
+      "id,instance_id,thread_id,context_source_node_id,attached_by,status,reason,source_post_id,source_message_id,source_span,metadata,created_at,updated_at,removed_at,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,source_app,archived_at)"
     )
     .eq("thread_id", nodeId)
     .order("created_at", { ascending: false });
@@ -127,6 +128,10 @@ async function getThreadContextAttachments(
             title: String(sourceNode.title),
             type: String(sourceNode.type),
             source_app: normalizeSourceApp(sourceNode.source_app),
+            archived_at:
+              typeof sourceNode.archived_at === "string"
+                ? sourceNode.archived_at
+                : null,
           }
         : null,
     };

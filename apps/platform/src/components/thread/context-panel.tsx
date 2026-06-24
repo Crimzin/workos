@@ -16,7 +16,10 @@ export function ContextPanel({
   treeContent,
 }: ContextPanelProps) {
   const activeAttachments = attachments.filter(
-    (attachment) => attachment.status === "active"
+    (attachment) =>
+      attachment.status === "active" &&
+      attachment.source_node &&
+      !attachment.source_node.archived_at
   );
 
   return (
