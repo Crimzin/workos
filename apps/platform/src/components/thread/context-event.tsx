@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { startTransition, useTransition } from "react";
+import { useState } from "react";
 import {
   allowThreadContext,
   ignoreThreadContext,
@@ -21,19 +21,21 @@ export interface ContextEventProps {
 
 export function ContextEvent({ threadId, metadata }: ContextEventProps) {
   const router = useRouter();
-  const [pending, startActionTransition] = useTransition();
+  const [pending, setPending] = useState(false);
   const sourceNodeId = metadata.source_node_id;
   const sourcePostId = metadata.source_post_id;
   const showAddBack = metadata.action === "removed";
   const showAllow = metadata.action === "ignored";
 
-  const runAction = (action: () => Promise<void>) => {
-    startActionTransition(() => {
-      startTransition(async () => {
-        await action();
-        router.refresh();
-      });
-    });
+  const runAction = async (action: () => Promise<void>) => {
+    if (pending) return;
+    setPending(true);
+    try {
+      await action();
+      router.refresh();
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -57,7 +59,7 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              runAction(() => removeThreadContext(threadId, sourceNodeId))
+              void runAction(() => removeThreadContext(threadId, sourceNodeId))
             }
             className={contextEventButtonClassName}
           >
@@ -69,7 +71,7 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              runAction(() => ignoreThreadContext(threadId, sourceNodeId))
+              void runAction(() => ignoreThreadContext(threadId, sourceNodeId))
             }
             className={contextEventButtonClassName}
           >
@@ -81,7 +83,7 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              runAction(() => allowThreadContext(threadId, sourceNodeId))
+              void runAction(() => allowThreadContext(threadId, sourceNodeId))
             }
             className={contextEventButtonClassName}
           >
@@ -93,7 +95,7 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              runAction(() => allowThreadContext(threadId, sourceNodeId))
+              void runAction(() => allowThreadContext(threadId, sourceNodeId))
             }
             className={contextEventButtonClassName}
           >

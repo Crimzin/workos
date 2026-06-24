@@ -9,7 +9,11 @@ import {
   normalizeSourceApp,
   type ContextEventAction,
 } from "../thread-context";
-import type { ContextAttachedBy, SourceApp } from "../types";
+import type {
+  ContextAttachedBy,
+  SourceApp,
+  ThreadContextAttachmentStatus,
+} from "../types";
 
 export interface AttachThreadContextInput {
   threadId: string;
@@ -26,12 +30,23 @@ interface SourceNodeForContext {
   source_app: SourceApp | null;
 }
 
+interface ExistingAttachmentForContext {
+  status: ThreadContextAttachmentStatus;
+  source_post_id: string | null;
+  source_message_id: string | null;
+  reason: string | null;
+}
+
 export async function attachThreadContext(
   input: AttachThreadContextInput
 ): Promise<void> {
   const actor = await getCurrentActor();
   await validateThread(input.threadId, actor.instance_id);
   const source = await getSourceNode(input.sourceNodeId, actor.instance_id);
+  const existing = await getExistingAttachment(
+    input.threadId,
+    input.sourceNodeId
+  );
 
   const { error } = await supabase.from("thread_context_attachments").upsert(
     {
@@ -48,6 +63,11 @@ export async function attachThreadContext(
     { onConflict: "thread_id,context_source_node_id" }
   );
   if (error) throw error;
+
+  if (existing?.status === "active") {
+    revalidateContextSurfaces(input.threadId);
+    return;
+  }
 
   await insertContextEventPost({
     threadId: input.threadId,
@@ -88,13 +108,17 @@ export async function allowThreadContext(
 async function updateThreadContextStatus(
   threadId: string,
   sourceNodeId: string,
-  status: "active" | "removed" | "ignored_for_suggestions"
+  status: ThreadContextAttachmentStatus
 ): Promise<void> {
   const actor = await getCurrentActor();
   await validateThread(threadId, actor.instance_id);
   const source = await getSourceNode(sourceNodeId, actor.instance_id);
+  const attachment = await getExistingAttachment(threadId, sourceNodeId);
+  if (!attachment) throw new Error("Thread context attachment not found");
+  if (attachment.status === status) return;
+
   const now = new Date().toISOString();
-  const { data: attachment, error } = await supabase
+  const { data: updatedAttachment, error } = await supabase
     .from("thread_context_attachments")
     .update({
       status,
@@ -102,10 +126,11 @@ async function updateThreadContextStatus(
     })
     .eq("thread_id", threadId)
     .eq("context_source_node_id", sourceNodeId)
-    .select("source_post_id,source_message_id,reason")
+    .eq("status", attachment.status)
+    .select("id")
     .maybeSingle();
   if (error) throw error;
-  if (!attachment) throw new Error("Thread context attachment not found");
+  if (!updatedAttachment) return;
 
   await insertContextEventPost({
     threadId,
@@ -116,6 +141,20 @@ async function updateThreadContextStatus(
     reason: attachment.reason,
   });
   revalidateContextSurfaces(threadId);
+}
+
+async function getExistingAttachment(
+  threadId: string,
+  sourceNodeId: string
+): Promise<ExistingAttachmentForContext | null> {
+  const { data, error } = await supabase
+    .from("thread_context_attachments")
+    .select("status,source_post_id,source_message_id,reason")
+    .eq("thread_id", threadId)
+    .eq("context_source_node_id", sourceNodeId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as ExistingAttachmentForContext | null;
 }
 
 async function validateThread(
@@ -179,7 +218,7 @@ async function insertContextEventPost(input: {
 }
 
 function contextEventActionForStatus(
-  status: "active" | "removed" | "ignored_for_suggestions"
+  status: ThreadContextAttachmentStatus
 ): ContextEventAction {
   if (status === "removed") return "removed";
   if (status === "ignored_for_suggestions") return "ignored";
