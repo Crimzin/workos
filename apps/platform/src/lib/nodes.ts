@@ -4,7 +4,11 @@ import { cacheTags } from "./cache";
 import type { WorkNode } from "./types";
 import { getCurrentActor } from "./actor";
 import { getImportedChats, type ImportedChatRow } from "./imported-chats";
-import { buildSidebarTree, type SidebarTreeNode } from "./sidebar-tree";
+import {
+  buildSidebarTree,
+  getProjectSidebarTree,
+  type SidebarTreeNode,
+} from "./sidebar-tree";
 import type { PinnedSidebarNode } from "./sidebar-tree-dnd";
 import {
   buildNodeMentionCandidates,
@@ -99,7 +103,6 @@ export async function getSidebarTree(): Promise<SidebarTreeNode[]> {
   const { data, error } = await supabase
     .from("nodes")
     .select("*")
-    .or("source_kind.is.null,source_kind.eq.native")
     .is("archived_at", null)
     .order("position", { ascending: true });
   if (error) throw error;
@@ -108,20 +111,22 @@ export async function getSidebarTree(): Promise<SidebarTreeNode[]> {
 
 export interface SidebarData {
   projectTree: SidebarTreeNode[];
+  searchTree: SidebarTreeNode[];
   pinnedNodes: PinnedSidebarNode[];
   importedChats: ImportedChatRow[];
 }
 
 export async function getSidebarData(): Promise<SidebarData> {
-  const [projectTree, actor] = await Promise.all([
+  const [searchTree, actor] = await Promise.all([
     getSidebarTree(),
     getCurrentActor(),
   ]);
+  const projectTree = getProjectSidebarTree(searchTree);
   const [pinnedNodes, importedChats] = await Promise.all([
-    getSidebarPins(projectTree),
+    getSidebarPins(searchTree),
     getImportedChats(actor.instance_id),
   ]);
-  return { projectTree, pinnedNodes, importedChats };
+  return { projectTree, searchTree, pinnedNodes, importedChats };
 }
 
 interface PinRow {

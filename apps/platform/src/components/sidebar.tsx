@@ -95,7 +95,7 @@ export function Sidebar({
   onNavigate,
   onMobileClose,
 }: SidebarProps) {
-  const { projectTree, pinnedNodes, importedChats } = sidebarData;
+  const { projectTree, searchTree, pinnedNodes, importedChats } = sidebarData;
   const [projectTreeState, setProjectTreeState] = useState({
     source: projectTree,
     tree: projectTree,
@@ -451,7 +451,7 @@ export function Sidebar({
 
       {searchOpen && (
         <AppSearchDialog
-          tree={localProjectTree}
+          tree={searchTree}
           onClose={() => setSearchOpen(false)}
           onSelect={(result) => {
             setSearchOpen(false);
@@ -898,6 +898,8 @@ function ImportedChatRow({
     node.suggestion_status === "ignored"
       ? "Allow in suggestions"
       : "Ignore in suggestions";
+  const menuItemClassName =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent";
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -997,61 +999,70 @@ function ImportedChatRow({
         <button
           type="button"
           aria-label={`Actions for ${node.title}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
             setMenuOpen((open) => !open);
           }}
-          className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary opacity-0 transition hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100 group-focus-within:opacity-100"
+          className="inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary opacity-0 transition hover:bg-bg-hover hover:text-text-primary focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent group-hover:opacity-100 group-focus-within:opacity-100"
         >
           <MoreHorizontal size={11} />
         </button>
 
         {menuOpen && (
           <div
+            role="menu"
+            aria-label={`Actions for ${node.title}`}
             className="absolute right-0 top-full z-50 mt-1 min-w-[190px] rounded-md border border-border bg-bg-primary py-1 shadow-lg"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
             <button
               type="button"
+              role="menuitem"
               onClick={handleOpen}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              className={menuItemClassName}
             >
               <FileText size={11} />
               Open
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={handleHide}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              className={menuItemClassName}
             >
               <EyeOff size={11} />
               Hide from Imported Chats
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={handleSuggestionToggle}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              className={menuItemClassName}
             >
               <Lightbulb size={11} />
               {suggestionLabel}
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={handleArchive}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              className={menuItemClassName}
             >
               <Archive size={11} />
               Archive
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
                 setConfirmDelete(true);
               }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-500 transition-colors hover:bg-bg-hover"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-500 transition-colors hover:bg-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
             >
               <Trash2 size={11} />
               Delete forever

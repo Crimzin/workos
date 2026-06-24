@@ -102,7 +102,7 @@ export function revalidateNodeMemoryPrimitives(nodeId: string) {
 }
 
 export function revalidateImportedChats(instanceId: string) {
-  revalidateTag(cacheTags.importedChats(instanceId), PROFILE);
+  revalidateTag(cacheTags.importedChats(instanceId), IMMEDIATE);
 }
 
 export function revalidateImportSessions(instanceId: string) {

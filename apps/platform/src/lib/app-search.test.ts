@@ -11,7 +11,9 @@ function node(
   children: SidebarTreeNode[] = [],
   parentId: string | null = null,
   depth = 0,
-  rootId = id
+  rootId = id,
+  sourceKind: SidebarTreeNode["source_kind"] = null,
+  sourceApp: SidebarTreeNode["source_app"] = null
 ): SidebarTreeNode {
   return {
     id,
@@ -28,8 +30,8 @@ function node(
     resolved_by_actor_id: null,
     resolution_summary: null,
     resolution_source_post_id: null,
-    source_kind: null,
-    source_app: null,
+    source_kind: sourceKind,
+    source_app: sourceApp,
     source_import_session_id: null,
     source_conversation_id: null,
     source_title: null,
@@ -51,6 +53,17 @@ const roadmapCard = node("card-1", "June Roadmap", "card", [], "stack-1", 2, "wo
 const launchStack = node("stack-1", "Launch Work", "stack", [roadmapCard], "workspace-1", 1, "workspace-1");
 const workspace = node("workspace-1", "Marketing", "workspace", [launchStack]);
 const support = node("workspace-2", "Support", "workspace");
+const importedChat = node(
+  "imported-1",
+  "Personal Finance",
+  "stack",
+  [],
+  null,
+  0,
+  "imported-1",
+  "imported_ai_chat",
+  "claude"
+);
 
 assert.deepEqual(buildAppSearchResults([workspace, support], "ROAD", 10), [
   {
@@ -65,6 +78,13 @@ assert.deepEqual(buildAppSearchResults([workspace, support], "ROAD", 10), [
 assert.deepEqual(
   buildAppSearchResults([workspace, support], "work", 1).map((result) => result.id),
   ["stack-1"]
+);
+
+assert.deepEqual(
+  buildAppSearchResults([workspace, support, importedChat], "finance", 10).map(
+    (result) => result.id
+  ),
+  ["imported-1"]
 );
 
 assert.deepEqual(buildAppSearchResults([workspace, support], "   ", 10), []);

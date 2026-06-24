@@ -36,3 +36,12 @@ export function buildSidebarTree(nodes: WorkNode[]): SidebarTreeNode[] {
 
   return build(null, 0);
 }
+
+export function getProjectSidebarTree(tree: SidebarTreeNode[]): SidebarTreeNode[] {
+  return tree
+    .filter((node) => node.source_kind !== "imported_ai_chat")
+    .map((node) => ({
+      ...node,
+      children: getProjectSidebarTree(node.children),
+    }));
+}

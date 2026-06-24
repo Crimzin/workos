@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { buildSidebarTree } from "./sidebar-tree";
+import { buildSidebarTree, getProjectSidebarTree } from "./sidebar-tree";
 import type { WorkNode } from "./types";
 
 function node(
   id: string,
   parentId: string | null,
   type: WorkNode["type"],
-  position: number
+  position: number,
+  sourceKind: WorkNode["source_kind"] = null,
+  sourceApp: WorkNode["source_app"] = null
 ): WorkNode {
   return {
     id,
@@ -23,8 +25,8 @@ function node(
     resolved_by_actor_id: null,
     resolution_summary: null,
     resolution_source_post_id: null,
-    source_kind: null,
-    source_app: null,
+    source_kind: sourceKind,
+    source_app: sourceApp,
     source_import_session_id: null,
     source_conversation_id: null,
     source_title: null,
@@ -54,3 +56,17 @@ assert.equal(tree[0].children[0].rootId, "project");
 assert.equal(tree[0].children[0].children[0].id, "card");
 assert.equal(tree[0].children[0].children[0].depth, 2);
 assert.equal(tree[0].children[0].children[0].rootId, "project");
+
+const importedTree = buildSidebarTree([
+  node("project", null, "workspace", 0),
+  node("imported-chat", null, "stack", 1, "imported_ai_chat", "claude"),
+]);
+
+assert.deepEqual(
+  importedTree.map((treeNode) => treeNode.id),
+  ["project", "imported-chat"]
+);
+assert.deepEqual(
+  getProjectSidebarTree(importedTree).map((treeNode) => treeNode.id),
+  ["project"]
+);
