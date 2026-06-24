@@ -20,6 +20,9 @@ export const cacheTags = {
   workspaceFeed: (workspaceId: string) => `workspace-feed:${workspaceId}`,
   nodeLinks: (nodeId: string) => `links:${nodeId}`,
   nodeMemoryPrimitives: (nodeId: string) => `memory-primitives:${nodeId}`,
+  importedChats: (instanceId: string) => `imported-chats:${instanceId}`,
+  importSessions: (instanceId: string) => `import-sessions:${instanceId}`,
+  threadContext: (threadId: string) => `thread-context:${threadId}`,
   agentSettings: (instanceId: string) => `agent-settings:${instanceId}`,
   agentRuns: (nodeId: string) => `agent-runs:${nodeId}`,
 };
@@ -96,6 +99,18 @@ export function revalidateNodeLinksFor(nodeIds: string[]) {
 
 export function revalidateNodeMemoryPrimitives(nodeId: string) {
   revalidateTag(cacheTags.nodeMemoryPrimitives(nodeId), PROFILE);
+}
+
+export function revalidateImportedChats(instanceId: string) {
+  revalidateTag(cacheTags.importedChats(instanceId), PROFILE);
+}
+
+export function revalidateImportSessions(instanceId: string) {
+  revalidateTag(cacheTags.importSessions(instanceId), PROFILE);
+}
+
+export function revalidateThreadContext(threadId: string) {
+  revalidateTag(cacheTags.threadContext(threadId), IMMEDIATE);
 }
 
 export function revalidateAgentSettings(instanceId: string) {

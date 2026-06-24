@@ -27,6 +27,20 @@ export type ThreadResolutionStatus =
   | "resolved"
   | "reopened"
   | "superseded";
+export type SourceApp = "workos" | "claude" | "chatgpt" | "unknown";
+export type SourceKind = "native" | "imported_ai_chat";
+export type ImportedVisibility = "visible" | "hidden_from_imported_chats";
+export type SuggestionStatus = "allowed" | "ignored";
+export type ContextAttachedBy =
+  | "automatic"
+  | "conversational"
+  | "hashtag"
+  | "side_panel"
+  | "user";
+export type ThreadContextAttachmentStatus =
+  | "active"
+  | "removed"
+  | "ignored_for_suggestions";
 
 export type WorkOSEventType =
   | "node.created"
@@ -55,6 +69,10 @@ export type WorkOSEventType =
   | "link.created"
   | "link.deleted"
   | "import.materialized"
+  | "context.attached"
+  | "context.removed"
+  | "context.ignored"
+  | "context.allowed"
   | "agent.reply_started"
   | "agent.reply_completed"
   | "agent.reply_failed";
@@ -92,6 +110,36 @@ export interface Actor {
   updated_at: string;
 }
 
+export interface ImportSession {
+  id: string;
+  instance_id: string;
+  actor_id: string | null;
+  source_apps: SourceApp[];
+  import_name: string | null;
+  status: "pending" | "processing" | "completed" | "failed";
+  source_counts: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ThreadContextAttachment {
+  id: string;
+  instance_id: string;
+  thread_id: string;
+  context_source_node_id: string;
+  attached_by: ContextAttachedBy;
+  status: ThreadContextAttachmentStatus;
+  reason: string | null;
+  source_post_id: string | null;
+  source_message_id: string | null;
+  source_span: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  removed_at: string | null;
+}
+
 export interface WorkNode {
   id: string;
   instance_id: string;
@@ -107,6 +155,16 @@ export interface WorkNode {
   resolved_by_actor_id: string | null;
   resolution_summary: string | null;
   resolution_source_post_id: string | null;
+  source_kind: SourceKind | null;
+  source_app: SourceApp | null;
+  source_import_session_id: string | null;
+  source_conversation_id: string | null;
+  source_title: string | null;
+  source_hash: string | null;
+  source_created_at: string | null;
+  source_updated_at: string | null;
+  imported_visibility: ImportedVisibility;
+  suggestion_status: SuggestionStatus;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
