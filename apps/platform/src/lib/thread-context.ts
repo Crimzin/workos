@@ -74,6 +74,9 @@ const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
   "work",
   "working",
   "you",
+  "claude",
+  "codex",
+  "workos",
 ]);
 
 export function normalizeSourceApp(value: unknown): SourceApp {

@@ -435,11 +435,13 @@ interface ActiveContextAttachmentRow {
         id: string;
         title: string;
         type: string;
+        archived_at: string | null;
       }
     | Array<{
         id: string;
         title: string;
         type: string;
+        archived_at: string | null;
       }>
     | null;
 }
@@ -454,7 +456,7 @@ async function getAttachedContextThreads(
   const { data, error } = await supabase
     .from("thread_context_attachments")
     .select(
-      "context_source_node_id,created_at,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type)"
+      "context_source_node_id,created_at,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,archived_at)"
     )
     .eq("thread_id", nodeId)
     .eq("status", "active")
@@ -473,6 +475,7 @@ async function getAttachedContextThreads(
       ? row.source_node[0]
       : row.source_node;
     if (!source) continue;
+    if (source.archived_at) continue;
 
     seen.add(row.context_source_node_id);
     sourceNodes.push({

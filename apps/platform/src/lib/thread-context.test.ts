@@ -103,6 +103,15 @@ assert.deepEqual(
 
 assert.deepEqual(
   chooseAutomaticContextCandidates({
+    userText: "@Claude continue working on the reporting SQL parser",
+    candidates: automaticCandidates,
+    limit: 1,
+  }).map((candidate) => candidate.id),
+  ["campaign-reporting-script"]
+);
+
+assert.deepEqual(
+  chooseAutomaticContextCandidates({
     userText: "Tell Claude about the hotel options",
     candidates: automaticCandidates,
     limit: 5,

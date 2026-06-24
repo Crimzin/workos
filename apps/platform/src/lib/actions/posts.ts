@@ -68,7 +68,7 @@ export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
  *  ~1.2s on average — close enough to feel real-time. */
 const STREAM_FLUSH_INTERVAL_MS = 400;
 const AUTOMATIC_CONTEXT_CANDIDATE_LIMIT = 50;
-const AUTOMATIC_CONTEXT_POST_PREVIEW_LIMIT = 150;
+const AUTOMATIC_CONTEXT_PREVIEW_CHARS = 500;
 
 async function getNodeInstanceId(nodeId: string): Promise<string> {
   const { data, error } = await supabase
@@ -335,23 +335,37 @@ async function getLatestPostPreviewsByNodeId(
 ): Promise<Map<string, string>> {
   if (nodeIds.length === 0) return new Map();
 
-  const { data, error } = await supabase
-    .from("posts")
-    .select("node_id,body")
-    .in("node_id", nodeIds)
-    .eq("post_type", "post")
-    .not("body", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(AUTOMATIC_CONTEXT_POST_PREVIEW_LIMIT);
-  if (error) throw error;
+  const rows = await Promise.all(
+    nodeIds.map(async (nodeId) => {
+      const { data, error } = await supabase
+        .from("posts")
+        .select("body")
+        .eq("node_id", nodeId)
+        .eq("post_type", "post")
+        .not("body", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return {
+        nodeId,
+        preview: data?.body
+          ? plainTextFromBody(String(data.body)).slice(
+              0,
+              AUTOMATIC_CONTEXT_PREVIEW_CHARS
+            )
+          : null,
+      };
+    })
+  );
 
-  const previews = new Map<string, string>();
-  for (const row of data ?? []) {
-    const nodeId = row.node_id as string;
-    if (previews.has(nodeId)) continue;
-    previews.set(nodeId, plainTextFromBody((row.body as string | null) ?? "").slice(0, 500));
-  }
-  return previews;
+  return new Map(
+    rows
+      .filter((row): row is { nodeId: string; preview: string } =>
+        Boolean(row.preview)
+      )
+      .map((row) => [row.nodeId, row.preview])
+  );
 }
 
 function isNodeType(value: unknown): value is NodeType {
