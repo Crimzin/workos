@@ -37,6 +37,15 @@ export interface ImportPostInsert {
   created_at: string | null;
 }
 
+export interface ImportPostWriteRow {
+  node_id: string;
+  actor_id: null;
+  post_type: "post";
+  body: string;
+  metadata: Record<string, unknown>;
+  created_at?: string;
+}
+
 export interface ImportMaterializationPlan {
   nodes: Array<ImportNodeInsert & { client_key: string }>;
   posts: ImportPostInsert[];
@@ -146,6 +155,46 @@ export function buildImportNodeWritePlan(
   return { inserts, updates, nodeIdByClientKey };
 }
 
+export function buildImportPostWriteRows({
+  posts,
+  nodeIdByClientKey,
+  existingSourceMessageIdsByNodeId,
+}: {
+  posts: ImportPostInsert[];
+  nodeIdByClientKey: Map<string, string>;
+  existingSourceMessageIdsByNodeId: Map<string, Set<string>>;
+}): ImportPostWriteRow[] {
+  const rows: ImportPostWriteRow[] = [];
+
+  for (const post of posts) {
+    const nodeId = nodeIdByClientKey.get(post.node_client_key);
+    if (!nodeId) continue;
+
+    const sourceMessageId = metadataString(post.metadata.source_message_id);
+    const existingSourceMessageIds =
+      existingSourceMessageIdsByNodeId.get(nodeId) ?? new Set<string>();
+    if (sourceMessageId && existingSourceMessageIds.has(sourceMessageId)) {
+      continue;
+    }
+
+    rows.push({
+      node_id: nodeId,
+      actor_id: post.actor_id,
+      post_type: post.post_type,
+      body: post.body,
+      metadata: post.metadata,
+      ...(post.created_at ? { created_at: post.created_at } : {}),
+    });
+
+    if (sourceMessageId) {
+      existingSourceMessageIds.add(sourceMessageId);
+      existingSourceMessageIdsByNodeId.set(nodeId, existingSourceMessageIds);
+    }
+  }
+
+  return rows;
+}
+
 export function importedMessageMetadata(
   conversation: NormalizedImportedConversation,
   message: NormalizedImportedMessage
@@ -178,4 +227,8 @@ function sourceIdentityKey(identity: {
   source_conversation_id: string;
 }): string {
   return `${identity.source_app}:${identity.source_conversation_id}`;
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }

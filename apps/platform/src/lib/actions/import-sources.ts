@@ -11,7 +11,9 @@ import {
   assertHasReadableImportedConversations,
   buildImportMaterializationPlan,
   buildImportNodeWritePlan,
+  buildImportPostWriteRows,
   type ExistingImportedNode,
+  type ImportPostWriteRow,
 } from "../import-materialize";
 import {
   normalizeImportFiles,
@@ -94,43 +96,16 @@ export async function importAISourceFiles(
       nodeIdByClientKey.set(client_key, data.id as string);
     }
 
-    const postsByClientKey = new Map<string, typeof plan.posts>();
-    for (const post of plan.posts) {
-      const posts = postsByClientKey.get(post.node_client_key) ?? [];
-      posts.push(post);
-      postsByClientKey.set(post.node_client_key, posts);
-    }
-
-    for (const [clientKey, posts] of postsByClientKey) {
-      const nodeId = nodeIdByClientKey.get(clientKey);
-      if (!nodeId) continue;
-
-      const existingSourceMessageIds =
-        await getExistingImportedSourceMessageIds(nodeId);
-
-      for (const post of posts) {
-        const sourceMessageId = metadataString(post.metadata.source_message_id);
-        if (sourceMessageId && existingSourceMessageIds.has(sourceMessageId)) {
-          continue;
-        }
-
-        const { error } = await supabase.from("posts").insert({
-          node_id: nodeId,
-          actor_id: post.actor_id,
-          post_type: post.post_type,
-          body: post.body,
-          metadata: post.metadata,
-          ...(post.created_at ? { created_at: post.created_at } : {}),
-        });
-
-        if (error) {
-          if (sourceMessageId && isDuplicateError(error)) continue;
-          throw error;
-        }
-
-        if (sourceMessageId) existingSourceMessageIds.add(sourceMessageId);
-      }
-    }
+    const existingSourceMessageIdsByNodeId =
+      await getExistingImportedSourceMessageIdsByNodeId(
+        [...new Set(nodeIdByClientKey.values())]
+      );
+    const postRows = buildImportPostWriteRows({
+      posts: plan.posts,
+      nodeIdByClientKey,
+      existingSourceMessageIdsByNodeId,
+    });
+    await insertPostRows(postRows);
 
     await updateImportSession(sessionId, {
       status: "completed",
@@ -178,23 +153,35 @@ async function nextRootPosition(instanceId: string): Promise<number> {
   return ((data?.[0]?.position as number | undefined) ?? 0) + 1000;
 }
 
-async function getExistingImportedSourceMessageIds(
-  nodeId: string
-): Promise<Set<string>> {
-  const { data, error } = await supabase
-    .from("posts")
-    .select("metadata")
-    .eq("node_id", nodeId)
-    .contains("metadata", { imported_message: true });
-  if (error) throw error;
+async function getExistingImportedSourceMessageIdsByNodeId(
+  nodeIds: string[]
+): Promise<Map<string, Set<string>>> {
+  const result = new Map<string, Set<string>>();
+  if (nodeIds.length === 0) return result;
 
-  return new Set(
-    (data ?? [])
-      .map((row) => metadataString(row.metadata?.source_message_id))
-      .filter((sourceMessageId): sourceMessageId is string =>
-        Boolean(sourceMessageId)
-      )
-  );
+  const pageSize = 1000;
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await supabase
+      .from("posts")
+      .select("node_id,metadata")
+      .in("node_id", nodeIds)
+      .contains("metadata", { imported_message: true })
+      .range(start, start + pageSize - 1);
+    if (error) throw error;
+
+    for (const row of data ?? []) {
+      const nodeId = metadataString(row.node_id);
+      const sourceMessageId = metadataString(row.metadata?.source_message_id);
+      if (!nodeId || !sourceMessageId) continue;
+      const sourceMessageIds = result.get(nodeId) ?? new Set<string>();
+      sourceMessageIds.add(sourceMessageId);
+      result.set(nodeId, sourceMessageIds);
+    }
+
+    if (!data || data.length < pageSize) break;
+  }
+
+  return result;
 }
 
 async function getExistingImportedNodes(
@@ -247,6 +234,26 @@ function sourceCounts(
 
 function metadataString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+async function insertPostRows(rows: ImportPostWriteRow[]): Promise<void> {
+  const chunkSize = 200;
+  for (let start = 0; start < rows.length; start += chunkSize) {
+    const chunk = rows.slice(start, start + chunkSize);
+    const { error } = await supabase.from("posts").insert(chunk);
+    if (!error) continue;
+    if (!isDuplicateError(error)) throw error;
+    await insertPostRowsIndividually(chunk);
+  }
+}
+
+async function insertPostRowsIndividually(
+  rows: ImportPostWriteRow[]
+): Promise<void> {
+  for (const row of rows) {
+    const { error } = await supabase.from("posts").insert(row);
+    if (error && !isDuplicateError(error)) throw error;
+  }
 }
 
 function isDuplicateError(error: { code?: string } | null): boolean {

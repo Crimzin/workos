@@ -3,6 +3,7 @@ import {
   assertHasReadableImportedConversations,
   buildImportMaterializationPlan,
   buildImportNodeWritePlan,
+  buildImportPostWriteRows,
   importedMessageMetadata,
   handoffPostMetadata,
 } from "./import-materialize.ts";
@@ -108,6 +109,16 @@ assert.equal(
   duplicateBatchNodeWrites.inserts[0].title,
   "Campaign reporting script"
 );
+
+const postRows = buildImportPostWriteRows({
+  posts: plan.posts,
+  nodeIdByClientKey: new Map([["claude:claude-1", "node-1"]]),
+  existingSourceMessageIdsByNodeId: new Map([["node-1", new Set(["m1"])]]),
+});
+
+assert.equal(postRows.length, 1);
+assert.equal(postRows[0].node_id, "node-1");
+assert.equal(postRows[0].metadata.source_message_id, "m2");
 
 assert.throws(
   () => assertHasReadableImportedConversations([]),

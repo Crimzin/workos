@@ -14,6 +14,7 @@ interface QueuedImportFile extends RawImportFile {
 export function ImportSessionWorkspace() {
   const [files, setFiles] = useState<QueuedImportFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [importStage, setImportStage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -26,6 +27,10 @@ export function ImportSessionWorkspace() {
     [files]
   );
   const isSubmitting = submitting || pending;
+  const readableMessageCount = preview.conversations.reduce(
+    (sum, conversation) => sum + conversation.messages.length,
+    0
+  );
 
   async function readFiles(fileList: FileList | null) {
     if (!fileList || submittingRef.current) return;
@@ -58,15 +63,20 @@ export function ImportSessionWorkspace() {
     if (submittingRef.current || readableCount === 0) return;
     submittingRef.current = true;
     setSubmitting(true);
+    setImportStage(
+      `Writing ${readableCount} chats and ${readableMessageCount} transcript messages. Keep this tab open.`
+    );
     setError(null);
     startTransition(async () => {
       try {
         const importFiles = files.map(({ fileName, text }) => ({ fileName, text }));
         await importAISourceFiles(importFiles);
+        setImportStage("Import complete. Opening WorkOS...");
         router.push("/");
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Import failed.");
+        setImportStage(null);
       } finally {
         submittingRef.current = false;
         setSubmitting(false);
@@ -179,6 +189,11 @@ export function ImportSessionWorkspace() {
         )}
 
         {error && <p className="mt-3 text-sm text-status-blocked">{error}</p>}
+        {isSubmitting && importStage && (
+          <div className="mt-3 rounded-md border border-border bg-bg-card px-3 py-2 text-sm text-text-secondary">
+            {importStage}
+          </div>
+        )}
 
         <div className="mt-5 flex items-center gap-3">
           <button
