@@ -41,6 +41,8 @@ export interface ChooseAutomaticContextCandidatesInput {
   limit: number;
 }
 
+export const AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT = 8;
+
 const AUTOMATIC_CONTEXT_MIN_SCORE = 3_000;
 const AUTOMATIC_CONTEXT_MIN_CROSS_FIELD_TOKENS = 2;
 const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([

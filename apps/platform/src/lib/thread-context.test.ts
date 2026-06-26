@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
   buildContextEventMetadata,
   chooseAutomaticContextCandidates,
   contextEventSummary,
@@ -173,6 +174,29 @@ assert.equal(careerMatch.sourcePostId, "post-career-role");
 assert.equal(careerMatch.sourceMessageId, "message-career-role");
 assert.ok(careerMatch.matchedTokens.includes("career"));
 assert.ok(careerMatch.matchedTokens.includes("roles"));
+
+const manyRelevantCareerCandidates: ContextSearchCandidate[] = Array.from(
+  { length: 10 },
+  (_, index) => ({
+    id: `career-${index}`,
+    title: `Career strategy ${index}`,
+    path: `Imported chats / Career strategy ${index}`,
+    type: "stack",
+    href: `/n/career-${index}`,
+    sourceApp: "claude",
+    bodyPreview: "Career advice about role fit and next moves.",
+  })
+);
+
+assert.equal(AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT, 8);
+assert.equal(
+  chooseAutomaticContextCandidates({
+    userText: "I need career advice about role fit",
+    candidates: manyRelevantCareerCandidates,
+    limit: AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
+  }).length,
+  8
+);
 
 assert.deepEqual(
   chooseAutomaticContextCandidates({

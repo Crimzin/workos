@@ -46,6 +46,7 @@ import { queueAwaitingRunsForConfirmation } from "../agents/runs";
 import { processNextQueuedAgentRun } from "../agents/worker";
 import { attachThreadContext } from "./thread-context";
 import {
+  AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
   chooseAutomaticContextCandidates,
   normalizeSourceApp,
   scoreAutomaticContextTextMatch,
@@ -70,7 +71,6 @@ export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
 const STREAM_FLUSH_INTERVAL_MS = 400;
 const AUTOMATIC_CONTEXT_CANDIDATE_LIMIT = 50;
 const AUTOMATIC_IMPORTED_CONTEXT_CANDIDATE_LIMIT = 200;
-const AUTOMATIC_CONTEXT_ATTACH_LIMIT = 2;
 const AUTOMATIC_CONTEXT_PREVIEW_CHARS = 500;
 
 async function getNodeInstanceId(nodeId: string): Promise<string> {
@@ -236,7 +236,7 @@ export async function createPost(
       renderClaudePromptForContext: (ctx) => {
         const targetAwareCtx = ensureTargetPostInOwnThread(ctx, targetPost);
         console.log(
-          `[1.11] context gathered (own=${targetAwareCtx.ownThread.length} parent=${targetAwareCtx.parentThread ? targetAwareCtx.parentThread.posts.length : 0} siblings=${targetAwareCtx.siblingThreads.length} children=${targetAwareCtx.childThreads.length}, standards=${standards.length})`
+          `[1.11] context gathered (own=${targetAwareCtx.ownThread.length} attached=${targetAwareCtx.attachedContexts.length} parent=${targetAwareCtx.parentThread ? targetAwareCtx.parentThread.posts.length : 0} siblings=${targetAwareCtx.siblingThreads.length} children=${targetAwareCtx.childThreads.length}, standards=${standards.length})`
         );
         const prompt = renderClaudePrompt(targetAwareCtx, {
           targetPostId: targetPost.id,
@@ -349,7 +349,7 @@ async function attachAutomaticContextForPost(input: {
   const bestMatches = chooseAutomaticContextCandidates({
     userText: input.plainText,
     candidates,
-    limit: AUTOMATIC_CONTEXT_ATTACH_LIMIT,
+    limit: AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
   });
   if (bestMatches.length === 0) return;
 
