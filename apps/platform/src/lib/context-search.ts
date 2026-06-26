@@ -11,6 +11,8 @@ export interface ContextSearchCandidate {
   sourceApp?: ContextSourceApp;
   updatedAt?: string | null;
   bodyPreview?: string | null;
+  sourcePostId?: string | null;
+  sourceMessageId?: string | null;
 }
 
 export interface ContextSearchResult extends ContextSearchCandidate {
@@ -73,6 +75,8 @@ export function buildContextSearchResults(
       sourceApp: result.sourceApp,
       updatedAt: result.updatedAt,
       bodyPreview: result.bodyPreview,
+      sourcePostId: result.sourcePostId,
+      sourceMessageId: result.sourceMessageId,
       score: result.score,
       matchedTokens: result.matchedTokens,
     }));

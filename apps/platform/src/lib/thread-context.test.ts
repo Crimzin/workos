@@ -139,6 +139,41 @@ assert.deepEqual(
   ["split-match"]
 );
 
+const [careerMatch] = chooseAutomaticContextCandidates({
+  userText:
+    "I need career advice. at this stage in my career, what sorts of roles do you think I should be looking at?",
+  candidates: [
+    {
+      id: "career-strategy",
+      title: "Career path: speaking talent vs. research passion",
+      path: "Imported chats / Career path: speaking talent vs. research passion",
+      type: "stack",
+      href: "/n/career-strategy",
+      sourceApp: "claude",
+      sourcePostId: "post-career-role",
+      sourceMessageId: "message-career-role",
+      bodyPreview:
+        "We compared AI product strategy roles, talent management, founder/operator paths, and the kind of career move that would fit your current stage.",
+    },
+    {
+      id: "budget",
+      title: "Personal finance review",
+      path: "Imported chats / Personal finance review",
+      type: "stack",
+      href: "/n/budget",
+      sourceApp: "claude",
+      bodyPreview: "Rent, runway, and savings targets.",
+    },
+  ],
+  limit: 1,
+});
+
+assert.equal(careerMatch.id, "career-strategy");
+assert.equal(careerMatch.sourcePostId, "post-career-role");
+assert.equal(careerMatch.sourceMessageId, "message-career-role");
+assert.ok(careerMatch.matchedTokens.includes("career"));
+assert.ok(careerMatch.matchedTokens.includes("roles"));
+
 assert.deepEqual(
   chooseAutomaticContextCandidates({
     userText: "Tell Claude about the hotel options",

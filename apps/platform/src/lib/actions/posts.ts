@@ -48,6 +48,7 @@ import { attachThreadContext } from "./thread-context";
 import {
   chooseAutomaticContextCandidates,
   normalizeSourceApp,
+  scoreAutomaticContextTextMatch,
 } from "../thread-context";
 import type { ContextSearchCandidate } from "../context-search";
 import type { NodeType } from "../types";
@@ -68,6 +69,8 @@ export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
  *  ~1.2s on average — close enough to feel real-time. */
 const STREAM_FLUSH_INTERVAL_MS = 400;
 const AUTOMATIC_CONTEXT_CANDIDATE_LIMIT = 50;
+const AUTOMATIC_IMPORTED_CONTEXT_CANDIDATE_LIMIT = 200;
+const AUTOMATIC_CONTEXT_ATTACH_LIMIT = 2;
 const AUTOMATIC_CONTEXT_PREVIEW_CHARS = 500;
 
 async function getNodeInstanceId(nodeId: string): Promise<string> {
@@ -269,7 +272,11 @@ async function attachAutomaticContextForPost(input: {
   actorInstanceId: string;
   plainText: string;
 }): Promise<void> {
-  const [{ data: existingRows, error: existingError }, { data: nodeRows, error: nodeError }] =
+  const [
+    { data: existingRows, error: existingError },
+    { data: recentNodeRows, error: recentNodeError },
+    { data: importedNodeRows, error: importedNodeError },
+  ] =
     await Promise.all([
       supabase
         .from("thread_context_attachments")
@@ -285,24 +292,46 @@ async function attachAutomaticContextForPost(input: {
         .neq("id", input.nodeId)
         .order("updated_at", { ascending: false })
         .limit(AUTOMATIC_CONTEXT_CANDIDATE_LIMIT),
+      supabase
+        .from("nodes")
+        .select("id,title,type,source_app,updated_at,source_updated_at")
+        .eq("instance_id", input.actorInstanceId)
+        .is("archived_at", null)
+        .eq("suggestion_status", "allowed")
+        .eq("source_kind", "imported_ai_chat")
+        .neq("id", input.nodeId)
+        .order("source_updated_at", {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order("updated_at", { ascending: false })
+        .limit(AUTOMATIC_IMPORTED_CONTEXT_CANDIDATE_LIMIT),
     ]);
   if (existingError) throw existingError;
-  if (nodeError) throw nodeError;
+  if (recentNodeError) throw recentNodeError;
+  if (importedNodeError) throw importedNodeError;
 
   const excludedSourceIds = new Set(
     (existingRows ?? []).map((row) => row.context_source_node_id as string)
   );
-  const candidateRows = (nodeRows ?? []).filter(
+  const rowsById = new Map<string, NonNullable<typeof recentNodeRows>[number]>();
+  for (const row of [...(recentNodeRows ?? []), ...(importedNodeRows ?? [])]) {
+    rowsById.set(row.id as string, row);
+  }
+
+  const candidateRows = [...rowsById.values()].filter(
     (row) => !excludedSourceIds.has(row.id as string) && isNodeType(row.type)
   );
   if (candidateRows.length === 0) return;
 
-  const previewsByNodeId = await getLatestPostPreviewsByNodeId(
-    candidateRows.map((row) => row.id as string)
+  const previewsByNodeId = await getBestPostPreviewsByNodeId(
+    candidateRows.map((row) => row.id as string),
+    input.plainText
   );
   const candidates: ContextSearchCandidate[] = candidateRows.map((row) => {
     const id = row.id as string;
     const title = row.title as string;
+    const preview = previewsByNodeId.get(id);
     return {
       id,
       title,
@@ -311,61 +340,103 @@ async function attachAutomaticContextForPost(input: {
       href: `/n/${id}`,
       sourceApp: normalizeSourceApp(row.source_app),
       updatedAt: (row.updated_at as string | null) ?? null,
-      bodyPreview: previewsByNodeId.get(id) ?? null,
+      bodyPreview: preview?.bodyPreview ?? null,
+      sourcePostId: preview?.sourcePostId ?? null,
+      sourceMessageId: preview?.sourceMessageId ?? null,
     };
   });
 
-  const [best] = chooseAutomaticContextCandidates({
+  const bestMatches = chooseAutomaticContextCandidates({
     userText: input.plainText,
     candidates,
-    limit: 1,
+    limit: AUTOMATIC_CONTEXT_ATTACH_LIMIT,
   });
-  if (!best) return;
+  if (bestMatches.length === 0) return;
 
-  await attachThreadContext({
-    threadId: input.nodeId,
-    sourceNodeId: best.id,
-    attachedBy: "automatic",
-    reason: `Matched ${best.matchedTokens.join(", ")}.`,
-  });
+  for (const match of bestMatches) {
+    await attachThreadContext({
+      threadId: input.nodeId,
+      sourceNodeId: match.id,
+      attachedBy: "automatic",
+      reason: `Matched ${match.matchedTokens.join(", ")}.`,
+      sourcePostId: match.sourcePostId,
+      sourceMessageId: match.sourceMessageId,
+    });
+  }
 }
 
-async function getLatestPostPreviewsByNodeId(
-  nodeIds: string[]
-): Promise<Map<string, string>> {
+interface AutomaticContextPostPreview {
+  bodyPreview: string;
+  sourcePostId: string;
+  sourceMessageId: string | null;
+  score: number;
+  matchedTokens: string[];
+}
+
+async function getBestPostPreviewsByNodeId(
+  nodeIds: string[],
+  userText: string
+): Promise<Map<string, AutomaticContextPostPreview>> {
   if (nodeIds.length === 0) return new Map();
 
-  const rows = await Promise.all(
-    nodeIds.map(async (nodeId) => {
-      const { data, error } = await supabase
-        .from("posts")
-        .select("body")
-        .eq("node_id", nodeId)
-        .eq("post_type", "post")
-        .not("body", "is", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return {
-        nodeId,
-        preview: data?.body
-          ? plainTextFromBody(String(data.body)).slice(
-              0,
-              AUTOMATIC_CONTEXT_PREVIEW_CHARS
-            )
-          : null,
-      };
-    })
-  );
+  const bestByNodeId = new Map<string, AutomaticContextPostPreview>();
+  const pageSize = 1000;
 
-  return new Map(
-    rows
-      .filter((row): row is { nodeId: string; preview: string } =>
-        Boolean(row.preview)
-      )
-      .map((row) => [row.nodeId, row.preview])
-  );
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await supabase
+      .from("posts")
+      .select("id,node_id,body,metadata,created_at")
+      .in("node_id", nodeIds)
+      .eq("post_type", "post")
+      .not("body", "is", null)
+      .order("created_at", { ascending: false })
+      .range(start, start + pageSize - 1);
+    if (error) throw error;
+
+    for (const row of data ?? []) {
+      const nodeId = metadataString(row.node_id);
+      const postId = metadataString(row.id);
+      const body = typeof row.body === "string" ? row.body : "";
+      if (!nodeId || !postId || !body) continue;
+
+      const text = plainTextFromBody(body);
+      const match = scoreAutomaticContextTextMatch(userText, text);
+      if (match.score === 0) continue;
+
+      const existing = bestByNodeId.get(nodeId);
+      if (existing && existing.score >= match.score) continue;
+
+      bestByNodeId.set(nodeId, {
+        bodyPreview: previewAroundMatch(text, match.matchedTokens),
+        sourcePostId: postId,
+        sourceMessageId: metadataString(row.metadata?.source_message_id),
+        score: match.score,
+        matchedTokens: match.matchedTokens,
+      });
+    }
+
+    if (!data || data.length < pageSize) break;
+  }
+
+  return bestByNodeId;
+}
+
+function previewAroundMatch(text: string, matchedTokens: string[]): string {
+  const normalizedText = text.toLocaleLowerCase();
+  const firstMatchIndex = matchedTokens
+    .map((token) => normalizedText.indexOf(token.toLocaleLowerCase()))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+  const center = firstMatchIndex ?? 0;
+  const start = Math.max(0, center - Math.floor(AUTOMATIC_CONTEXT_PREVIEW_CHARS / 3));
+  const end = Math.min(text.length, start + AUTOMATIC_CONTEXT_PREVIEW_CHARS);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  return `${prefix}${text.slice(start, end)}${suffix}`;
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function isNodeType(value: unknown): value is NodeType {

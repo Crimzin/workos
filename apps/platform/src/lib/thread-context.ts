@@ -1,6 +1,6 @@
 import { sourceAppLabel } from "./post-source-links";
 import {
-  buildContextSearchResults,
+  normalizeSearchText,
   tokenizeSearchText,
   type ContextSearchCandidate,
   type ContextSearchResult,
@@ -53,6 +53,7 @@ const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
   "back",
   "can",
   "continue",
+  "could",
   "do",
   "for",
   "help",
@@ -61,16 +62,29 @@ const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
   "into",
   "it",
   "keep",
+  "looking",
   "me",
   "my",
+  "need",
   "of",
   "on",
   "please",
+  "should",
+  "sort",
+  "sorts",
+  "stage",
   "the",
+  "think",
   "this",
   "to",
   "want",
   "we",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
   "with",
   "work",
   "working",
@@ -113,14 +127,39 @@ export function buildContextEventMetadata(
 export function chooseAutomaticContextCandidates(
   input: ChooseAutomaticContextCandidatesInput
 ): ContextSearchResult[] {
-  const query = buildAutomaticContextQuery(input.userText);
-  if (!query) return [];
+  if (input.limit <= 0) return [];
+  const queryTokens = buildAutomaticContextTokens(input.userText);
+  if (queryTokens.length === 0) return [];
 
-  return buildContextSearchResults(input.candidates, query, input.limit).filter(
-    (candidate) =>
-      candidate.score >= AUTOMATIC_CONTEXT_MIN_SCORE ||
-      candidate.matchedTokens.length >= AUTOMATIC_CONTEXT_MIN_CROSS_FIELD_TOKENS
-  );
+  return input.candidates
+    .map((candidate, index) =>
+      scoreAutomaticContextCandidate(candidate, queryTokens, index)
+    )
+    .filter(
+      (
+        candidate
+      ): candidate is ContextSearchResult & { index: number } =>
+        candidate !== null &&
+        (candidate.score >= AUTOMATIC_CONTEXT_MIN_SCORE ||
+          candidate.matchedTokens.length >=
+            AUTOMATIC_CONTEXT_MIN_CROSS_FIELD_TOKENS)
+    )
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, input.limit)
+    .map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      path: candidate.path,
+      type: candidate.type,
+      href: candidate.href,
+      sourceApp: candidate.sourceApp,
+      updatedAt: candidate.updatedAt,
+      bodyPreview: candidate.bodyPreview,
+      sourcePostId: candidate.sourcePostId,
+      sourceMessageId: candidate.sourceMessageId,
+      score: candidate.score,
+      matchedTokens: candidate.matchedTokens,
+    }));
 }
 
 export function isContextEventMetadata(
@@ -158,13 +197,110 @@ export function contextEventSummary(metadata: ContextEventMetadata): string {
   }
 }
 
-function buildAutomaticContextQuery(userText: string): string {
+export function scoreAutomaticContextTextMatch(
+  userText: string,
+  text: string
+): { score: number; matchedTokens: string[] } {
+  const queryTokens = [...new Set(buildAutomaticContextTokens(userText))];
+  if (queryTokens.length === 0) return { score: 0, matchedTokens: [] };
+
+  const textTokens = tokenizeSearchText(text);
+  const matchedTokens = queryTokens.filter((token) =>
+    automaticTokenMatches(token, textTokens)
+  );
+  if (matchedTokens.length === 0) return { score: 0, matchedTokens: [] };
+
+  return {
+    score: matchedTokens.length * 650,
+    matchedTokens,
+  };
+}
+
+function buildAutomaticContextTokens(userText: string): string[] {
   const textWithoutMentions = userText.replace(AGENT_MENTION_TEXT, " ");
-  const tokens = tokenizeSearchText(textWithoutMentions).filter(
+  return normalizeSearchText(textWithoutMentions).split(" ").filter(
     (token) =>
       token.length >= 3 && !AUTOMATIC_CONTEXT_STOP_WORDS.has(token)
   );
-  return tokens.join(" ");
+}
+
+function scoreAutomaticContextCandidate(
+  candidate: ContextSearchCandidate,
+  queryTokens: string[],
+  index: number
+): (ContextSearchResult & { index: number }) | null {
+  const titleTokens = tokenizeSearchText(candidate.title);
+  const pathTokens = tokenizeSearchText(candidate.path);
+  const previewTokens = tokenizeSearchText(candidate.bodyPreview ?? "");
+  const normalizedTitle = normalizeSearchText(candidate.title);
+  const normalizedQuery = normalizeSearchText(queryTokens.join(" "));
+
+  const matchedQueryTokens = queryTokens.filter((token) =>
+    automaticTokenMatches(token, [
+      ...titleTokens,
+      ...pathTokens,
+      ...previewTokens,
+    ])
+  );
+  const matchedTokens = [...new Set(matchedQueryTokens)];
+  if (matchedTokens.length === 0) return null;
+
+  let score = 0;
+  for (const token of matchedQueryTokens) {
+    if (automaticTokenMatches(token, titleTokens)) score += 1_200;
+    if (automaticTokenMatches(token, pathTokens)) score += 800;
+    if (automaticTokenMatches(token, previewTokens)) score += 650;
+  }
+
+  if (normalizedTitle === normalizedQuery) score += 4_000;
+  if (matchedTokens.length === queryTokens.length) score += 1_000;
+  score += Math.min(500, matchedTokens.length * 100);
+
+  return {
+    ...candidate,
+    score,
+    matchedTokens,
+    index,
+  };
+}
+
+function automaticTokenMatches(
+  queryToken: string,
+  candidateTokens: string[]
+): boolean {
+  const queryVariants = tokenVariants(queryToken);
+
+  return candidateTokens.some((candidateToken) => {
+    const candidateVariants = tokenVariants(candidateToken);
+    for (const queryVariant of queryVariants) {
+      for (const candidateVariant of candidateVariants) {
+        if (candidateVariant === queryVariant) return true;
+        if (
+          queryVariant.length >= 3 &&
+          candidateVariant.includes(queryVariant)
+        ) {
+          return true;
+        }
+        if (
+          candidateVariant.length >= 3 &&
+          queryVariant.includes(candidateVariant)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  });
+}
+
+function tokenVariants(token: string): Set<string> {
+  const variants = new Set([token]);
+  if (token.length > 3 && token.endsWith("s")) {
+    variants.add(token.slice(0, -1));
+  } else if (token.length > 2 && !token.endsWith("s")) {
+    variants.add(`${token}s`);
+  }
+  return variants;
 }
 
 function isContextEventAction(value: unknown): value is ContextEventAction {

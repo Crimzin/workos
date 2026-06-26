@@ -430,6 +430,8 @@ async function gatherMentionedNodeContext(
 interface ActiveContextAttachmentRow {
   context_source_node_id: string;
   created_at: string;
+  source_post_id: string | null;
+  source_message_id: string | null;
   source_node:
     | {
         id: string;
@@ -456,7 +458,7 @@ async function getAttachedContextThreads(
   const { data, error } = await supabase
     .from("thread_context_attachments")
     .select(
-      "context_source_node_id,created_at,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,archived_at)"
+      "context_source_node_id,created_at,source_post_id,source_message_id,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,archived_at)"
     )
     .eq("thread_id", nodeId)
     .eq("status", "active")
@@ -465,7 +467,12 @@ async function getAttachedContextThreads(
 
   const rows = (data ?? []) as unknown as ActiveContextAttachmentRow[];
   const seen = new Set<string>();
-  const sourceNodes: Array<{ id: string; title: string; type: string }> = [];
+  const sourceNodes: Array<{
+    id: string;
+    title: string;
+    type: string;
+    sourcePostId: string | null;
+  }> = [];
 
   for (const row of rows) {
     if (row.context_source_node_id === nodeId) continue;
@@ -482,6 +489,7 @@ async function getAttachedContextThreads(
       id: source.id,
       title: source.title,
       type: source.type,
+      sourcePostId: row.source_post_id,
     });
   }
 
@@ -491,11 +499,39 @@ async function getAttachedContextThreads(
 
   const threads: RelativeThread[] = [];
   for (let i = 0; i < sourceNodes.length; i++) {
-    const posts = postsBySource[i].slice(0, ATTACHED_CONTEXT_POST_LIMIT);
+    const posts = selectAttachedContextPosts(
+      postsBySource[i],
+      sourceNodes[i].sourcePostId
+    );
     if (posts.length === 0) continue;
-    threads.push({ node: sourceNodes[i], posts });
+    threads.push({
+      node: {
+        id: sourceNodes[i].id,
+        title: sourceNodes[i].title,
+        type: sourceNodes[i].type,
+      },
+      posts,
+    });
   }
   return threads;
+}
+
+export function selectAttachedContextPosts(
+  posts: PostRecord[],
+  sourcePostId: string | null | undefined,
+  limit = ATTACHED_CONTEXT_POST_LIMIT
+): PostRecord[] {
+  if (limit <= 0) return [];
+  if (!sourcePostId) return posts.slice(0, limit);
+
+  const sourceIndex = posts.findIndex((post) => post.id === sourcePostId);
+  if (sourceIndex < 0) return posts.slice(0, limit);
+
+  const newerSideCount = Math.floor((limit - 1) / 2);
+  let start = Math.max(0, sourceIndex - newerSideCount);
+  const end = Math.min(posts.length, start + limit);
+  start = Math.max(0, end - limit);
+  return posts.slice(start, end);
 }
 
 function missingMentionedNodeContext(
