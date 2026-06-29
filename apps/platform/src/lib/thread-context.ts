@@ -43,6 +43,7 @@ export interface ChooseAutomaticContextCandidatesInput {
 
 export const AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT = 8;
 
+const AUTOMATIC_CONTEXT_MIN_QUERY_TOKENS = 2;
 const AUTOMATIC_CONTEXT_MIN_SCORE = 3_000;
 const AUTOMATIC_CONTEXT_MIN_CROSS_FIELD_TOKENS = 2;
 const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
@@ -164,6 +165,23 @@ export function chooseAutomaticContextCandidates(
     }));
 }
 
+export function buildAutomaticContextQueryText({
+  userText,
+  previousUserTexts,
+}: {
+  userText: string;
+  previousUserTexts: string[];
+}): string {
+  const trimmedUserText = userText.trim();
+  if (hasEnoughAutomaticContextSignal(trimmedUserText)) return trimmedUserText;
+
+  const fallback = previousUserTexts
+    .map((text) => text.trim())
+    .find((text) => hasEnoughAutomaticContextSignal(text));
+
+  return fallback ?? trimmedUserText;
+}
+
 export function isContextEventMetadata(
   metadata: Record<string, unknown> | null | undefined
 ): metadata is ContextEventMetadata {
@@ -224,6 +242,10 @@ function buildAutomaticContextTokens(userText: string): string[] {
     (token) =>
       token.length >= 3 && !AUTOMATIC_CONTEXT_STOP_WORDS.has(token)
   );
+}
+
+function hasEnoughAutomaticContextSignal(userText: string): boolean {
+  return buildAutomaticContextTokens(userText).length >= AUTOMATIC_CONTEXT_MIN_QUERY_TOKENS;
 }
 
 function scoreAutomaticContextCandidate(

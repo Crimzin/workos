@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
   buildContextEventMetadata,
+  buildAutomaticContextQueryText,
   chooseAutomaticContextCandidates,
   contextEventSummary,
   isContextEventPost,
@@ -196,6 +197,32 @@ assert.equal(
     limit: AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
   }).length,
   8
+);
+
+assert.equal(
+  buildAutomaticContextQueryText({
+    userText: "try again!",
+    previousUserTexts: [
+      "I need career advice. at this stage in my career, what sorts of roles do you think I should be looking at?",
+    ],
+  }),
+  "I need career advice. at this stage in my career, what sorts of roles do you think I should be looking at?"
+);
+
+assert.equal(
+  buildAutomaticContextQueryText({
+    userText: "continue the SQL parser",
+    previousUserTexts: ["I need career advice."],
+  }),
+  "continue the SQL parser"
+);
+
+assert.equal(
+  buildAutomaticContextQueryText({
+    userText: "try again!",
+    previousUserTexts: [],
+  }),
+  "try again!"
 );
 
 assert.deepEqual(

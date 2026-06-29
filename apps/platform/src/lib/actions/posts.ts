@@ -47,6 +47,7 @@ import { processNextQueuedAgentRun } from "../agents/worker";
 import { attachThreadContext } from "./thread-context";
 import {
   AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
+  buildAutomaticContextQueryText,
   chooseAutomaticContextCandidates,
   normalizeSourceApp,
   scoreAutomaticContextTextMatch,
@@ -210,10 +211,19 @@ export async function createPost(
   if (mentions.length === 0) return;
 
   try {
+    const previousUserTexts = await getPreviousUserPostTexts({
+      nodeId,
+      actorId: actor.id,
+      targetPostId: targetPost.id,
+    });
+    const contextQueryText = buildAutomaticContextQueryText({
+      userText: plainText,
+      previousUserTexts,
+    });
     await attachAutomaticContextForPost({
       nodeId,
       actorInstanceId: actor.instance_id,
-      plainText,
+      contextQueryText,
     });
   } catch (err) {
     console.error("[thread-context] automatic attach failed:", err);
@@ -270,7 +280,7 @@ export async function createPost(
 async function attachAutomaticContextForPost(input: {
   nodeId: string;
   actorInstanceId: string;
-  plainText: string;
+  contextQueryText: string;
 }): Promise<void> {
   const [
     { data: existingRows, error: existingError },
@@ -326,7 +336,7 @@ async function attachAutomaticContextForPost(input: {
 
   const previewsByNodeId = await getBestPostPreviewsByNodeId(
     candidateRows.map((row) => row.id as string),
-    input.plainText
+    input.contextQueryText
   );
   const candidates: ContextSearchCandidate[] = candidateRows.map((row) => {
     const id = row.id as string;
@@ -347,7 +357,7 @@ async function attachAutomaticContextForPost(input: {
   });
 
   const bestMatches = chooseAutomaticContextCandidates({
-    userText: input.plainText,
+    userText: input.contextQueryText,
     candidates,
     limit: AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
   });
@@ -363,6 +373,30 @@ async function attachAutomaticContextForPost(input: {
       sourceMessageId: match.sourceMessageId,
     });
   }
+}
+
+async function getPreviousUserPostTexts(input: {
+  nodeId: string;
+  actorId: string;
+  targetPostId: string;
+}): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id,body")
+    .eq("node_id", input.nodeId)
+    .eq("actor_id", input.actorId)
+    .eq("post_type", "post")
+    .neq("id", input.targetPostId)
+    .not("body", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(8);
+  if (error) throw error;
+
+  return (data ?? [])
+    .map((row) =>
+      typeof row.body === "string" ? plainTextFromBody(row.body) : ""
+    )
+    .filter((text) => text.trim().length > 0);
 }
 
 interface AutomaticContextPostPreview {
