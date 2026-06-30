@@ -99,12 +99,32 @@ export async function getThreadContextSheet(
         .select("*")
         .eq("thread_id", threadId)
         .maybeSingle();
-      if (error) throw error;
+      if (error) {
+        if (isMissingThreadContextSheetTableError(error)) {
+          console.warn(
+            "[thread-context-sheet] table missing; continuing without thread sheet context"
+          );
+          return null;
+        }
+        throw error;
+      }
       return data as ThreadContextSheet | null;
     },
     ["thread-context-sheet", threadId],
     { tags: [cacheTags.threadContextSheet(threadId)] }
   )();
+}
+
+export function isMissingThreadContextSheetTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const row = error as Record<string, unknown>;
+  const code = typeof row.code === "string" ? row.code : "";
+  const message = typeof row.message === "string" ? row.message : "";
+
+  return (
+    (code === "PGRST205" || code === "42P01") &&
+    message.includes("thread_context_sheets")
+  );
 }
 
 function appendSection(

@@ -299,7 +299,40 @@ export async function createPost(
     });
   } catch (err) {
     console.error("[1.11] agent mention routing failed:", err);
+    await postAgentRoutingFailureReplies({
+      mentions,
+      nodeId,
+      workspaceId,
+      error: err,
+    });
   }
+}
+
+async function postAgentRoutingFailureReplies(input: {
+  mentions: MentionedAgent[];
+  nodeId: string;
+  workspaceId: string;
+  error: unknown;
+}): Promise<void> {
+  const failureReply = agentInvocationFailureReply("", input.error);
+  await Promise.all(
+    input.mentions.map(async (mention) => {
+      try {
+        await createStreamingAgentReply(
+          input.nodeId,
+          input.workspaceId,
+          mention.id,
+          failureReply,
+          { recordStarted: false }
+        );
+      } catch (postError) {
+        console.error(
+          "[1.11] failed to post agent routing failure reply:",
+          postError
+        );
+      }
+    })
+  );
 }
 
 async function attachAutomaticContextForPost(input: {

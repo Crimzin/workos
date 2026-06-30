@@ -379,31 +379,39 @@ export function PostsTabContent({
     // to decide whether a freshly-arrived Claude post is the awaited reply.
     const knownPostIds = new Set(posts.map((p) => p.id));
 
+    if (claudeMentions.length > 0) {
+      setThinkingClaudes(
+        claudeMentions.map((m) => ({ id: m.id, name: m.name, knownPostIds }))
+      );
+      pollDeadlineRef.current = Date.now() + POLL_INITIAL_DURATION_MS;
+      setIsPolling(true);
+    }
+
+    setComposerKey((k) => k + 1); // remounts editor → clean slate
+    setHasContent(false);
+
     startTransition(async () => {
-      await createPost(nodeId, workspaceId, body, {
-        requestAgentResponse: options.requestAgentResponse,
-        selectedAgent,
-        modelSelection: selectedModel
-          ? {
-              providerKey: selectedModel.providerKey,
-              modelId: selectedModel.modelId,
-            }
-          : null,
-      });
-      setComposerKey((k) => k + 1); // remounts editor → clean slate
-      setHasContent(false);
-      if (claudeMentions.length > 0) {
-        setThinkingClaudes(
-          claudeMentions.map((m) => ({ id: m.id, name: m.name, knownPostIds }))
-        );
-        // Start the streaming poll loop. The deadline is wall-clock; the
-        // poll effect will extend it whenever it observes Claude post body
-        // growth, so polling stays alive for the full duration of the
-        // stream + a 15s buffer afterward.
-        pollDeadlineRef.current = Date.now() + POLL_INITIAL_DURATION_MS;
-        setIsPolling(true);
+      try {
+        await createPost(nodeId, workspaceId, body, {
+          requestAgentResponse: options.requestAgentResponse,
+          selectedAgent,
+          modelSelection: selectedModel
+            ? {
+                providerKey: selectedModel.providerKey,
+                modelId: selectedModel.modelId,
+              }
+            : null,
+        });
+      } catch (error) {
+        console.error("[posts] failed to submit post", error);
+        if (claudeMentions.length > 0) {
+          setThinkingClaudes([]);
+          setActiveInlineRuns([]);
+          setIsPolling(false);
+        }
+      } finally {
+        router.refresh();
       }
-      router.refresh();
     });
   };
 

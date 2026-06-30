@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildThreadContextSheetUpsertPayload,
   buildThreadContextSheetMarkdown,
+  isMissingThreadContextSheetTableError,
   mergeThreadContextSheetUpdate,
   selectThreadSheetForPrompt,
 } from "./thread-context-sheet.ts";
@@ -125,3 +126,18 @@ assert.match(markdown, /## Active Working Memory/);
 assert.match(markdown, /Now focusing on charitable giving/);
 assert.match(markdown, /## Thread Long-Term Memory/);
 assert.match(markdown, /Balances may be stale/);
+
+assert.equal(
+  isMissingThreadContextSheetTableError({
+    code: "PGRST205",
+    message: "Could not find the table 'public.thread_context_sheets' in the schema cache",
+  }),
+  true
+);
+assert.equal(
+  isMissingThreadContextSheetTableError({
+    code: "PGRST205",
+    message: "Could not find the table 'public.other_table' in the schema cache",
+  }),
+  false
+);
