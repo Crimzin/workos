@@ -202,16 +202,6 @@ assert.match(
 
 assert.ok(
   prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
-    prompt.userMessage.indexOf('# Stack thread (parent: "AI coaching business")')
-);
-
-assert.ok(
-  prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
-    prompt.userMessage.indexOf('# Sibling card: "First AI diagnostic"')
-);
-
-assert.ok(
-  prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
     prompt.userMessage.indexOf(
       '# Active thread on "AI Diagnostic 2.0: Contextual assessment"'
     )
@@ -220,6 +210,14 @@ assert.ok(
 assert.match(
   prompt.userMessage,
   /The campaign reporting SQL parser expects campaign_id aliases\./
+);
+assert.doesNotMatch(
+  prompt.userMessage,
+  /The first AI diagnostic scored fluency with a simple ladder\./
+);
+assert.doesNotMatch(
+  prompt.userMessage,
+  /@Claude summarize the first AI diagnostic\./
 );
 
 const sheetPrompt = renderClaudePrompt(
@@ -302,13 +300,6 @@ assert.doesNotMatch(
 );
 
 assert.ok(
-  prompt.userMessage.indexOf('# Sibling card: "First AI diagnostic"') <
-    prompt.userMessage.indexOf(
-      '# Active thread on "AI Diagnostic 2.0: Contextual assessment"'
-    )
-);
-
-assert.ok(
   prompt.userMessage.indexOf("# Mentioned Node Context") <
     prompt.userMessage.indexOf(
       '# Active thread on "AI Diagnostic 2.0: Contextual assessment"'
@@ -318,7 +309,10 @@ assert.match(prompt.userMessage, /## Pricing rewrite \[card\]/);
 assert.match(prompt.userMessage, /Path: Growth \/ Website \/ Pricing rewrite/);
 assert.match(prompt.userMessage, /- Status: In progress/);
 assert.match(prompt.userMessage, /Rationale: Clarify packaging before launch\./);
-assert.match(prompt.userMessage, /- Assumption: Users understand seat pricing\. \(untested\)/);
+assert.match(
+  prompt.userMessage,
+  /- Assumption: Users understand seat pricing\. \(untested\)/
+);
 assert.match(prompt.userMessage, /- Decision: Lead with team plan\. \(active\)/);
 assert.match(prompt.userMessage, /Use the short-form pricing table\./);
 assert.match(
@@ -353,6 +347,54 @@ assert.match(
   prompt.userMessage,
   /Respond only to the post marked "TARGET @MENTION TO ANSWER"\.$/
 );
+
+const familyBudgetPrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    parentThread: {
+      node: { id: "parent-stack", title: "Big parent", type: "stack" },
+      posts: [
+        post(
+          "parent-raw",
+          "This giant raw parent payload should be omitted unless L3 is justified.",
+          "2026-05-19T02:13:30.000Z"
+        ),
+      ],
+      contextPack: {
+        router_version: "context-router-v1",
+        resolved_query: "context router v2",
+        relevance_confidence: 0.8,
+        reason: "Family thread was scanned and summarized.",
+        useful_facts: ["Parent stack contains related architecture notes."],
+        snippet: "Related architecture notes.",
+      },
+    },
+    siblingThreads: [
+      {
+        node: { id: "sibling-card", title: "Sibling", type: "card" },
+        posts: [
+          post(
+            "sibling-raw",
+            "This giant raw sibling payload should be omitted.",
+            "2026-05-19T02:13:45.000Z"
+          ),
+        ],
+      },
+    ],
+  },
+  { targetPostId: "target", now: new Date("2026-06-22T16:43:00.000Z") }
+);
+
+assert.match(
+  familyBudgetPrompt.userMessage,
+  /Family thread was scanned and summarized/
+);
+assert.match(
+  familyBudgetPrompt.userMessage,
+  /Parent stack contains related architecture notes/
+);
+assert.doesNotMatch(familyBudgetPrompt.userMessage, /giant raw parent payload/);
+assert.doesNotMatch(familyBudgetPrompt.userMessage, /giant raw sibling payload/);
 
 const gapPrompt = renderClaudePrompt(
   {

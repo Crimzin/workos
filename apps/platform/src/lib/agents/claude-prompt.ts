@@ -161,38 +161,43 @@ function buildUserMessage(
 
   // Explicitly attached context comes before inferred family context.
   for (const attached of ctx.attachedContexts) {
-    sections.push(
-      renderRelativeSection(
-        `# Attached context: "${attached.node.title}"`,
-        attached,
-        now
-      )
+    const rendered = renderRelativeSection(
+      `# Attached context: "${attached.node.title}"`,
+      attached,
+      now,
+      { allowRawPosts: true }
     );
+    if (rendered) sections.push(rendered);
   }
 
   // Parent stack thread, when applicable.
   if (ctx.parentThread) {
-    sections.push(
-      renderRelativeSection(
-        `# Stack thread (parent: "${ctx.parentThread.node.title}")`,
-        ctx.parentThread,
-        now
-      )
+    const rendered = renderRelativeSection(
+      `# Stack thread (parent: "${ctx.parentThread.node.title}")`,
+      ctx.parentThread,
+      now
     );
+    if (rendered) sections.push(rendered);
   }
 
   // Sibling card threads.
   for (const s of ctx.siblingThreads) {
-    sections.push(
-      renderRelativeSection(`# Sibling card: "${s.node.title}"`, s, now)
+    const rendered = renderRelativeSection(
+      `# Sibling card: "${s.node.title}"`,
+      s,
+      now
     );
+    if (rendered) sections.push(rendered);
   }
 
   // Child card threads (when @-mentioned on a stack).
   for (const c of ctx.childThreads) {
-    sections.push(
-      renderRelativeSection(`# Child card: "${c.node.title}"`, c, now)
+    const rendered = renderRelativeSection(
+      `# Child card: "${c.node.title}"`,
+      c,
+      now
     );
+    if (rendered) sections.push(rendered);
   }
 
   const mentionedNodes = ctx.mentionedNodes ?? [];
@@ -252,8 +257,9 @@ function renderThreadSection(
 function renderRelativeSection(
   heading: string,
   thread: RelativeThread,
-  now: Date
-): string {
+  now: Date,
+  options: { allowRawPosts: boolean } = { allowRawPosts: false }
+): string | null {
   if (thread.contextPack) {
     const pack = thread.contextPack;
     return [
@@ -270,6 +276,8 @@ function renderRelativeSection(
       .join("\n")
       .trimEnd();
   }
+
+  if (!options.allowRawPosts) return null;
 
   const lines: string[] = [heading, ``];
   lines.push(
