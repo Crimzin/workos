@@ -253,7 +253,7 @@ The user action:
 The product outcome:
 
 - The messy archive becomes a clean set of threads.
-- The user sees summaries, decisions, open questions, assumptions, and suggested next moves.
+- The user sees things like summaries, decisions, open questions, assumptions, and suggested next moves - whatever types of information are most useful for the given thread and its purpose.
 - Raw source remains available for provenance.
 - The model can use imported context immediately.
 - The user does not stare at a replay of old chats.

@@ -26,12 +26,16 @@ The interface should make the AI's current understanding visible and editable.
    - proposed clusters
    - ambiguous conversations
    - one-off conversations
-   - suggested yes/no questions
-   - a bottom composer for instructions
+   - suggested yes/no questions nested inside the relevant cluster or holding area
+   - a full-width bottom composer for instructions and approval
 4. User answers questions, drags chips, or types corrections.
 5. WorkOS updates the interactive review surface immediately.
-6. User clicks a generation action for one cluster or the whole approved import.
-7. WorkOS generates starter context from the approved cluster state.
+6. User approves the current cluster map from the composer.
+7. WorkOS continues to starter-context generation from the approved cluster state.
+
+Review changes should persist locally for the import session. A refresh should
+restore the reviewed cluster map rather than silently falling back to the
+initial proposal.
 
 ## Screen Layout
 
@@ -46,8 +50,8 @@ The header shows:
 - clustered count
 - ambiguous count
 - excluded count
-- primary action: `Generate Starter Context`
-- secondary action: `Save Draft`
+
+The header should not carry the primary generation action. The review flow is linear: correction happens in the body and composer, then approval happens from the composer.
 
 ### Main Review Surface
 
@@ -59,6 +63,7 @@ Each cluster appears as a flowing section with:
 - confidence badge
 - conversation count
 - optional short rationale
+- relevant yes/no suggested decisions, when present
 - visible chat chips
 - action menu for rename, split, merge, exclude, or generate memo for this cluster
 
@@ -75,13 +80,18 @@ Design constraints:
 
 - Use a single-column or document-like layout by default.
 - Clusters should feel like editable sections inside a post, not board columns.
+- Proposed clusters should be visually separated from each other as distinct sections.
 - Chat chips may wrap within sections, but they should not resemble WorkOS card tiles.
 - Do not reuse Board tab stack/card styling, column headers, lifecycle columns, or board drag handles.
 - The page should feel closer to "AI-generated memo that I can correct" than "project board that I organize."
+- The chat detail panel starts closed. Clicking a chip opens a right-side panel, compressing the main review area on desktop. The panel should be sticky while the review scrolls and should include an explicit close control.
+- The import page should not create a second outer scroll region below the review surface. The review body owns scrolling; the composer and legacy import panel should not leave the user stranded in blank page space.
 
 ### Bottom Composer
 
 The bottom of the page has a WorkOS-style composer, matching the mental model of normal thread interaction.
+
+The composer should use the same visual shell as the thread chat composer, with only import-review-specific behavior layered on top. It spans the full width of the review panel and stays below the scrollable review body.
 
 Examples:
 
@@ -107,6 +117,8 @@ Exclude the empty untitled conversations.
 
 The composer should update the review surface, not create a normal post.
 
+The approve-and-continue action also belongs in this composer region. Clicking it should open a compact in-composer confirmation prompt rather than presenting a disconnected `Generate Starter Context` button elsewhere on the page.
+
 ## Suggested Questions
 
 The clustering engine may return suggested questions with yes/no toggles.
@@ -128,6 +140,12 @@ Each question should have:
 - preview of the action
 
 Each question defaults to `No`, and the user is not required to answer any of them. The happy path is doing nothing: unanswered questions remain `No` and the current proposal stays intact.
+
+Questions should be placed where they are contextually useful, not grouped into a separate global checklist. Use the current location of the affected conversations to nest each question under the most relevant cluster or holding area.
+
+For split/move suggestions, the question should remain anchored to the source
+cluster after it is toggled. The affected chats may move, but the control itself
+should not jump away from the place where the user clicked it.
 
 Toggling a question to `Yes` should move chips automatically. Toggling it back to `No` should reverse that suggested move where possible. Users can still override by dragging chips afterward.
 
@@ -263,6 +281,28 @@ Each conversation belongs to exactly one place:
 - ambiguous
 - one-offs
 - excluded
+
+## Proposal Protocol Guardrails
+
+The initial review state must be generated from the current import scan, not
+hand-authored cluster constants or assistant memory from prior work sessions.
+The prototype scan may use conversation sketches such as title, summary, first
+human turn, last human turn, high-signal turns, rare terms, and message count,
+but cluster membership and review questions should be derived by the proposal
+algorithm.
+
+Before any proposal reaches the UI, validate these invariants:
+
+- no empty clusters
+- no duplicate conversation assignments
+- no missing conversation assignments
+- no unknown conversation references
+- no yes/no question that moves every conversation out of its own source cluster
+
+If a proposal question fails validation, omit the question rather than exposing a
+nonsensical toggle. If base cluster membership fails validation, treat that as a
+protocol bug to fix in the generator, not as a one-off correction to the sample
+data.
 
 ## Cluster Generation Boundary
 

@@ -113,8 +113,8 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
   const treeContent = <ThreadTree threads={children} />;
 
   return (
-    <main className="flex h-full min-h-0 bg-bg-primary">
-      <div className="min-w-0 flex-1">
+    <main className="flex h-full min-h-0 overflow-hidden bg-bg-primary">
+      <div className="min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
         <NodeDetailTabs
           identity={{
             node,
@@ -131,6 +131,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
           memoryContent={memoryContent}
           treeContent={treeContent}
           detailsPlacement="external"
+          pinIdentityHeader
           paddingClassName="px-6"
         />
       </div>

@@ -16,10 +16,11 @@ import { sourceThreadHref } from "@/lib/post-source-links";
 
 export interface ContextEventProps {
   threadId: string;
+  postId: string;
   metadata: ContextEventMetadata;
 }
 
-export function ContextEvent({ threadId, metadata }: ContextEventProps) {
+export function ContextEvent({ threadId, postId, metadata }: ContextEventProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const sourceNodeId = metadata.source_node_id;
@@ -59,7 +60,9 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              void runAction(() => removeThreadContext(threadId, sourceNodeId))
+              void runAction(() =>
+                removeThreadContext(threadId, sourceNodeId, postId)
+              )
             }
             className={contextEventButtonClassName}
           >
@@ -71,7 +74,9 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              void runAction(() => ignoreThreadContext(threadId, sourceNodeId))
+              void runAction(() =>
+                ignoreThreadContext(threadId, sourceNodeId, postId)
+              )
             }
             className={contextEventButtonClassName}
           >
@@ -83,7 +88,9 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              void runAction(() => allowThreadContext(threadId, sourceNodeId))
+              void runAction(() =>
+                allowThreadContext(threadId, sourceNodeId, postId)
+              )
             }
             className={contextEventButtonClassName}
           >
@@ -95,7 +102,9 @@ export function ContextEvent({ threadId, metadata }: ContextEventProps) {
             type="button"
             disabled={pending}
             onClick={() =>
-              void runAction(() => allowThreadContext(threadId, sourceNodeId))
+              void runAction(() =>
+                allowThreadContext(threadId, sourceNodeId, postId)
+              )
             }
             className={contextEventButtonClassName}
           >

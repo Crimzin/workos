@@ -221,6 +221,58 @@ assert.match(
   /The campaign reporting SQL parser expects campaign_id aliases\./
 );
 
+const compactContextPrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    attachedContexts: [
+      {
+        node: { id: "anthropic", title: "Danny @ Anthropic", type: "stack" },
+        posts: [
+          post(
+            "anthropic-full-context",
+            "This full attached thread post should not appear when a compact context pack exists.",
+            "2026-05-19T02:13:20.000Z"
+          ),
+        ],
+        contextPack: {
+          router_version: "context-router-v1",
+          resolved_query: "career advice Anthropic roles",
+          relevance_confidence: 0.91,
+          reason: "Directly relevant to Anthropic process.",
+          useful_facts: ["Danny discussed Anthropic product roles."],
+          snippet: "Danny discussed Anthropic product roles and fit.",
+        },
+      },
+    ],
+  },
+  {
+    targetPostId: "target",
+    now: new Date("2026-06-22T16:43:00.000Z"),
+  }
+);
+
+assert.match(
+  compactContextPrompt.userMessage,
+  /# Attached context: "Danny @ Anthropic"/
+);
+assert.match(compactContextPrompt.userMessage, /Relevance: 91%/);
+assert.match(
+  compactContextPrompt.userMessage,
+  /Why included: Directly relevant to Anthropic process\./
+);
+assert.match(
+  compactContextPrompt.userMessage,
+  /Useful facts:\n- Danny discussed Anthropic product roles\./
+);
+assert.match(
+  compactContextPrompt.userMessage,
+  /Source snippet:\nDanny discussed Anthropic product roles and fit\./
+);
+assert.doesNotMatch(
+  compactContextPrompt.userMessage,
+  /This full attached thread post should not appear/
+);
+
 assert.ok(
   prompt.userMessage.indexOf('# Sibling card: "First AI diagnostic"') <
     prompt.userMessage.indexOf(

@@ -21,7 +21,6 @@ from conversation_synthesis import (
     deterministic_conversation_synthesis,
     validate_synthesis_shape,
 )
-from import_preview import ImportPreviewRequestData, build_import_preview
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -184,11 +183,6 @@ class ConversationSynthesisRequest(BaseModel):
     provider: Literal["dev-rule", "claude"] = "dev-rule"
     store_synthesis: bool = True
     store_primitives: bool = False
-
-
-class AIConversationImportPreviewRequest(BaseModel):
-    conversation_ids: list[str] = Field(..., min_length=1)
-    default_include: bool = True
 
 
 class ExtractedPrimitive(BaseModel):
@@ -2948,34 +2942,6 @@ async def synthesize_conversation(
         "stored_primitives": [primitive.model_dump() for primitive in stored_primitives],
         "graph_validation": graph_validation,
     }
-
-
-@app.post("/imports/ai-conversations/preview", dependencies=[Depends(require_auth)])
-async def preview_ai_conversation_import(
-    payload: AIConversationImportPreviewRequest,
-) -> dict[str, Any]:
-    syntheses: list[dict[str, Any]] = []
-    missing: list[str] = []
-    for conversation_id in payload.conversation_ids:
-        stored = store.conversation_syntheses_for(conversation_id)
-        if not stored:
-            missing.append(conversation_id)
-        else:
-            syntheses.extend(stored)
-
-    if missing:
-        raise HTTPException(
-            status_code=404,
-            detail={"missing_conversation_ids": missing},
-        )
-
-    return build_import_preview(
-        syntheses,
-        ImportPreviewRequestData(
-            conversation_ids=payload.conversation_ids,
-            default_include=payload.default_include,
-        ),
-    )
 
 
 @app.post("/sources/discord/messages", dependencies=[Depends(require_auth)])

@@ -68,22 +68,66 @@ function buildClaudeUserContent(
 
   return [
     { type: "text" as const, text: userMessage },
-    ...images.flatMap((image, index) => [
-      {
-        type: "text" as const,
-        text: `Attached image ${index + 1}: ${renderAttachmentSource(image)}${
-          image.caption ? ` — ${image.caption}` : ""
-        }`,
-      },
-      {
-        type: "image" as const,
-        source: {
-          type: "url" as const,
-          url: image.url,
+    ...images.flatMap((image, index) => {
+      const label = image.caption ?? image.title;
+      const source = renderAttachmentSource(image);
+      if (!isExternallyFetchableImageUrl(image.url)) {
+        return [
+          {
+            type: "text" as const,
+            text: `Attached image ${index + 1} omitted: ${source}${
+              label ? ` — ${label}` : ""
+            }. The image URL is not externally fetchable by Claude.`,
+          },
+        ];
+      }
+
+      return [
+        {
+          type: "text" as const,
+          text: `Attached image ${index + 1}: ${source}${
+            image.caption ? ` — ${image.caption}` : ""
+          }`,
         },
-      },
-    ]),
+        {
+          type: "image" as const,
+          source: {
+            type: "url" as const,
+            url: image.url,
+          },
+        },
+      ];
+    }),
   ];
+}
+
+function isExternallyFetchableImageUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return false;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1"
+  ) {
+    return false;
+  }
+
+  if (hostname === "mail.google.com" || hostname === "gmail.com") {
+    return false;
+  }
+
+  return true;
 }
 
 /** Hard ceiling for a non-streaming Anthropic call. Beyond this we abort and

@@ -30,6 +30,7 @@ import type {
   NodeAncestor,
   NodeDetail,
 } from "../node-detail";
+import type { ContextPack } from "../context-router/types";
 import type { PostRecord } from "../posts";
 import type { Actor, MemoryPrimitive, WorkNode } from "../types";
 import {
@@ -52,6 +53,7 @@ export interface RelativeThread {
   node: { id: string; title: string; type: string };
   /** Posts on the relative node, newest-first (renderer reverses if it wants chronological). */
   posts: PostRecord[];
+  contextPack?: ContextPack;
 }
 
 export interface NodeContextLink {
@@ -432,6 +434,7 @@ interface ActiveContextAttachmentRow {
   created_at: string;
   source_post_id: string | null;
   source_message_id: string | null;
+  metadata: Record<string, unknown> | null;
   source_node:
     | {
         id: string;
@@ -458,7 +461,7 @@ async function getAttachedContextThreads(
   const { data, error } = await supabase
     .from("thread_context_attachments")
     .select(
-      "context_source_node_id,created_at,source_post_id,source_message_id,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,archived_at)"
+      "context_source_node_id,created_at,source_post_id,source_message_id,metadata,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,archived_at)"
     )
     .eq("thread_id", nodeId)
     .eq("status", "active")
@@ -472,6 +475,7 @@ async function getAttachedContextThreads(
     title: string;
     type: string;
     sourcePostId: string | null;
+    contextPack?: ContextPack;
   }> = [];
 
   for (const row of rows) {
@@ -490,6 +494,7 @@ async function getAttachedContextThreads(
       title: source.title,
       type: source.type,
       sourcePostId: row.source_post_id,
+      contextPack: contextPackFromMetadata(row.metadata),
     });
   }
 
@@ -503,7 +508,7 @@ async function getAttachedContextThreads(
       postsBySource[i],
       sourceNodes[i].sourcePostId
     );
-    if (posts.length === 0) continue;
+    if (posts.length === 0 && !sourceNodes[i].contextPack) continue;
     threads.push({
       node: {
         id: sourceNodes[i].id,
@@ -511,9 +516,39 @@ async function getAttachedContextThreads(
         type: sourceNodes[i].type,
       },
       posts,
+      contextPack: sourceNodes[i].contextPack,
     });
   }
   return threads;
+}
+
+function contextPackFromMetadata(
+  metadata: Record<string, unknown> | null
+): ContextPack | undefined {
+  const pack = metadata?.context_pack;
+  if (!pack || typeof pack !== "object" || Array.isArray(pack)) {
+    return undefined;
+  }
+
+  const row = pack as Record<string, unknown>;
+  if (row.router_version !== "context-router-v1") return undefined;
+
+  return {
+    router_version: "context-router-v1",
+    resolved_query:
+      typeof row.resolved_query === "string" ? row.resolved_query : "",
+    relevance_confidence:
+      typeof row.relevance_confidence === "number"
+        ? row.relevance_confidence
+        : 0,
+    reason: typeof row.reason === "string" ? row.reason : "",
+    useful_facts: Array.isArray(row.useful_facts)
+      ? row.useful_facts.filter(
+          (item): item is string => typeof item === "string"
+        )
+      : [],
+    snippet: typeof row.snippet === "string" ? row.snippet : "",
+  };
 }
 
 export function selectAttachedContextPosts(

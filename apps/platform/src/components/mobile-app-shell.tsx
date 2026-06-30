@@ -13,6 +13,7 @@ import type { SidebarData } from "@/lib/nodes";
 import {
   DEFAULT_MOBILE_NAV_OPEN,
   getMobileDrawerSwipeIntent,
+  shouldPreventMobileDrawerBrowserNavigation,
 } from "@/lib/mobile-shell";
 import { Sidebar } from "./sidebar";
 
@@ -82,6 +83,19 @@ export function MobileAppShell({
 
       start.currentX = touch.clientX;
       start.currentY = touch.clientY;
+
+      if (isInteractiveTextTarget(start.target)) return;
+
+      if (
+        shouldPreventMobileDrawerBrowserNavigation({
+          drawerOpen: mobileNavOpenRef.current,
+          startX: start.x,
+          deltaX: touch.clientX - start.x,
+          deltaY: touch.clientY - start.y,
+        })
+      ) {
+        event.preventDefault();
+      }
     }
 
     function onTouchEnd(event: TouchEvent) {
@@ -118,7 +132,7 @@ export function MobileAppShell({
     });
     document.addEventListener("touchmove", onTouchMove, {
       capture: true,
-      passive: true,
+      passive: false,
     });
     document.addEventListener("touchcancel", onTouchCancel, {
       capture: true,

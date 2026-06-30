@@ -44,6 +44,7 @@ interface NodeDetailTabsProps {
   memoryContent: ReactNode;
   treeContent?: ReactNode;
   detailsPlacement?: "tabs" | "external";
+  pinIdentityHeader?: boolean;
   paddingClassName?: string;
 }
 
@@ -54,6 +55,7 @@ export function NodeDetailTabs({
   memoryContent,
   treeContent,
   detailsPlacement = "tabs",
+  pinIdentityHeader = false,
   paddingClassName = "px-6",
 }: NodeDetailTabsProps) {
   const desktopTabs: { id: TabId; label: string; content: ReactNode }[] = [
@@ -211,7 +213,12 @@ export function NodeDetailTabs({
       )}
 
       {identity && (
-        <div className="hidden md:block">
+        <div
+          className={[
+            "hidden md:block",
+            pinIdentityHeader ? "sticky top-0 z-30 bg-bg-primary" : "",
+          ].join(" ")}
+        >
           <NodeIdentityRail
             node={identity.node}
             workspaceId={identity.workspaceId}

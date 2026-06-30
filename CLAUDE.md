@@ -27,7 +27,7 @@ The near-term priority is the import/cold-start "boom": a user drops in Claude/C
 ## Key Documents
 
 - `docs/strategy/workos-unified-vision-and-build-direction.md` - Canonical strategic direction for the current unified WorkOS phase.
-- `docs/superpowers/plans/2026-06-18-import-cold-start-boom.md` - Tactical plan for the import/cold-start build.
+- `docs/superpowers/specs/` - Current design specs. The import/cold-start implementation plan is being rewritten from the canonical strategy.
 - `ai-ecosystem-roadmap-v1.2.md` - Historical build roadmap + architecture decisions log.
 - `AGENTS.md` — Notes for AI agents working on this codebase.
 

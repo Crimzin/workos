@@ -45,14 +45,18 @@ import { isAgentRunConfirmation } from "../agents/confirmation";
 import { queueAwaitingRunsForConfirmation } from "../agents/runs";
 import { processNextQueuedAgentRun } from "../agents/worker";
 import { attachThreadContext } from "./thread-context";
+import { makeContextRouterCandidate } from "../context-router/candidates";
 import {
-  AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
-  buildAutomaticContextQueryText,
-  chooseAutomaticContextCandidates,
+  MIN_TURN_RESOLUTION_CONFIDENCE,
+  routeAutomaticContext,
+} from "../context-router/router";
+import { resolveContextTurn } from "../context-router/turn-resolver";
+import type { ContextRouterCandidate } from "../context-router/types";
+import {
+  isContextEventMetadata,
   normalizeSourceApp,
   scoreAutomaticContextTextMatch,
 } from "../thread-context";
-import type { ContextSearchCandidate } from "../context-search";
 import type { NodeType } from "../types";
 
 /**
@@ -211,19 +215,26 @@ export async function createPost(
   if (mentions.length === 0) return;
 
   try {
-    const previousUserTexts = await getPreviousUserPostTexts({
-      nodeId,
-      actorId: actor.id,
-      targetPostId: targetPost.id,
-    });
-    const contextQueryText = buildAutomaticContextQueryText({
-      userText: plainText,
-      previousUserTexts,
-    });
+    const [previousUserTexts, recentThreadTexts, activeThreadTitle] =
+      await Promise.all([
+        getPreviousUserPostTexts({
+          nodeId,
+          actorId: actor.id,
+          targetPostId: targetPost.id,
+        }),
+        getPreviousThreadPostTexts({
+          nodeId,
+          targetPostId: targetPost.id,
+        }),
+        getActiveThreadTitle(nodeId),
+      ]);
     await attachAutomaticContextForPost({
       nodeId,
       actorInstanceId: actor.instance_id,
-      contextQueryText,
+      currentText: plainText,
+      previousUserTexts,
+      recentThreadTexts,
+      activeThreadTitle,
     });
   } catch (err) {
     console.error("[thread-context] automatic attach failed:", err);
@@ -280,8 +291,25 @@ export async function createPost(
 async function attachAutomaticContextForPost(input: {
   nodeId: string;
   actorInstanceId: string;
-  contextQueryText: string;
+  currentText: string;
+  previousUserTexts: string[];
+  recentThreadTexts: string[];
+  activeThreadTitle: string;
 }): Promise<void> {
+  const turnResolution = await resolveContextTurn({
+    currentText: input.currentText,
+    previousUserTexts: input.previousUserTexts,
+    recentThreadTexts: input.recentThreadTexts,
+    activeThreadTitle: input.activeThreadTitle || "Active thread",
+  });
+  if (
+    !turnResolution.shouldRetrieve ||
+    turnResolution.confidence < MIN_TURN_RESOLUTION_CONFIDENCE
+  ) {
+    return;
+  }
+
+  const contextQueryText = turnResolution.resolvedQuery;
   const [
     { data: existingRows, error: existingError },
     { data: recentNodeRows, error: recentNodeError },
@@ -336,43 +364,56 @@ async function attachAutomaticContextForPost(input: {
 
   const previewsByNodeId = await getBestPostPreviewsByNodeId(
     candidateRows.map((row) => row.id as string),
-    input.contextQueryText
+    contextQueryText
   );
-  const candidates: ContextSearchCandidate[] = candidateRows.map((row) => {
+  const candidates: ContextRouterCandidate[] = candidateRows.map((row) => {
     const id = row.id as string;
     const title = row.title as string;
     const preview = previewsByNodeId.get(id);
-    return {
+    return makeContextRouterCandidate({
       id,
       title,
-      path: title,
-      type: row.type as NodeType,
-      href: `/n/${id}`,
       sourceApp: normalizeSourceApp(row.source_app),
       updatedAt: (row.updated_at as string | null) ?? null,
-      bodyPreview: preview?.bodyPreview ?? null,
       sourcePostId: preview?.sourcePostId ?? null,
       sourceMessageId: preview?.sourceMessageId ?? null,
-    };
+      text: `${title}\n${preview?.bodyPreview ?? ""}`.trim(),
+      query: contextQueryText,
+    });
   });
 
-  const bestMatches = chooseAutomaticContextCandidates({
-    userText: input.contextQueryText,
+  const decisions = await routeAutomaticContext({
+    currentText: input.currentText,
+    previousUserTexts: input.previousUserTexts,
+    recentThreadTexts: input.recentThreadTexts,
+    activeThreadTitle: input.activeThreadTitle || "Active thread",
     candidates,
-    limit: AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
+    turnResolution,
   });
-  if (bestMatches.length === 0) return;
+  if (decisions.length === 0) return;
 
-  for (const match of bestMatches) {
+  for (const decision of decisions) {
     await attachThreadContext({
       threadId: input.nodeId,
-      sourceNodeId: match.id,
+      sourceNodeId: decision.candidate.id,
       attachedBy: "automatic",
-      reason: `Matched ${match.matchedTokens.join(", ")}.`,
-      sourcePostId: match.sourcePostId,
-      sourceMessageId: match.sourceMessageId,
+      reason: decision.inclusionReason,
+      sourcePostId: decision.sourcePostId,
+      sourceMessageId: decision.sourceMessageId,
+      metadata: { context_pack: decision.pack },
     });
   }
+}
+
+async function getActiveThreadTitle(nodeId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from("nodes")
+    .select("title")
+    .eq("id", nodeId)
+    .maybeSingle();
+  if (error) throw error;
+  const title = typeof data?.title === "string" ? data.title.trim() : "";
+  return title || "Active thread";
 }
 
 async function getPreviousUserPostTexts(input: {
@@ -397,6 +438,39 @@ async function getPreviousUserPostTexts(input: {
       typeof row.body === "string" ? plainTextFromBody(row.body) : ""
     )
     .filter((text) => text.trim().length > 0);
+}
+
+async function getPreviousThreadPostTexts(input: {
+  nodeId: string;
+  targetPostId: string;
+}): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id,body,metadata,actor:actors(name,kind),created_at")
+    .eq("node_id", input.nodeId)
+    .eq("post_type", "post")
+    .neq("id", input.targetPostId)
+    .not("body", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(12);
+  if (error) throw error;
+
+  return (data ?? [])
+    .filter(
+      (row) =>
+        !isContextEventMetadata(
+          isRecord(row.metadata) ? row.metadata : null
+        )
+    )
+    .map((row) => {
+      const text =
+        typeof row.body === "string" ? plainTextFromBody(row.body).trim() : "";
+      if (!text) return "";
+      const label = actorLabel(row.actor);
+      return label ? `${label}: ${text}` : text;
+    })
+    .filter((text) => text.length > 0)
+    .reverse();
 }
 
 interface AutomaticContextPostPreview {
@@ -471,6 +545,19 @@ function previewAroundMatch(text: string, matchedTokens: string[]): string {
 
 function metadataString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function actorLabel(value: unknown): string | null {
+  const actor = Array.isArray(value) ? value[0] : value;
+  if (!isRecord(actor)) return null;
+  const name = typeof actor.name === "string" ? actor.name.trim() : "";
+  if (name) return name;
+  const kind = typeof actor.kind === "string" ? actor.kind.trim() : "";
+  return kind || null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNodeType(value: unknown): value is NodeType {

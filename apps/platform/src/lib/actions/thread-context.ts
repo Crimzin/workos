@@ -6,8 +6,10 @@ import { revalidateNodePosts, revalidateThreadContext } from "../cache";
 import { supabase } from "../supabase";
 import {
   buildContextEventMetadata,
+  isContextEventMetadata,
   normalizeSourceApp,
   type ContextEventAction,
+  updateContextEventMetadataAction,
 } from "../thread-context";
 import type {
   ContextAttachedBy,
@@ -22,6 +24,7 @@ export interface AttachThreadContextInput {
   reason?: string | null;
   sourcePostId?: string | null;
   sourceMessageId?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 interface SourceNodeForContext {
@@ -35,6 +38,11 @@ interface ExistingAttachmentForContext {
   source_post_id: string | null;
   source_message_id: string | null;
   reason: string | null;
+}
+
+interface ContextEventPostRow {
+  id: string;
+  metadata: Record<string, unknown> | null;
 }
 
 export async function attachThreadContext(
@@ -58,6 +66,7 @@ export async function attachThreadContext(
       reason: input.reason ?? null,
       source_post_id: input.sourcePostId ?? null,
       source_message_id: input.sourceMessageId ?? null,
+      metadata: input.metadata ?? {},
       removed_at: null,
     },
     { onConflict: "thread_id,context_source_node_id" }
@@ -82,33 +91,48 @@ export async function attachThreadContext(
 
 export async function removeThreadContext(
   threadId: string,
-  sourceNodeId: string
-): Promise<void> {
-  await updateThreadContextStatus(threadId, sourceNodeId, "removed");
-}
-
-export async function ignoreThreadContext(
-  threadId: string,
-  sourceNodeId: string
+  sourceNodeId: string,
+  contextEventPostId?: string
 ): Promise<void> {
   await updateThreadContextStatus(
     threadId,
     sourceNodeId,
-    "ignored_for_suggestions"
+    "removed",
+    contextEventPostId
+  );
+}
+
+export async function ignoreThreadContext(
+  threadId: string,
+  sourceNodeId: string,
+  contextEventPostId?: string
+): Promise<void> {
+  await updateThreadContextStatus(
+    threadId,
+    sourceNodeId,
+    "ignored_for_suggestions",
+    contextEventPostId
   );
 }
 
 export async function allowThreadContext(
   threadId: string,
-  sourceNodeId: string
+  sourceNodeId: string,
+  contextEventPostId?: string
 ): Promise<void> {
-  await updateThreadContextStatus(threadId, sourceNodeId, "active");
+  await updateThreadContextStatus(
+    threadId,
+    sourceNodeId,
+    "active",
+    contextEventPostId
+  );
 }
 
 async function updateThreadContextStatus(
   threadId: string,
   sourceNodeId: string,
-  status: ThreadContextAttachmentStatus
+  status: ThreadContextAttachmentStatus,
+  contextEventPostId?: string
 ): Promise<void> {
   const actor = await getCurrentActor();
   await validateThread(threadId, actor.instance_id);
@@ -132,14 +156,21 @@ async function updateThreadContextStatus(
   if (error) throw error;
   if (!updatedAttachment) return;
 
-  await insertContextEventPost({
+  const eventInput = {
     threadId,
     action: contextEventActionForStatus(status),
     source,
     sourcePostId: attachment.source_post_id,
     sourceMessageId: attachment.source_message_id,
     reason: attachment.reason,
+  };
+  const updatedEvent = await updateContextEventPost({
+    ...eventInput,
+    contextEventPostId,
   });
+  if (!updatedEvent) {
+    await insertContextEventPost(eventInput);
+  }
   revalidateContextSurfaces(threadId);
 }
 
@@ -215,6 +246,92 @@ async function insertContextEventPost(input: {
     }),
   });
   if (error) throw error;
+}
+
+async function updateContextEventPost(input: {
+  threadId: string;
+  action: ContextEventAction;
+  source: SourceNodeForContext;
+  contextEventPostId?: string | null;
+  sourcePostId?: string | null;
+  sourceMessageId?: string | null;
+  reason?: string | null;
+}): Promise<boolean> {
+  const row = await findContextEventPost({
+    threadId: input.threadId,
+    sourceNodeId: input.source.id,
+    contextEventPostId: input.contextEventPostId,
+  });
+  if (!row) return false;
+
+  const baseMetadata = buildContextEventMetadata({
+    action: isContextEventMetadata(row.metadata)
+      ? row.metadata.action
+      : input.action,
+    sourceNodeId: input.source.id,
+    sourceTitle: input.source.title,
+    sourceApp: input.source.source_app,
+    sourcePostId: input.sourcePostId,
+    sourceMessageId: input.sourceMessageId,
+    reason: input.reason,
+  });
+  const metadata = updateContextEventMetadataAction(
+    baseMetadata,
+    input.action
+  );
+
+  const { error } = await supabase
+    .from("posts")
+    .update({ metadata })
+    .eq("id", row.id)
+    .eq("node_id", input.threadId)
+    .eq("post_type", "context_event");
+  if (error) throw error;
+  return true;
+}
+
+async function findContextEventPost(input: {
+  threadId: string;
+  sourceNodeId: string;
+  contextEventPostId?: string | null;
+}): Promise<ContextEventPostRow | null> {
+  if (input.contextEventPostId) {
+    const { data, error } = await supabase
+      .from("posts")
+      .select("id,metadata")
+      .eq("id", input.contextEventPostId)
+      .eq("node_id", input.threadId)
+      .eq("post_type", "context_event")
+      .maybeSingle();
+    if (error) throw error;
+
+    const row = data as ContextEventPostRow | null;
+    if (
+      row &&
+      isContextEventMetadata(row.metadata) &&
+      row.metadata.source_node_id === input.sourceNodeId
+    ) {
+      return row;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id,metadata")
+    .eq("node_id", input.threadId)
+    .eq("post_type", "context_event")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+
+  const rows = (data ?? []) as ContextEventPostRow[];
+  return (
+    rows.find(
+      (row) =>
+        isContextEventMetadata(row.metadata) &&
+        row.metadata.source_node_id === input.sourceNodeId
+    ) ?? null
+  );
 }
 
 function contextEventActionForStatus(

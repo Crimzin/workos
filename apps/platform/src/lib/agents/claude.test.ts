@@ -56,3 +56,33 @@ assert.deepEqual(imageParams.messages, [
     ],
   },
 ]);
+
+const privateImageParams = buildClaudeMessageParams({
+  systemPrompt: "system",
+  userMessage: "Describe this",
+  attachments: [
+    {
+      kind: "image",
+      url: "https://mail.google.com/mail/u/0?view=fimg&attid=0.1",
+      title: "gmail-inline.png",
+      source: {
+        postId: "post-2",
+        section: "Active thread",
+        authorName: "Will",
+      },
+    },
+  ],
+});
+
+assert.deepEqual(privateImageParams.messages, [
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "Describe this" },
+      {
+        type: "text",
+        text: "Attached image 1 omitted: Active thread, Will — gmail-inline.png. The image URL is not externally fetchable by Claude.",
+      },
+    ],
+  },
+]);

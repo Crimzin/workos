@@ -98,6 +98,28 @@ const AUTOMATIC_CONTEXT_STOP_WORDS = new Set([
   "code",
 ]);
 
+const AUTOMATIC_CONTEXT_CONTINUATION_WORDS = new Set([
+  ...AUTOMATIC_CONTEXT_STOP_WORDS,
+  "another",
+  "better",
+  "continue",
+  "different",
+  "else",
+  "fix",
+  "go",
+  "going",
+  "keep",
+  "last",
+  "more",
+  "previous",
+  "redo",
+  "retry",
+  "same",
+  "that",
+  "try",
+  "yet",
+]);
+
 const AGENT_MENTION_TEXT = /@(claude code|claude|codex|workos)\b/giu;
 
 export function normalizeSourceApp(value: unknown): SourceApp {
@@ -127,10 +149,21 @@ export function buildContextEventMetadata(
   };
 }
 
+export function updateContextEventMetadataAction(
+  metadata: ContextEventMetadata,
+  action: ContextEventAction
+): ContextEventMetadata {
+  return {
+    ...metadata,
+    action,
+  };
+}
+
 export function chooseAutomaticContextCandidates(
   input: ChooseAutomaticContextCandidatesInput
 ): ContextSearchResult[] {
   if (input.limit <= 0) return [];
+  if (!hasEnoughAutomaticContextSignal(input.userText)) return [];
   const queryTokens = buildAutomaticContextTokens(input.userText);
   if (queryTokens.length === 0) return [];
 
@@ -245,7 +278,15 @@ function buildAutomaticContextTokens(userText: string): string[] {
 }
 
 function hasEnoughAutomaticContextSignal(userText: string): boolean {
+  if (isContinuationOnlyTurn(userText)) return false;
   return buildAutomaticContextTokens(userText).length >= AUTOMATIC_CONTEXT_MIN_QUERY_TOKENS;
+}
+
+function isContinuationOnlyTurn(userText: string): boolean {
+  const tokens = tokenizeSearchText(userText.replace(AGENT_MENTION_TEXT, " "));
+  if (tokens.length === 0 || tokens.length > 6) return false;
+
+  return tokens.every((token) => AUTOMATIC_CONTEXT_CONTINUATION_WORDS.has(token));
 }
 
 function scoreAutomaticContextCandidate(

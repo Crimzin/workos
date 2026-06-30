@@ -205,7 +205,7 @@ export function PostItem({
 
       {/* Body */}
       {isContextEventPost(post) && isContextEventMetadata(post.metadata) ? (
-        <ContextEvent threadId={nodeId} metadata={post.metadata} />
+        <ContextEvent threadId={nodeId} postId={post.id} metadata={post.metadata} />
       ) : isActivity ? (
         <ActivityBody post={post} />
       ) : editing ? (

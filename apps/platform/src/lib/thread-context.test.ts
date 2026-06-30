@@ -6,6 +6,7 @@ import {
   chooseAutomaticContextCandidates,
   contextEventSummary,
   isContextEventPost,
+  updateContextEventMetadataAction,
 } from "./thread-context";
 import type { ContextSearchCandidate } from "./context-search";
 
@@ -58,6 +59,19 @@ assert.equal(
     source_title: "Title",
   }),
   "Allowed Claude in suggestions: Title"
+);
+
+const removedMetadata = updateContextEventMetadataAction(
+  attachedMetadata,
+  "removed"
+);
+assert.deepEqual(removedMetadata, {
+  ...attachedMetadata,
+  action: "removed",
+});
+assert.equal(
+  contextEventSummary(removedMetadata),
+  "Removed context from this thread: Campaign reporting script"
 );
 
 assert.equal(
@@ -207,6 +221,43 @@ assert.equal(
     ],
   }),
   "I need career advice. at this stage in my career, what sorts of roles do you think I should be looking at?"
+);
+
+assert.equal(
+  buildAutomaticContextQueryText({
+    userText: "try yet again",
+    previousUserTexts: [
+      "I need career advice. at this stage in my career, what sorts of roles do you think I should be looking at?",
+    ],
+  }),
+  "I need career advice. at this stage in my career, what sorts of roles do you think I should be looking at?"
+);
+
+assert.equal(
+  buildAutomaticContextQueryText({
+    userText: "keep going",
+    previousUserTexts: ["Help me compare Anthropic and Reflection roles."],
+  }),
+  "Help me compare Anthropic and Reflection roles."
+);
+
+assert.deepEqual(
+  chooseAutomaticContextCandidates({
+    userText: "try yet again",
+    candidates: [
+      {
+        id: "wrong",
+        title: "Random chat",
+        path: "Imported chats / Random chat",
+        type: "stack",
+        href: "/n/wrong",
+        sourceApp: "claude",
+        bodyPreview: "Try this yet again later.",
+      },
+    ],
+    limit: 1,
+  }),
+  []
 );
 
 assert.equal(

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_MOBILE_NAV_OPEN,
   MOBILE_DRAWER_EDGE_WIDTH,
+  shouldPreventMobileDrawerBrowserNavigation,
   getMobileDrawerSwipeIntent,
 } from "./mobile-shell.ts";
 
@@ -56,4 +57,34 @@ assert.equal(
     deltaY: 4,
   }),
   "none"
+);
+
+assert.equal(
+  shouldPreventMobileDrawerBrowserNavigation({
+    drawerOpen: false,
+    startX: 10,
+    deltaX: 24,
+    deltaY: 3,
+  }),
+  true
+);
+
+assert.equal(
+  shouldPreventMobileDrawerBrowserNavigation({
+    drawerOpen: false,
+    startX: 110,
+    deltaX: 40,
+    deltaY: 3,
+  }),
+  false
+);
+
+assert.equal(
+  shouldPreventMobileDrawerBrowserNavigation({
+    drawerOpen: false,
+    startX: 10,
+    deltaX: 24,
+    deltaY: 38,
+  }),
+  false
 );

@@ -242,6 +242,23 @@ function renderRelativeSection(
   thread: RelativeThread,
   now: Date
 ): string {
+  if (thread.contextPack) {
+    const pack = thread.contextPack;
+    return [
+      heading,
+      "",
+      `Relevance: ${Math.round(pack.relevance_confidence * 100)}%`,
+      `Why included: ${pack.reason}`,
+      pack.useful_facts.length > 0
+        ? `Useful facts:\n${pack.useful_facts.map((fact) => `- ${fact}`).join("\n")}`
+        : null,
+      pack.snippet ? `Source snippet:\n${pack.snippet}` : null,
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n")
+      .trimEnd();
+  }
+
   const lines: string[] = [heading, ``];
   lines.push(
     ...renderChronologicalPosts({
