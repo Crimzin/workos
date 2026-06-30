@@ -34,6 +34,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     actors,
     inlineClaudeEnabled,
     agentProviders,
+    activeInlineRuns,
     contextAttachments,
   } = data;
   const {
@@ -80,6 +81,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
       actors={actors}
       inlineClaudeEnabled={inlineClaudeEnabled}
       agentProviders={agentProviders}
+      initialActiveInlineRuns={activeInlineRuns}
     />
   );
 

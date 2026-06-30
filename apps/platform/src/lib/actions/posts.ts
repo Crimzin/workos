@@ -42,7 +42,12 @@ import {
 import { agentInvocationFailureReply } from "../agents/invocation-error";
 import { routeAgentMentions } from "../agents/router";
 import { isAgentRunConfirmation } from "../agents/confirmation";
-import { queueAwaitingRunsForConfirmation } from "../agents/runs";
+import {
+  completeInlineAgentRun,
+  failInlineAgentRun,
+  queueAwaitingRunsForConfirmation,
+  updateInlineAgentRunStage,
+} from "../agents/runs";
 import { processNextQueuedAgentRun } from "../agents/worker";
 import { attachThreadContext } from "./thread-context";
 import { makeContextRouterCandidate } from "../context-router/candidates";
@@ -268,7 +273,7 @@ export async function createPost(
         );
         return prompt;
       },
-      scheduleInlineClaude: (agent, ctxPrompt, selectedModel) => {
+      scheduleInlineClaude: (agent, ctxPrompt, selectedModel, runId) => {
         console.log(
           `[1.11] createPost: scheduling after() for ${agent.name}(${agent.id.slice(0, 8)}) model=${selectedModel?.modelId ?? "default"}`
         );
@@ -279,6 +284,7 @@ export async function createPost(
             workspaceId,
             ctxPrompt,
             modelSelection: selectedModel,
+            runId,
           });
         });
       },
@@ -582,9 +588,14 @@ async function streamInlineClaudeReply(input: {
   workspaceId: string;
   ctxPrompt: ReturnType<typeof renderClaudePrompt>;
   modelSelection: AgentModelSelection | null;
+  runId: string;
+  promptManifest?: Record<string, unknown>;
 }): Promise<void> {
   const t0 = Date.now();
   console.log(`[1.11] after(): START for ${input.agent.name}`);
+  const promptManifest =
+    input.promptManifest ??
+    buildInlineClaudePromptManifest(input.ctxPrompt, input.modelSelection);
 
   // Streaming flow:
   //   1. Wait for Claude's first chunk → insert the reply post seeded
@@ -599,8 +610,11 @@ async function streamInlineClaudeReply(input: {
   let accumulated = "";
   let lastFlush = 0;
   let flushCount = 0;
+  let markedWriting = false;
 
   try {
+    await updateInlineAgentRunStage(input.runId, "Waiting for Claude...");
+
     for await (const event of streamClaude({
       systemPrompt: input.ctxPrompt.systemPrompt,
       userMessage: input.ctxPrompt.userMessage,
@@ -611,6 +625,10 @@ async function streamInlineClaudeReply(input: {
         accumulated += event.text;
 
         if (!handle) {
+          if (!markedWriting) {
+            await updateInlineAgentRunStage(input.runId, "Writing the reply...");
+            markedWriting = true;
+          }
           // First chunk → create the post now. The user sees Claude
           // appear in the thread with their first sentence already
           // visible instead of a long blank wait.
@@ -646,6 +664,10 @@ async function streamInlineClaudeReply(input: {
     }
 
     if (!handle) {
+      if (!markedWriting) {
+        await updateInlineAgentRunStage(input.runId, "Writing the reply...");
+        markedWriting = true;
+      }
       // Stream completed without yielding any text deltas (e.g. an
       // entirely empty response). Create a placeholder post so the user
       // gets feedback instead of an indefinitely-spinning indicator.
@@ -666,22 +688,32 @@ async function streamInlineClaudeReply(input: {
       flushCount++;
     }
 
+    await completeInlineAgentRun({
+      runId: input.runId,
+      manifest: promptManifest,
+      summary: accumulated.slice(0, 500),
+    });
+
     if (handle) {
-      const instanceId = await getNodeInstanceId(input.nodeId);
-      await recordWorkOSEvent({
-        instanceId,
-        workspaceId: input.workspaceId,
-        nodeId: input.nodeId,
-        actorId: input.agent.id,
-        eventType: "agent.reply_completed",
-        subjectType: "post",
-        subjectId: handle.postId,
-        summary: `${input.agent.name} completed an AI reply.`,
-        metadata: {
-          flush_count: flushCount,
-          body_preview: accumulated.slice(0, 240),
-        },
-      });
+      try {
+        const instanceId = await getNodeInstanceId(input.nodeId);
+        await recordWorkOSEvent({
+          instanceId,
+          workspaceId: input.workspaceId,
+          nodeId: input.nodeId,
+          actorId: input.agent.id,
+          eventType: "agent.reply_completed",
+          subjectType: "post",
+          subjectId: handle.postId,
+          summary: `${input.agent.name} completed an AI reply.`,
+          metadata: {
+            flush_count: flushCount,
+            body_preview: accumulated.slice(0, 240),
+          },
+        });
+      } catch (eventError) {
+        console.error("[1.11] failed to record reply completion:", eventError);
+      }
     }
 
     console.log(
@@ -689,6 +721,15 @@ async function streamInlineClaudeReply(input: {
     );
   } catch (err) {
     console.error("[1.11] agent invocation failed:", err);
+    try {
+      await failInlineAgentRun({
+        runId: input.runId,
+        manifest: promptManifest,
+        error: err,
+      });
+    } catch (runError) {
+      console.error("[1.11] failed to mark inline run failed:", runError);
+    }
     // Best-effort: always leave a visible post. Provider failures before the
     // first streamed token otherwise look like an infinite thinking state.
     const failureReply = agentInvocationFailureReply(accumulated, err);
@@ -727,6 +768,28 @@ async function streamInlineClaudeReply(input: {
       });
     }
   }
+}
+
+function buildInlineClaudePromptManifest(
+  prompt: ReturnType<typeof renderClaudePrompt>,
+  modelSelection: AgentModelSelection | null
+): Record<string, unknown> {
+  return {
+    provider_key: "inline_claude",
+    model_selection: modelSelection
+      ? {
+          provider_key: modelSelection.providerKey,
+          model_id: modelSelection.modelId,
+          label: modelSelection.label,
+        }
+      : null,
+    system_prompt_chars: prompt.systemPrompt.length,
+    user_message_chars: prompt.userMessage.length,
+    attachment_count: prompt.attachments.length,
+    attachment_source_post_ids: prompt.attachments.map(
+      (attachment) => attachment.source.postId
+    ),
+  };
 }
 
 function ensureTargetPostInOwnThread(

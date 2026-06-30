@@ -12,6 +12,29 @@ export interface CreateAgentRunInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface CreateInlineAgentRunInput {
+  instanceId: string;
+  workspaceId: string;
+  targetNodeId: string;
+  triggerPostId: string;
+  requesterActorId: string;
+  agentActorId: string;
+  currentStage: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CompleteInlineAgentRunInput {
+  runId: string;
+  manifest: Record<string, unknown>;
+  summary?: string;
+}
+
+export interface FailInlineAgentRunInput {
+  runId: string;
+  manifest?: Record<string, unknown>;
+  error: unknown;
+}
+
 export interface QueueAwaitingRunsForConfirmationInput {
   nodeId: string;
   workspaceId: string;
@@ -29,6 +52,7 @@ type AgentRunInsert = {
   agent_actor_id: string;
   provider_key: AgentProviderKey;
   status: AgentRunStatus;
+  current_stage?: string;
   plan_body: string;
   metadata: Record<string, unknown>;
 };
@@ -54,6 +78,33 @@ export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert 
     plan_body: input.planBody,
     metadata: input.metadata ?? {},
   };
+}
+
+export function buildInlineAgentRunInsert(
+  input: CreateInlineAgentRunInput
+): AgentRunInsert {
+  return {
+    instance_id: input.instanceId,
+    workspace_id: input.workspaceId,
+    target_node_id: input.targetNodeId,
+    trigger_post_id: input.triggerPostId,
+    requester_actor_id: input.requesterActorId,
+    agent_actor_id: input.agentActorId,
+    provider_key: "inline_claude",
+    status: "running",
+    current_stage: input.currentStage,
+    plan_body: "",
+    metadata: input.metadata ?? {},
+  };
+}
+
+export function isInlineRunActive(
+  run: Pick<AgentRun, "provider_key" | "status">
+): boolean {
+  return (
+    run.provider_key === "inline_claude" &&
+    (run.status === "running" || run.status === "planning")
+  );
 }
 
 export function selectConfirmableRunId(
@@ -121,6 +172,122 @@ export async function createPlanningAgentRun(
   revalidatePath(`/n/${input.workspaceId}`);
 
   return run;
+}
+
+export async function createInlineAgentRun(
+  input: CreateInlineAgentRunInput
+): Promise<AgentRun> {
+  const { revalidatePath, revalidateAgentRuns, supabase } =
+    await loadAgentRunRuntime();
+
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .insert(buildInlineAgentRunInsert(input))
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  const run = data as AgentRun;
+  await appendAgentRunEvent(run.id, "stage", input.currentStage, {
+    stage: input.currentStage,
+    trigger_post_id: input.triggerPostId,
+  });
+
+  revalidateAgentRuns(input.targetNodeId);
+  revalidatePath(`/n/${input.workspaceId}`);
+
+  return run;
+}
+
+export async function updateInlineAgentRunStage(
+  runId: string,
+  stage: string
+): Promise<void> {
+  const { revalidateAgentRuns, supabase } = await loadAgentRunRuntime();
+
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .update({ current_stage: stage, updated_at: new Date().toISOString() })
+    .eq("id", runId)
+    .select("id,target_node_id")
+    .single();
+  if (error) throw error;
+
+  await appendAgentRunEvent(runId, "stage", stage, { stage });
+  revalidateAgentRuns(String(data.target_node_id));
+}
+
+export async function completeInlineAgentRun({
+  runId,
+  manifest,
+  summary,
+}: CompleteInlineAgentRunInput): Promise<void> {
+  const { revalidateAgentRuns, supabase } = await loadAgentRunRuntime();
+
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .update({
+      status: "completed",
+      current_stage: "Writing the reply...",
+      prompt_manifest: manifest,
+      summary: summary ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId)
+    .select("id,target_node_id")
+    .single();
+  if (error) throw error;
+
+  await appendAgentRunEvent(runId, "completed", "Inline Claude reply completed.", {
+    prompt_manifest: manifest,
+  });
+  revalidateAgentRuns(String(data.target_node_id));
+}
+
+export async function failInlineAgentRun({
+  runId,
+  manifest,
+  error,
+}: FailInlineAgentRunInput): Promise<void> {
+  const { revalidateAgentRuns, supabase } = await loadAgentRunRuntime();
+  const message = error instanceof Error ? error.message : String(error);
+
+  const { data, error: updateError } = await supabase
+    .from("agent_runs")
+    .update({
+      status: "failed",
+      current_stage: "Reply failed.",
+      ...(manifest ? { prompt_manifest: manifest } : {}),
+      error: message,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId)
+    .select("id,target_node_id")
+    .single();
+  if (updateError) throw updateError;
+
+  await appendAgentRunEvent(runId, "failed", "Reply failed.", {
+    error: message,
+    ...(manifest ? { prompt_manifest: manifest } : {}),
+  });
+  revalidateAgentRuns(String(data.target_node_id));
+}
+
+export async function getActiveInlineAgentRuns(
+  nodeId: string
+): Promise<AgentRun[]> {
+  const { supabase } = await loadAgentRunRuntime();
+
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .select("*")
+    .eq("target_node_id", nodeId)
+    .eq("provider_key", "inline_claude")
+    .in("status", ["running", "planning"])
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+
+  return (data ?? []).filter(isInlineRunActive) as AgentRun[];
 }
 
 export async function appendAgentRunEvent(

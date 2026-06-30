@@ -16,7 +16,7 @@ import {
   renderDisabledAgentProviderReply,
 } from "./planning";
 import { createStreamingAgentReply } from "./reply-poster";
-import { createPlanningAgentRun } from "./runs";
+import { createInlineAgentRun, createPlanningAgentRun } from "./runs";
 
 export interface RouteAgentMentionsInput {
   mentions: MentionedAgent[];
@@ -29,7 +29,8 @@ export interface RouteAgentMentionsInput {
   scheduleInlineClaude: (
     agent: MentionedAgent,
     prompt: ClaudePrompt,
-    modelSelection: AgentModelSelection | null
+    modelSelection: AgentModelSelection | null,
+    runId: string
   ) => void;
 }
 
@@ -77,12 +78,27 @@ export async function routeAgentMentions(
     }
 
     if (route.kind === "inline_chat") {
+      const selectedModel =
+        input.modelSelection?.providerKey === route.providerKey
+          ? input.modelSelection
+          : null;
+      const run = await createInlineAgentRun({
+        instanceId: input.actor.instance_id,
+        workspaceId: input.workspaceId,
+        targetNodeId: input.nodeId,
+        triggerPostId: input.targetPost.id,
+        requesterActorId: input.actor.id,
+        agentActorId: route.mention.id,
+        currentStage: "Understanding the request...",
+        metadata: {
+          model_selection: selectedModel,
+        },
+      });
       input.scheduleInlineClaude(
         route.mention,
         input.renderClaudePromptForContext(nodeContext),
-        input.modelSelection?.providerKey === route.providerKey
-          ? input.modelSelection
-          : null
+        selectedModel,
+        run.id
       );
       continue;
     }

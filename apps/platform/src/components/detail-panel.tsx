@@ -10,6 +10,7 @@ import { getNodeLinks } from "@/lib/links";
 import type { NodeLinks } from "@/lib/links";
 import { getCurrentActor, getActors } from "@/lib/actor";
 import { getAgentSettings } from "@/lib/agent-settings";
+import { getActiveInlineAgentRuns } from "@/lib/agents/runs";
 import {
   buildBoardDetailTrail,
   getHeaderBadges,
@@ -42,7 +43,7 @@ export async function DetailPanel({
   ]);
 
   // Fetch mirror targets + posts + links + memory in parallel with detail panel render.
-  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors] = await Promise.all([
+  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors, activeInlineRuns] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
@@ -55,12 +56,13 @@ export async function DetailPanel({
       : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
     getAgentSettings(actor.instance_id),
     getActors(actor.instance_id),
+    detail ? getActiveInlineAgentRuns(nodeId) : Promise.resolve([]),
   ]);
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-secondary/70">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} agentProviders={agentSettings.providers} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} agentProviders={agentSettings.providers} activeInlineRuns={activeInlineRuns} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -87,6 +89,7 @@ function DetailBody({
   actors,
   inlineClaudeEnabled,
   agentProviders,
+  activeInlineRuns,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
@@ -99,6 +102,7 @@ function DetailBody({
   actors: import("@/lib/actor").ActorForMention[];
   inlineClaudeEnabled: boolean;
   agentProviders: import("@/lib/types").AgentProviderSetting[];
+  activeInlineRuns: Awaited<ReturnType<typeof getActiveInlineAgentRuns>>;
 }) {
   const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
 
@@ -127,6 +131,7 @@ function DetailBody({
       actors={actors}
       inlineClaudeEnabled={inlineClaudeEnabled}
       agentProviders={agentProviders}
+      initialActiveInlineRuns={activeInlineRuns}
     />
   );
 
