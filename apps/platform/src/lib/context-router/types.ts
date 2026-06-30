@@ -41,8 +41,8 @@ export interface ContextRouterCandidate {
   relation?: string;
   path?: string | null;
   previewFacts?: string[];
-  freshnessHint?: string;
-  sensitivityLabel?: string;
+  freshnessHint?: string | null;
+  sensitivityLabel?: string | null;
   estimatedChars?: number;
   priorWeight?: number;
   expandedMatchScore?: number;
@@ -67,15 +67,6 @@ export interface ContextPack {
   snippet: string;
 }
 
-export interface ContextPromptManifestSource {
-  id: string;
-  title: string;
-  source_kind: ContextCandidateSourceKind;
-  fidelity: ContextFidelity;
-  estimated_chars: number;
-  reason: string;
-}
-
 export interface ContextPromptManifestAccountMemory {
   included: string[];
   omitted: string[];
@@ -89,8 +80,8 @@ export interface ContextPromptManifest {
   current_stage_label: string;
   context_budget_chars: number;
   estimated_prompt_chars: number;
-  included_sources: ContextPromptManifestSource[];
-  omitted_sources: ContextPromptManifestSource[];
+  included_sources: Array<Record<string, unknown>>;
+  omitted_sources: Array<Record<string, unknown>>;
   account_memory: ContextPromptManifestAccountMemory;
   thread_context_sheet_bands_used: string[];
   warnings: string[];

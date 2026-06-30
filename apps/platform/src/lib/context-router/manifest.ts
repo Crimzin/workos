@@ -1,7 +1,6 @@
 import type {
   ContextPromptManifest,
   ContextPromptManifestAccountMemory,
-  ContextPromptManifestSource,
 } from "./types";
 
 export interface CreateContextPromptManifestInput {
@@ -9,8 +8,8 @@ export interface CreateContextPromptManifestInput {
   taskType: string;
   budgetChars: number;
   estimatedPromptChars?: number;
-  includedSources?: ContextPromptManifestSource[];
-  omittedSources?: ContextPromptManifestSource[];
+  includedSources?: Array<Record<string, unknown>>;
+  omittedSources?: Array<Record<string, unknown>>;
   accountMemory?: ContextPromptManifestAccountMemory;
   threadContextSheetBandsUsed?: string[];
   warnings?: string[];
