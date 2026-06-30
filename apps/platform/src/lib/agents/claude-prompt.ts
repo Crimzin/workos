@@ -19,6 +19,7 @@ import {
   type AgentAttachment,
 } from "./attachments";
 import { renderAIStandardsForPrompt } from "../ai-standards";
+import { selectThreadSheetForPrompt } from "../thread-context-sheet";
 import type { PostRecord } from "../posts";
 import {
   formatPromptTimestamp,
@@ -146,6 +147,17 @@ function buildUserMessage(
   now: Date
 ): string {
   const sections: string[] = [];
+
+  const sheetItems = selectThreadSheetForPrompt(ctx.threadContextSheet);
+  if (sheetItems.length > 0) {
+    sections.push(
+      [
+        "# Thread Context Sheet",
+        "",
+        ...sheetItems.map((item) => `- ${item.statement}`),
+      ].join("\n")
+    );
+  }
 
   // Explicitly attached context comes before inferred family context.
   for (const attached of ctx.attachedContexts) {

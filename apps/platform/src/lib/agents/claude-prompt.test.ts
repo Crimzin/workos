@@ -82,6 +82,7 @@ const ctx: NodeContext = {
       "2026-05-19T02:12:58.000Z"
     ),
   ],
+  threadContextSheet: null,
   parentThread: {
     node: {
       id: "parent-stack",
@@ -220,6 +221,33 @@ assert.match(
   prompt.userMessage,
   /The campaign reporting SQL parser expects campaign_id aliases\./
 );
+
+const sheetPrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    threadContextSheet: {
+      id: "sheet-1",
+      instance_id: "instance-1",
+      thread_id: "active-card",
+      active_working: [
+        {
+          id: "aw",
+          statement: "The current task is financial planning synthesis.",
+          source_refs: [],
+        },
+      ],
+      short_term: [],
+      long_term: [],
+      markdown: "",
+      metadata: {},
+      created_at: "2026-06-30T12:00:00.000Z",
+      updated_at: "2026-06-30T12:00:00.000Z",
+    },
+  },
+  { targetPostId: "target", now: new Date("2026-06-22T16:43:00.000Z") }
+);
+assert.match(sheetPrompt.userMessage, /# Thread Context Sheet/);
+assert.match(sheetPrompt.userMessage, /financial planning synthesis/);
 
 const compactContextPrompt = renderClaudePrompt(
   {

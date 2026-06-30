@@ -32,7 +32,13 @@ import type {
 } from "../node-detail";
 import type { ContextPack } from "../context-router/types";
 import type { PostRecord } from "../posts";
-import type { Actor, MemoryPrimitive, WorkNode } from "../types";
+import type {
+  Actor,
+  MemoryPrimitive,
+  ThreadContextSheet,
+  WorkNode,
+} from "../types";
+import { getThreadContextSheet } from "../thread-context-sheet";
 import {
   findNodeMentions,
   limitNodeMentions,
@@ -114,6 +120,7 @@ export interface NodeContext {
 
   // The thread Claude was @-mentioned in, full
   ownThread: PostRecord[];
+  threadContextSheet: ThreadContextSheet | null;
 
   // Family threads — empty arrays / nulls when not applicable
   attachedContexts: RelativeThread[];
@@ -233,6 +240,7 @@ export async function gatherNodeContext(
     attachedContexts,
     links,
     memory,
+    threadContextSheet,
   ] = await Promise.all([
     getNodePosts(nodeId),
     parentIsStack && parentId
@@ -243,6 +251,7 @@ export async function gatherNodeContext(
     getAttachedContextThreads(nodeId),
     getNodeLinks(nodeId),
     getNodeMemoryPrimitives(nodeId),
+    getThreadContextSheet(nodeId),
   ]);
 
   // -------------------------------------------------------------------------
@@ -363,6 +372,7 @@ export async function gatherNodeContext(
     fields: renderedFields,
     memory: memoryShape,
     ownThread: ownPosts,
+    threadContextSheet,
     attachedContexts,
     parentThread,
     siblingThreads,
