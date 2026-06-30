@@ -323,7 +323,7 @@ async function attachAutomaticContextForPost(input: {
         .in("status", ["active", "removed", "ignored_for_suggestions"]),
       supabase
         .from("nodes")
-        .select("id,title,type,source_app,updated_at")
+        .select("id,title,type,source_app,source_kind,updated_at")
         .eq("instance_id", input.actorInstanceId)
         .is("archived_at", null)
         .eq("suggestion_status", "allowed")
@@ -332,7 +332,7 @@ async function attachAutomaticContextForPost(input: {
         .limit(AUTOMATIC_CONTEXT_CANDIDATE_LIMIT),
       supabase
         .from("nodes")
-        .select("id,title,type,source_app,updated_at,source_updated_at")
+        .select("id,title,type,source_app,source_kind,updated_at,source_updated_at")
         .eq("instance_id", input.actorInstanceId)
         .is("archived_at", null)
         .eq("suggestion_status", "allowed")
@@ -370,16 +370,19 @@ async function attachAutomaticContextForPost(input: {
     const id = row.id as string;
     const title = row.title as string;
     const preview = previewsByNodeId.get(id);
-    return makeContextRouterCandidate({
-      id,
-      title,
-      sourceApp: normalizeSourceApp(row.source_app),
-      updatedAt: (row.updated_at as string | null) ?? null,
-      sourcePostId: preview?.sourcePostId ?? null,
-      sourceMessageId: preview?.sourceMessageId ?? null,
-      text: `${title}\n${preview?.bodyPreview ?? ""}`.trim(),
-      query: contextQueryText,
-    });
+    return {
+      ...makeContextRouterCandidate({
+        id,
+        title,
+        sourceApp: normalizeSourceApp(row.source_app),
+        updatedAt: (row.updated_at as string | null) ?? null,
+        sourcePostId: preview?.sourcePostId ?? null,
+        sourceMessageId: preview?.sourceMessageId ?? null,
+        text: `${title}\n${preview?.bodyPreview ?? ""}`.trim(),
+        query: contextQueryText,
+      }),
+      sourceKind: contextRouterSourceKindFromNode(row.source_kind),
+    };
   });
 
   const routed = await routeAutomaticContextV2({
@@ -565,6 +568,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNodeType(value: unknown): value is NodeType {
   return value === "workspace" || value === "stack" || value === "card";
+}
+
+function contextRouterSourceKindFromNode(
+  sourceKind: unknown
+): ContextRouterCandidate["sourceKind"] {
+  return sourceKind === "imported_ai_chat" ? "imported" : "global";
 }
 
 async function streamInlineClaudeReply(input: {
