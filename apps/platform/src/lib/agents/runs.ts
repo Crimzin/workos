@@ -64,6 +64,8 @@ interface ConfirmableRunCandidate {
 }
 
 const CONFIRMABLE_RUN_MAX_AGE_MS = 30 * 60 * 1000;
+const INLINE_STAGE_METADATA_KEY = "current_stage";
+const INLINE_PROMPT_MANIFEST_METADATA_KEY = "prompt_manifest";
 
 export function buildAgentRunInsert(input: CreateAgentRunInput): AgentRunInsert {
   return {
@@ -94,7 +96,7 @@ export function buildInlineAgentRunInsert(
     status: "running",
     current_stage: input.currentStage,
     plan_body: "",
-    metadata: input.metadata ?? {},
+    metadata: metadataWithInlineStage(input.metadata, input.currentStage),
   };
 }
 
@@ -104,6 +106,31 @@ export function isInlineRunActive(
   return (
     run.provider_key === "inline_claude" &&
     (run.status === "running" || run.status === "planning")
+  );
+}
+
+export function inlineRunStageFromRecord(input: {
+  current_stage?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): string | null {
+  if (typeof input.current_stage === "string" && input.current_stage.trim()) {
+    return input.current_stage;
+  }
+  const stage = input.metadata?.[INLINE_STAGE_METADATA_KEY];
+  return typeof stage === "string" && stage.trim() ? stage : null;
+}
+
+export function isMissingInlineAgentRunColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const row = error as Record<string, unknown>;
+  const code = typeof row.code === "string" ? row.code : "";
+  const message = typeof row.message === "string" ? row.message : "";
+  const compactMessage = message.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  return (
+    (code === "PGRST204" || code === "PGRST205" || code === "42703") &&
+    (compactMessage.includes("currentstage") ||
+      compactMessage.includes("promptmanifest"))
   );
 }
 
@@ -180,14 +207,24 @@ export async function createInlineAgentRun(
   const { revalidatePath, revalidateAgentRuns, supabase } =
     await loadAgentRunRuntime();
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("agent_runs")
     .insert(buildInlineAgentRunInsert(input))
     .select("*")
     .single();
+  if (error && isMissingInlineAgentRunColumnError(error)) {
+    const { current_stage, ...legacyInsert } = buildInlineAgentRunInsert(input);
+    const fallback = await supabase
+      .from("agent_runs")
+      .insert(legacyInsert)
+      .select("*")
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
   if (error) throw error;
 
-  const run = data as AgentRun;
+  const run = normalizeInlineAgentRun(data as AgentRun);
   await appendAgentRunEvent(run.id, "stage", input.currentStage, {
     stage: input.currentStage,
     trigger_post_id: input.triggerPostId,
@@ -211,6 +248,14 @@ export async function updateInlineAgentRunStage(
     .eq("id", runId)
     .select("id,target_node_id")
     .single();
+  if (error && isMissingInlineAgentRunColumnError(error)) {
+    const targetNodeId = await updateInlineRunMetadataFallback(supabase, runId, {
+      [INLINE_STAGE_METADATA_KEY]: stage,
+    });
+    await appendAgentRunEvent(runId, "stage", stage, { stage });
+    revalidateAgentRuns(targetNodeId);
+    return;
+  }
   if (error) throw error;
 
   await appendAgentRunEvent(runId, "stage", stage, { stage });
@@ -236,6 +281,30 @@ export async function completeInlineAgentRun({
     .eq("id", runId)
     .select("id,target_node_id")
     .single();
+  if (error && isMissingInlineAgentRunColumnError(error)) {
+    const targetNodeId = await updateInlineRunMetadataFallback(
+      supabase,
+      runId,
+      {
+        [INLINE_STAGE_METADATA_KEY]: "Writing the reply...",
+        [INLINE_PROMPT_MANIFEST_METADATA_KEY]: manifest,
+      },
+      {
+        status: "completed",
+        summary: summary ?? null,
+      }
+    );
+    await appendAgentRunEvent(
+      runId,
+      "completed",
+      "Inline Claude reply completed.",
+      {
+        prompt_manifest: manifest,
+      }
+    );
+    revalidateAgentRuns(targetNodeId);
+    return;
+  }
   if (error) throw error;
 
   await appendAgentRunEvent(runId, "completed", "Inline Claude reply completed.", {
@@ -264,6 +333,26 @@ export async function failInlineAgentRun({
     .eq("id", runId)
     .select("id,target_node_id")
     .single();
+  if (updateError && isMissingInlineAgentRunColumnError(updateError)) {
+    const targetNodeId = await updateInlineRunMetadataFallback(
+      supabase,
+      runId,
+      {
+        [INLINE_STAGE_METADATA_KEY]: "Reply failed.",
+        ...(manifest ? { [INLINE_PROMPT_MANIFEST_METADATA_KEY]: manifest } : {}),
+      },
+      {
+        status: "failed",
+        error: message,
+      }
+    );
+    await appendAgentRunEvent(runId, "failed", "Reply failed.", {
+      error: message,
+      ...(manifest ? { prompt_manifest: manifest } : {}),
+    });
+    revalidateAgentRuns(targetNodeId);
+    return;
+  }
   if (updateError) throw updateError;
 
   await appendAgentRunEvent(runId, "failed", "Reply failed.", {
@@ -287,7 +376,56 @@ export async function getActiveInlineAgentRuns(
     .order("updated_at", { ascending: false });
   if (error) throw error;
 
-  return (data ?? []).filter(isInlineRunActive) as AgentRun[];
+  return ((data ?? []) as AgentRun[])
+    .filter(isInlineRunActive)
+    .map(normalizeInlineAgentRun);
+}
+
+function metadataWithInlineStage(
+  metadata: Record<string, unknown> | undefined,
+  stage: string
+): Record<string, unknown> {
+  return { ...(metadata ?? {}), [INLINE_STAGE_METADATA_KEY]: stage };
+}
+
+function normalizeInlineAgentRun(run: AgentRun): AgentRun {
+  return {
+    ...run,
+    current_stage: inlineRunStageFromRecord(run),
+  };
+}
+
+async function updateInlineRunMetadataFallback(
+  supabase: Awaited<ReturnType<typeof loadAgentRunRuntime>>["supabase"],
+  runId: string,
+  metadataPatch: Record<string, unknown>,
+  fields: Record<string, unknown> = {}
+): Promise<string> {
+  const { data: existing, error: selectError } = await supabase
+    .from("agent_runs")
+    .select("target_node_id,metadata")
+    .eq("id", runId)
+    .single();
+  if (selectError) throw selectError;
+
+  const metadata = isRecord(existing.metadata) ? existing.metadata : {};
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .update({
+      ...fields,
+      metadata: { ...metadata, ...metadataPatch },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId)
+    .select("id,target_node_id")
+    .single();
+  if (error) throw error;
+
+  return String(data.target_node_id);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export async function appendAgentRunEvent(
