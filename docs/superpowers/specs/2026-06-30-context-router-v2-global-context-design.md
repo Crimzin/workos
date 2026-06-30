@@ -57,10 +57,10 @@ Priority order:
 
 1. Active thread
 2. Explicit `#` mentions in the target post
-3. Recent `#` mentions in the active conversation
-4. Older repeated or semantically matching `#` mentions
-5. Family threads: parent, children, siblings
-6. Existing attached or linked threads
+3. Existing attached or linked threads
+4. Recent `#` mentions in the active conversation
+5. Older repeated or semantically matching `#` mentions
+6. Family threads: parent, children, siblings
 7. Global WorkOS and imported-chat search
 
 Family threads and hashtagged threads are privileged for discovery and ranking. They are not automatically privileged for raw prompt inclusion.
@@ -88,6 +88,7 @@ Always scanned and usually rendered if present.
 
 Includes:
 
+- the thread's local context sheet when available
 - memory primitives: rationale, decisions, assumptions
 - active context packs
 - field values
@@ -96,6 +97,20 @@ Includes:
 - durable personal/work preferences when available
 
 Purpose: answer "what durable facts should survive across chats?"
+
+### Thread Context Sheet
+
+Every active thread should maintain a local running context sheet. This is the WorkOS-native version of portable Markdown context: editable and inspectable over time, but assembled and refreshed from structured work history rather than manually pasted into every chat.
+
+The context sheet should contain three bands:
+
+- long-term memory: durable project/user facts, decisions, constraints, preferences, and known caveats
+- short-term memory: recently useful sources, active related threads, unresolved questions, and context packs from prior turns
+- active working memory: what this thread is doing right now, recent intent, current plan, and sources already loaded for the current task
+
+The router should check the active working memory first, then short-term memory, then long-term memory, then broader global retrieval. This prevents every query in a thread from starting cold while still allowing a blank thread to discover context globally when needed.
+
+The sheet should not become a huge hidden prompt. It is a compact, budget-aware manifest of what the thread currently believes is relevant. The full source trail remains recoverable by ids and citations.
 
 ### L2: Weighted Context Graph Candidates
 
@@ -182,7 +197,7 @@ Each candidate should carry:
 - ignored/removed status
 - estimated render cost
 
-Family and mention candidates enter this pool with high prior weight even when lexical match is modest. Global candidates need stronger evidence.
+Existing attachments, links, family threads, and mention candidates enter this pool with high prior weight even when lexical match is modest. Global candidates need stronger evidence.
 
 ### 3. Scoring And Prioritization
 
@@ -191,7 +206,8 @@ Score candidates with a blended model:
 - explicit mention strength
 - family relationship strength
 - existing attachment/link strength
-- lexical or semantic match to resolved query
+- expanded surface match to resolved query: synonyms, alternate spellings, singular/plural forms, tense/stem variants, abbreviations, and thematically similar words
+- semantic match to resolved query
 - temporal relevance
 - source freshness
 - prior usefulness
@@ -200,7 +216,11 @@ Score candidates with a blended model:
 - source sensitivity
 - estimated context cost
 
-The router should prefer fewer, higher-confidence sources over broad recall.
+The router should prefer broad cheap discovery and budgeted diverse assembly over narrow literal precision. The system should search widely enough to find context scattered across many chats, then render only the useful parts at the lowest sufficient fidelity.
+
+Do not equate "finance" and "finances" mismatches with acceptable misses. Literal lexical matching is only one weak signal. Retrieval should normalize and expand query terms before scoring, then let topology, memory, snippets, and reranking decide relevance.
+
+The router should avoid broad raw inclusion, not broad recall.
 
 ### 4. Fidelity Decision
 
@@ -252,11 +272,11 @@ Every agent invocation should produce an internal manifest:
 
 This is the debugging and tuning surface. It can start as logs and become UI later.
 
-### 7. Optional Persistence
+### 7. Context Sheet And Attachment Persistence
 
 Formal attachments happen after discovery, not before discovery.
 
-If a source is useful, WorkOS may persist it as a `thread_context_attachment` with:
+If a source is useful, WorkOS should persist it as a `thread_context_attachment` with:
 
 - `attached_by = automatic`
 - reason
@@ -265,6 +285,31 @@ If a source is useful, WorkOS may persist it as a `thread_context_attachment` wi
 - status controls for remove/ignore/allow
 
 The user-facing model should be: WorkOS discovered relevant context, used it, and can now remember that relationship.
+
+The thread context sheet should also be updated after each meaningful agent turn:
+
+- promote newly useful sources into short-term memory
+- preserve durable facts in long-term memory when confidence is high
+- keep active working memory current with the thread's immediate task
+- demote or remove stale sources when the user removes, ignores, or contradicts them
+- store enough source ids to make the sheet auditable without embedding raw source text
+
+Persistence is not optional. What is optional is whether a given source earns promotion into long-term memory, short-term memory, or only the transient manifest for the current call.
+
+## Reasoning Architecture
+
+LLM APIs do not provide the exact same private step-by-step thinking experience that users see inside Claude, Codex, or other first-party apps. WorkOS should not rely on hidden chain-of-thought access.
+
+Instead, WorkOS should create its own explicit reasoning scaffold around the model calls:
+
+- a turn resolver decides what kind of task this is
+- a retrieval planner decides where to look first
+- candidate discovery gathers cheap evidence
+- a reranker/fidelity chooser decides what to include and at what depth
+- the final answer prompt receives structured context plus source constraints
+- the prompt manifest records the important decisions for debugging
+
+The system can ask models for concise structured rationales such as "why included," "why omitted," "freshness risk," and "fidelity chosen." It should not ask for or expose hidden chain of thought. The practical goal is to get Claude/Codex-like stepwise behavior through orchestration, not through a single giant prompt.
 
 ## Golden Tests
 
@@ -282,10 +327,12 @@ Expected behavior:
 - The answer uses cautious language and asks clarifying questions where current facts are missing.
 - Included sources have reasons and source handles.
 - Irrelevant imported chats are omitted with internal reasons.
+- Related terms such as "finance," "finances," "financial plan," "money," "budget," "retirement," "tax," and similar variants do not miss obvious candidate threads.
 
 Failure modes:
 
 - No context found despite relevant imports.
+- Missing relevant "finances" context because the prompt used "finance," or similar literal-matching failures.
 - Hallucinated financial facts.
 - Stale facts treated as current.
 - Massive raw transcript prompt.
@@ -304,6 +351,7 @@ Expected behavior:
 - The answer summarizes what it found and frames the delta from ABC to XYZ.
 - If actual source files are absent, the model says it found discussion/spec context but needs the file or repo to edit code.
 - The router promotes source snippets only when useful.
+- Follow-up turns reuse the thread's local context sheet instead of rediscovering the same old script context from scratch.
 
 Failure modes:
 
@@ -324,6 +372,7 @@ Expected behavior:
 - The UI can show an immediate in-flight agent state.
 - The router avoids raw family-thread replay by default.
 - Existing attached packs and resolved retry query are reused.
+- The thread context sheet carries forward the resolved query and useful sources from prior turns.
 - First-token latency improves materially because prompt size drops.
 - The manifest shows which family threads were scanned, included, omitted, and why.
 
@@ -340,6 +389,7 @@ Failure modes:
 - If source fetching fails, include an omission note and continue.
 - If an image or file URL is not provider-fetchable, include a text note rather than sending it as a remote attachment.
 - If context is likely relevant but stale or incomplete, the model should say what it found and ask a freshness question.
+- If the context sheet appears stale or contradicted by the user's latest turn, the latest user turn wins and the sheet should be corrected after the reply.
 
 ## Debt Retirement
 
@@ -352,6 +402,7 @@ Retire or rewrite:
 - default raw rendering of family threads
 - prompt-renderer logic that treats neighborhood threads as a separate raw-context path
 - tests that preserve over-inclusion rather than useful behavior
+- one-turn-only context routing that forces every query in a thread to rediscover the same sources from scratch
 
 Keep and evolve:
 
@@ -360,6 +411,7 @@ Keep and evolve:
 - `context_chunks`
 - `context_pack`
 - Context Panel and context events
+- per-thread context sheet state, once added
 - BrainShare concepts as internal architecture, not user-facing product framing
 
 Rule:
@@ -378,6 +430,7 @@ For each golden test, record:
 - answer quality notes
 - source correctness
 - stale-context handling
+- context sheet reuse across follow-up turns
 - whether useful context relationships were persisted
 
 The experiment succeeds when WorkOS can produce coherent context-aware answers in blank threads while keeping prompt size and first-token latency far below broad raw-history inclusion.
@@ -394,3 +447,4 @@ These defaults are intentionally concrete so implementation can begin without an
 2. Prompt manifests start in server logs only. A UI surface can come later after the manifest shape proves useful.
 3. `context_chunks` should be the first-class scan substrate for imported chats. Native WorkOS posts can use current post-preview scanning in V2 unless a golden test shows that native chunking is necessary.
 4. Do not add embeddings in the first V2 pass. Use topology, lexical/trigram search, chunk previews, memory primitives, and LLM reranking first. Add embeddings only if the financial planning or Lulu tests fail because lexical/chunk retrieval misses semantically obvious context.
+5. Add deterministic term expansion before candidate scoring. At minimum, normalize case, punctuation, possessives, common plural/singular variants, simple stemming, and high-signal synonyms or thematic terms suggested by the turn resolver.
