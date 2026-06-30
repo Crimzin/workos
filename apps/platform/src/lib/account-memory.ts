@@ -143,7 +143,6 @@ export function renderAccountMemoryMarkdown(
     const sectionRecords = activeRecords.filter((record) =>
       section.categories.includes(record.category)
     );
-    if (sectionRecords.length === 0) continue;
 
     lines.push(`## ${section.title}`);
     for (const record of sectionRecords) {
@@ -194,12 +193,13 @@ function compareMemoryRecords(
 
 function shouldIgnorePriorVoice(latestUserText: string): boolean {
   const text = latestUserText.toLocaleLowerCase();
-  return (
+  const asksToIgnoreVoiceOrPreference =
     text.includes("ignore prior voice") ||
     text.includes("ignore prior preference") ||
     text.includes("ignore prior preferences") ||
-    text.includes("ignore voice preferences")
-  );
+    text.includes("ignore voice preferences");
+
+  return asksToIgnoreVoiceOrPreference && text.includes("for this post");
 }
 
 function isSensitiveRecordRelevant(

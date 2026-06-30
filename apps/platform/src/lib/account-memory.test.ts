@@ -86,6 +86,15 @@ assert.deepEqual(
   selectAccountMemoryForPrompt({
     records,
     resolvedQuery: "Draft a product update.",
+    latestUserText: "I generally ignore prior preferences when brainstorming.",
+  }).included.map((item) => item.id),
+  ["identity", "naming", "style"]
+);
+
+assert.deepEqual(
+  selectAccountMemoryForPrompt({
+    records,
+    resolvedQuery: "Draft a product update.",
     latestUserText: "Draft a product update.",
   }).suppressed.map((item) => item.id),
   ["finance"]
@@ -94,6 +103,10 @@ assert.deepEqual(
 const markdown = renderAccountMemoryMarkdown(records);
 assert.match(markdown, /# Account Context/);
 assert.match(markdown, /## About Me/);
+assert.match(markdown, /## Current Work/);
+assert.match(markdown, /## How I Work With AI/);
+assert.match(markdown, /## Writing Voice/);
+assert.match(markdown, /## Corrections/);
 assert.match(markdown, /Will is building WorkOS/);
 assert.match(markdown, /## Things To Handle Carefully/);
 assert.match(markdown, /Financial-planning context exists/);
