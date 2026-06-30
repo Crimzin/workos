@@ -23,6 +23,8 @@ export const cacheTags = {
   importedChats: (instanceId: string) => `imported-chats:${instanceId}`,
   importSessions: (instanceId: string) => `import-sessions:${instanceId}`,
   threadContext: (threadId: string) => `thread-context:${threadId}`,
+  accountMemory: (instanceId: string) => `account-memory:${instanceId}`,
+  threadContextSheet: (threadId: string) => `thread-context-sheet:${threadId}`,
   agentSettings: (instanceId: string) => `agent-settings:${instanceId}`,
   agentRuns: (nodeId: string) => `agent-runs:${nodeId}`,
 };
@@ -111,6 +113,14 @@ export function revalidateImportSessions(instanceId: string) {
 
 export function revalidateThreadContext(threadId: string) {
   revalidateTag(cacheTags.threadContext(threadId), IMMEDIATE);
+}
+
+export function revalidateAccountMemory(instanceId: string) {
+  revalidateTag(cacheTags.accountMemory(instanceId), IMMEDIATE);
+}
+
+export function revalidateThreadContextSheet(threadId: string) {
+  revalidateTag(cacheTags.threadContextSheet(threadId), IMMEDIATE);
 }
 
 export function revalidateAgentSettings(instanceId: string) {
