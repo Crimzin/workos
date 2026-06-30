@@ -1,5 +1,6 @@
 import { normalizeSearchText, tokenizeSearchText } from "../context-search";
 import type { SourceApp } from "../types";
+import { expandedTextMatchScore } from "./term-expansion";
 import type { ContextRouterCandidate } from "./types";
 
 export interface BuildCandidateSnippetInput {
@@ -35,18 +36,45 @@ export function buildCandidateSnippet(
 export function rankCandidateSnippets(
   query: string,
   candidates: ContextRouterCandidate[],
-  limit = 40
+  limit = 80
 ): ContextRouterCandidate[] {
-  void query;
   const timestamp = (value: string | null) => {
     const parsed = Date.parse(value ?? "");
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
   return candidates
-    .filter((candidate) => candidate.lexicalScore > 0)
+    .map((candidate) => {
+      const expandedMatch = expandedTextMatchScore({
+        query,
+        text: [
+          candidate.title,
+          candidate.snippet,
+          candidate.path?.join(" ") ?? "",
+          candidate.previewFacts?.join(" ") ?? "",
+        ].join(" "),
+      });
+      const lexicalScore = Math.max(
+        candidate.lexicalScore,
+        expandedMatch.score
+      );
+
+      return {
+        ...candidate,
+        lexicalScore,
+        expandedMatchScore: expandedMatch.score,
+      };
+    })
+    .filter(
+      (candidate) =>
+        candidate.lexicalScore > 0 ||
+        (candidate.priorWeight ?? 0) >= 4 ||
+        candidate.sourceKind === "account-memory" ||
+        candidate.sourceKind === "thread-sheet"
+    )
     .sort(
       (a, b) =>
+        (b.priorWeight ?? 0) - (a.priorWeight ?? 0) ||
         b.lexicalScore - a.lexicalScore ||
         timestamp(b.updatedAt) - timestamp(a.updatedAt)
     )

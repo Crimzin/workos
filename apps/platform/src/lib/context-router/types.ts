@@ -1,5 +1,25 @@
 import type { SourceApp } from "../types";
 
+export type ContextCandidateSourceKind =
+  | "active"
+  | "mention"
+  | "family"
+  | "attached"
+  | "linked"
+  | "imported"
+  | "global"
+  | "account-memory"
+  | "thread-sheet"
+  | "chunk";
+
+export type ContextFidelity =
+  | "none"
+  | "metadata"
+  | "compact_pack"
+  | "compact_pack_with_snippet"
+  | "selected_window"
+  | "raw_excerpt";
+
 export interface ContextTurnResolution {
   originalText: string;
   resolvedQuery: string;
@@ -17,6 +37,15 @@ export interface ContextRouterCandidate {
   sourceMessageId: string | null;
   snippet: string;
   lexicalScore: number;
+  sourceKind?: ContextCandidateSourceKind;
+  relation?: string;
+  path?: string[];
+  previewFacts?: string[];
+  freshnessHint?: string;
+  sensitivityLabel?: string;
+  estimatedChars?: number;
+  priorWeight?: number;
+  expandedMatchScore?: number;
 }
 
 export interface ContextRerankDecision {
@@ -36,4 +65,34 @@ export interface ContextPack {
   reason: string;
   useful_facts: string[];
   snippet: string;
+}
+
+export interface ContextPromptManifestSource {
+  id: string;
+  title: string;
+  source_kind: ContextCandidateSourceKind;
+  fidelity: ContextFidelity;
+  estimated_chars: number;
+  reason: string;
+}
+
+export interface ContextPromptManifestAccountMemory {
+  included: string[];
+  omitted: string[];
+  suppressed: string[];
+}
+
+export interface ContextPromptManifest {
+  router_version: "context-router-v2";
+  resolved_query: string;
+  task_type: "ordinary" | "source-heavy";
+  current_stage_label: string;
+  context_budget_chars: number;
+  estimated_prompt_chars: number;
+  included_sources: ContextPromptManifestSource[];
+  omitted_sources: ContextPromptManifestSource[];
+  account_memory: ContextPromptManifestAccountMemory;
+  thread_context_sheet_bands_used: string[];
+  warnings: string[];
+  timings_ms: Record<string, number>;
 }

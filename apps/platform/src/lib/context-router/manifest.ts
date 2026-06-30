@@ -1,0 +1,54 @@
+import type {
+  ContextPromptManifest,
+  ContextPromptManifestAccountMemory,
+  ContextPromptManifestSource,
+} from "./types";
+import type { ContextTaskType } from "./budget";
+
+export interface CreateContextPromptManifestInput {
+  resolvedQuery: string;
+  taskType: ContextTaskType;
+  contextBudgetChars: number;
+  estimatedPromptChars: number;
+  includedSources?: ContextPromptManifestSource[];
+  omittedSources?: ContextPromptManifestSource[];
+  accountMemory?: ContextPromptManifestAccountMemory;
+  threadContextSheetBandsUsed?: string[];
+  warnings?: string[];
+  timingsMs?: Record<string, number>;
+}
+
+const INITIAL_STAGE_LABEL = "Understanding the request...";
+
+export function createContextPromptManifest(
+  input: CreateContextPromptManifestInput
+): ContextPromptManifest {
+  return {
+    router_version: "context-router-v2",
+    resolved_query: input.resolvedQuery,
+    task_type: input.taskType,
+    current_stage_label: INITIAL_STAGE_LABEL,
+    context_budget_chars: input.contextBudgetChars,
+    estimated_prompt_chars: input.estimatedPromptChars,
+    included_sources: input.includedSources ?? [],
+    omitted_sources: input.omittedSources ?? [],
+    account_memory: input.accountMemory ?? {
+      included: [],
+      omitted: [],
+      suppressed: [],
+    },
+    thread_context_sheet_bands_used: input.threadContextSheetBandsUsed ?? [],
+    warnings: input.warnings ?? [],
+    timings_ms: input.timingsMs ?? {},
+  };
+}
+
+export function updateManifestStage(
+  manifest: ContextPromptManifest,
+  stageLabel: string
+): ContextPromptManifest {
+  return {
+    ...manifest,
+    current_stage_label: stageLabel,
+  };
+}
