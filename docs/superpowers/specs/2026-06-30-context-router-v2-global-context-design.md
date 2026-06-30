@@ -158,6 +158,8 @@ Prompt use should follow a memory-kernel model:
 - Never dump all account-level memory into a provider prompt.
 - Include source ids or memory ids in the manifest so the user can audit why memory affected an answer.
 
+The user-facing management UI for account-level long-term memory should live in Settings as its own Memory tab. It should not be buried inside an individual thread, the Context Panel, or a BrainShare-branded surface.
+
 The user-facing view should be portable Markdown backed by structured records, not just a Markdown file. WorkOS should be able to render an "Account Context" packet with sections like About Me, Current Work, How I Work With AI, Writing Voice, Standing Preferences, Corrections, and Things To Handle Carefully. That packet should be exportable and readable by other AI tools, but the router should use the structured records for selective inclusion.
 
 ### Thread Context Sheet
@@ -578,5 +580,6 @@ These defaults are intentionally concrete so implementation can begin without an
 4. Do not add embeddings in the first V2 pass. Use topology, lexical/trigram search, chunk previews, memory primitives, and LLM reranking first. Add embeddings only if the financial planning or Lulu tests fail because lexical/chunk retrieval misses semantically obvious context.
 5. Add deterministic term expansion before candidate scoring. At minimum, normalize case, punctuation, possessives, common plural/singular variants, simple stemming, and high-signal synonyms or thematic terms suggested by the turn resolver.
 6. Account-level memory starts as structured records plus a generated Markdown view. It should not start as a manually maintained monolithic Markdown prompt.
-7. The first account-level memory kernel should be tiny: identity/role, product naming discipline, durable collaboration preferences, and standing corrections. Everything else must pass task relevance before inclusion.
-8. Promotion from thread memory to account-level memory requires explicit user instruction, repeated evidence, or strong human-authored evidence. AI-only inference can suggest a memory but should not silently become durable account memory.
+7. The account-level long-term memory UI lives in Settings as a dedicated Memory tab.
+8. The first account-level memory kernel should be tiny: identity/role, product naming discipline, durable collaboration preferences, and standing corrections. Everything else must pass task relevance before inclusion.
+9. Promotion from thread memory to account-level memory requires explicit user instruction, repeated evidence, or strong human-authored evidence. AI-only inference can suggest a memory but should not silently become durable account memory.
