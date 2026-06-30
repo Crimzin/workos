@@ -94,21 +94,24 @@ Includes:
 - field values
 - linked node titles
 - context-event history
-- durable personal/work preferences when available
 
-Purpose: answer "what durable facts should survive across chats?"
+Purpose: answer "what durable facts should survive inside this thread?"
 
 ### Thread Context Sheet
 
-Every active thread should maintain a local running context sheet. This is the WorkOS-native version of portable Markdown context: editable and inspectable over time, but assembled and refreshed from structured work history rather than manually pasted into every chat.
+Every active thread should maintain a local running context sheet. This is the WorkOS-native version of portable Markdown context for a single thread: editable and inspectable over time, but assembled and refreshed from structured work history rather than manually pasted into every chat.
+
+This is distinct from system-level memory about the user. System-level memory can hold durable user preferences, identity, writing style, or global facts. A thread context sheet holds only context that became relevant to this specific thread and should remain available for this thread until superseded.
 
 The context sheet should contain three bands:
 
-- long-term memory: durable project/user facts, decisions, constraints, preferences, and known caveats
+- thread long-term memory: durable facts, decisions, constraints, assumptions, source relationships, and caveats discovered during this thread that should remain valid until superseded
 - short-term memory: recently useful sources, active related threads, unresolved questions, and context packs from prior turns
 - active working memory: what this thread is doing right now, recent intent, current plan, and sources already loaded for the current task
 
-The router should check the active working memory first, then short-term memory, then long-term memory, then broader global retrieval. This prevents every query in a thread from starting cold while still allowing a blank thread to discover context globally when needed.
+The lookup order matters for efficiency and freshness: active working memory first, then short-term memory, then thread long-term memory, then broader global retrieval. This prevents every query in a thread from starting cold while still allowing a blank thread to discover context globally when needed.
+
+The latest user turn still wins over all three bands. When newer evidence contradicts sheet memory, WorkOS should use the fresher evidence and update or supersede the sheet after the reply.
 
 The sheet should not become a huge hidden prompt. It is a compact, budget-aware manifest of what the thread currently believes is relevant. The full source trail remains recoverable by ids and citations.
 
@@ -260,6 +263,7 @@ Every agent invocation should produce an internal manifest:
 
 - resolved query
 - task type
+- current stage label
 - context budget
 - estimated prompt size
 - included sources
@@ -271,6 +275,24 @@ Every agent invocation should produce an internal manifest:
 - total response time once known
 
 This is the debugging and tuning surface. It can start as logs and become UI later.
+
+### In-Flight Status
+
+Inline agent replies should show a one-line status that reflects the stage WorkOS is actually in, not a generic spinner. The status can change whenever the process advances to a new step.
+
+Example stages:
+
+- Understanding the request...
+- Checking this thread's working memory...
+- Searching related WorkOS threads...
+- Searching imported chats...
+- Ranking candidate context...
+- Loading source snippets...
+- Assembling a compact prompt...
+- Waiting for Claude...
+- Writing the reply...
+
+The status text should be driven by real router/provider stages. It should not invent fake activity or animate through steps that did not happen.
 
 ### 7. Context Sheet And Attachment Persistence
 
@@ -289,7 +311,7 @@ The user-facing model should be: WorkOS discovered relevant context, used it, an
 The thread context sheet should also be updated after each meaningful agent turn:
 
 - promote newly useful sources into short-term memory
-- preserve durable facts in long-term memory when confidence is high
+- preserve thread-durable facts in thread long-term memory when confidence is high
 - keep active working memory current with the thread's immediate task
 - demote or remove stale sources when the user removes, ignores, or contradicts them
 - store enough source ids to make the sheet auditable without embedding raw source text
@@ -423,6 +445,7 @@ Every V2 responsibility should replace or absorb an older responsibility. If any
 For each golden test, record:
 
 - prompt character count and estimated tokens
+- whether budget targets were met, exceeded with warning, or exceeded with L3 justification
 - included source count
 - omitted source count
 - first-token latency
@@ -439,11 +462,12 @@ The experiment succeeds when WorkOS can produce coherent context-aware answers i
 
 These defaults are intentionally concrete so implementation can begin without another architecture fork. They can be tuned after the golden tests produce real manifests.
 
-1. Budget targets:
+1. Budget targets are calibration/evaluation targets, not hard truncation rules:
    - ordinary blank-thread or continuation turns should aim for less than 25k rendered prompt characters outside the system prompt
    - source-heavy turns should aim for less than 80k rendered prompt characters outside the system prompt
    - any ordinary turn over 50k rendered prompt characters should produce a manifest warning
    - any source-heavy turn over 120k rendered prompt characters should require explicit L3 justification in the manifest
+   - budget pressure should first reduce fidelity, compress packs, or defer raw evidence; it should not silently drop high-value context needed for answer correctness
 2. Prompt manifests start in server logs only. A UI surface can come later after the manifest shape proves useful.
 3. `context_chunks` should be the first-class scan substrate for imported chats. Native WorkOS posts can use current post-preview scanning in V2 unless a golden test shows that native chunking is necessary.
 4. Do not add embeddings in the first V2 pass. Use topology, lexical/trigram search, chunk previews, memory primitives, and LLM reranking first. Add embeddings only if the financial planning or Lulu tests fail because lexical/chunk retrieval misses semantically obvious context.
