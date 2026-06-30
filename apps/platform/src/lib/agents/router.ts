@@ -16,7 +16,11 @@ import {
   renderDisabledAgentProviderReply,
 } from "./planning";
 import { createStreamingAgentReply } from "./reply-poster";
-import { createInlineAgentRun, createPlanningAgentRun } from "./runs";
+import {
+  createInlineAgentRun,
+  createPlanningAgentRun,
+  failInlineAgentRun,
+} from "./runs";
 
 export interface RouteAgentMentionsInput {
   mentions: MentionedAgent[];
@@ -94,12 +98,21 @@ export async function routeAgentMentions(
           model_selection: selectedModel,
         },
       });
-      input.scheduleInlineClaude(
-        route.mention,
-        input.renderClaudePromptForContext(nodeContext),
-        selectedModel,
-        run.id
-      );
+      try {
+        input.scheduleInlineClaude(
+          route.mention,
+          input.renderClaudePromptForContext(nodeContext),
+          selectedModel,
+          run.id
+        );
+      } catch (error) {
+        try {
+          await failInlineAgentRun({ runId: run.id, error });
+        } catch (failError) {
+          console.error("[agent-runtime] failed to mark inline run failed", failError);
+        }
+        throw error;
+      }
       continue;
     }
 

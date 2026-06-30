@@ -45,6 +45,7 @@ import { isAgentRunConfirmation } from "../agents/confirmation";
 import {
   completeInlineAgentRun,
   failInlineAgentRun,
+  getActiveInlineAgentRuns,
   queueAwaitingRunsForConfirmation,
   updateInlineAgentRunStage,
 } from "../agents/runs";
@@ -72,6 +73,13 @@ import type { NodeType } from "../types";
 export async function pollNodePosts(nodeId: string): Promise<PostRecord[]> {
   const actor = await getCurrentActor();
   return getNodePosts(nodeId, actor.id);
+}
+
+export async function pollActiveInlineAgentRuns(
+  nodeId: string
+): Promise<Awaited<ReturnType<typeof getActiveInlineAgentRuns>>> {
+  await getCurrentActor();
+  return getActiveInlineAgentRuns(nodeId);
 }
 
 /** Cadence at which we flush the accumulated streaming text to Supabase

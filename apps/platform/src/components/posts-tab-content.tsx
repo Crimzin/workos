@@ -6,7 +6,11 @@ import { ArrowUp, Check, ChevronDown, GripHorizontal, Pin } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
-import { createPost, pollNodePosts } from "@/lib/actions/posts";
+import {
+  createPost,
+  pollActiveInlineAgentRuns,
+  pollNodePosts,
+} from "@/lib/actions/posts";
 import { findAgentMentions } from "@/lib/agents/mention-detection";
 import {
   AGENT_MODEL_GROUPS,
@@ -92,6 +96,9 @@ export function PostsTabContent({
   agentProviders,
 }: PostsTabContentProps) {
   const [posts, setPosts] = useState<PostRecord[]>(initialPosts);
+  const [activeInlineRuns, setActiveInlineRuns] = useState<InlineClaudeActiveRun[]>(
+    initialActiveInlineRuns
+  );
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -182,6 +189,11 @@ export function PostsTabContent({
     setPosts(initialPosts);
   }, [initialPosts]);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveInlineRuns(initialActiveInlineRuns);
+  }, [initialActiveInlineRuns]);
+
   // 1.11 Inline AI streaming poll loop. Runs while `isPolling` is true.
   // Bypasses `router.refresh()` (which goes through unstable_cache and is
   // unreliable to invalidate from inside `after()` callbacks in Next 16 dev)
@@ -215,9 +227,13 @@ export function PostsTabContent({
         return;
       }
       try {
-        const fresh = await pollNodePosts(nodeId);
+        const [fresh, freshActiveInlineRuns] = await Promise.all([
+          pollNodePosts(nodeId),
+          pollActiveInlineAgentRuns(nodeId),
+        ]);
         if (cancelled) return;
         setPosts(fresh);
+        setActiveInlineRuns(freshActiveInlineRuns);
 
         // Did any agent post grow since the last poll? If so, extend the
         // deadline so the next chunk has time to land. We only count GROWTH
@@ -272,7 +288,7 @@ export function PostsTabContent({
     [visiblePosts]
   );
   const inlineClaudeIndicatorRows = getInlineClaudeIndicatorRows({
-    activeRuns: initialActiveInlineRuns,
+    activeRuns: activeInlineRuns,
     localThinking: thinkingClaudes,
     posts,
     actorNamesById,

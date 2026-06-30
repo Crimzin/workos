@@ -25,6 +25,14 @@ function post(id: string, createdAt: string): PostRecord {
   };
 }
 
+function agentPost(id: string, actorId: string, createdAt: string): PostRecord {
+  return {
+    ...post(id, createdAt),
+    actor_id: actorId,
+    actor: { id: actorId, name: "Claude", kind: "agent" },
+  };
+}
+
 const newestFirst = [
   post("newest", "2026-05-18T15:00:00.000Z"),
   post("middle", "2026-05-18T14:00:00.000Z"),
@@ -105,4 +113,38 @@ assert.deepEqual(
       stage: DEFAULT_INLINE_CLAUDE_STAGE,
     },
   ]
+);
+
+assert.deepEqual(
+  getInlineClaudeIndicatorRows({
+    activeRuns: [
+      {
+        id: "run-3",
+        agent_actor_id: "claude-1",
+        current_stage: "Writing the reply...",
+        updated_at: "2026-06-30T12:00:10.000Z",
+      },
+    ],
+    localThinking,
+    posts: [post("post-1", "2026-06-30T11:59:00.000Z")],
+  }),
+  [
+    {
+      id: "run-3",
+      name: "Claude",
+      stage: "Writing the reply...",
+    },
+  ]
+);
+
+assert.deepEqual(
+  getInlineClaudeIndicatorRows({
+    activeRuns: [],
+    localThinking,
+    posts: [
+      post("post-1", "2026-06-30T11:59:00.000Z"),
+      agentPost("reply-1", "claude-1", "2026-06-30T12:00:10.000Z"),
+    ],
+  }),
+  []
 );
