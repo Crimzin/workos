@@ -27,6 +27,8 @@ This is an evolution of the existing Context Router, not a new BrainShare side-s
 - Do not require users to formally attach, link, or tag context before a blank thread can be useful.
 - Do not default to raw parent, child, sibling, or imported transcript replay.
 - Do not resurrect the abandoned Starting Context strategy.
+- Do not treat system-level memory as one giant unstructured custom-instructions blob dumped into every prompt.
+- Do not confuse WorkOS system-level memory with provider system prompts. Provider system prompts are execution instructions; WorkOS system-level memory is user and work context selected by the router.
 - Do not feature-flag or shadow-run this for the current solo-user phase. The system should be directly testable in normal WorkOS use.
 
 ## Current Substrate
@@ -42,6 +44,8 @@ V2 builds on existing WorkOS pieces:
 - Node mentions already encode explicit user-authored context signals.
 
 The main architectural leak is that some context is routed compactly while family threads and active history can still be rendered as broad raw chronology. V2 should unify those paths under one weighted assembly model.
+
+V2 should also add an explicit WorkOS account-level memory substrate. Today, durable context is either embedded in histories, imported chats, ad hoc instructions, or thread relationships. That is not good enough for blank-thread coherence because the router needs a cheap, structured representation of what WorkOS knows about the user and their recurring work before it searches every conversation.
 
 ## Core Principle
 
@@ -84,10 +88,11 @@ Purpose: answer "what is the user asking right now?"
 
 ### L1: Known Durable Context
 
-Always scanned and usually rendered if present.
+Always scanned. Rendered selectively based on scope, relevance, sensitivity, and budget.
 
 Includes:
 
+- relevant account-level memory records
 - the thread's local context sheet when available
 - memory primitives: rationale, decisions, assumptions
 - active context packs
@@ -95,13 +100,71 @@ Includes:
 - linked node titles
 - context-event history
 
-Purpose: answer "what durable facts should survive inside this thread?"
+Purpose: answer "what durable context is already known before broader retrieval?"
+
+### Account-Level Memory (System-Level Memory)
+
+System-level memory in this spec means WorkOS account-level memory about the human and their work. It is not the provider system prompt, and it should not be stored or rendered as a single freeform "custom instructions" blob.
+
+Purpose: give any WorkOS thread, including a totally blank thread, access to stable user and work context without requiring re-explanation or broad transcript replay.
+
+It should contain structured memory records, each with:
+
+- id
+- category: identity, role, current project, standing goal, preference, communication style, writing voice, recurring constraint, tool/account context, relationship, correction, sensitive fact, or work standard
+- statement: the compact memory claim
+- scope: account by default, with future support for workspace, project, person, or domain scopes
+- status: active, tentative, superseded, or retracted
+- sensitivity label: normal, private, financial, medical, legal, credential-like, or other high-care domain
+- confidence or conviction score
+- source references: originating thread ids, post ids, imported message ids, or explicit user setting ids
+- created, updated, and last-confirmed timestamps
+- stale-after or review-after timestamp when the fact is likely to decay
+- supersedes and superseded-by links
+
+Good account-level memories:
+
+- "Will is building WorkOS as the user-facing product; BrainShare, Swarm, and Finiti are internal architecture names."
+- "Will prefers direct, architecture-first collaboration and wants implementation plans only after the design spec is solid."
+- "When discussing personal finance, distinguish durable strategy from stale balances, tax assumptions, and market conditions."
+- "Lulu is a data scientist and may ask for help reviving old scripts or analysis workflows."
+- "Do not repeat advice the user has explicitly rejected; keep the correction with provenance."
+
+Bad account-level memories:
+
+- a full transcript excerpt
+- a stale account balance with no timestamp
+- a one-off preference that only applied to a single thread
+- an AI-generated inference with no human signal
+- broad private facts rendered into unrelated prompts
+
+Account-level memory is built from four paths:
+
+1. Explicit user settings or edits in a Memory/Context surface.
+2. Explicit user statements in threads, imported chats, or profile setup.
+3. Repeated high-confidence patterns across multiple threads.
+4. Promotion from a thread context sheet when a fact has value beyond that thread.
+
+Promotion from thread memory to account-level memory should be conservative. Strong candidates are user-authored, repeated, corrected by the user, or clearly durable across projects. Weak candidates stay in thread memory. Sensitive candidates can be stored with provenance but should require high relevance before prompt inclusion.
+
+Updates should be temporal, not destructive. When a newer statement changes an older memory, WorkOS should supersede or retract the old record, preserve provenance, and make the current active statement cheap to retrieve.
+
+Prompt use should follow a memory-kernel model:
+
+- Always cheap-scan active account-level memory records.
+- Always include a tiny globally applicable kernel when present: identity/role, product naming discipline, durable communication preferences, and standing corrections.
+- Include task-relevant account memory when it materially improves the response.
+- Omit unrelated or sensitive account memory even if it exists.
+- Never dump all account-level memory into a provider prompt.
+- Include source ids or memory ids in the manifest so the user can audit why memory affected an answer.
+
+The user-facing view should be portable Markdown backed by structured records, not just a Markdown file. WorkOS should be able to render an "Account Context" packet with sections like About Me, Current Work, How I Work With AI, Writing Voice, Standing Preferences, Corrections, and Things To Handle Carefully. That packet should be exportable and readable by other AI tools, but the router should use the structured records for selective inclusion.
 
 ### Thread Context Sheet
 
 Every active thread should maintain a local running context sheet. This is the WorkOS-native version of portable Markdown context for a single thread: editable and inspectable over time, but assembled and refreshed from structured work history rather than manually pasted into every chat.
 
-This is distinct from system-level memory about the user. System-level memory can hold durable user preferences, identity, writing style, or global facts. A thread context sheet holds only context that became relevant to this specific thread and should remain available for this thread until superseded.
+This is distinct from account-level system memory. Account-level memory holds durable cross-thread user and work context. A thread context sheet holds only context that became relevant to this specific thread and should remain available for this thread until superseded.
 
 The context sheet should contain three bands:
 
@@ -109,9 +172,9 @@ The context sheet should contain three bands:
 - short-term memory: recently useful sources, active related threads, unresolved questions, and context packs from prior turns
 - active working memory: what this thread is doing right now, recent intent, current plan, and sources already loaded for the current task
 
-The lookup order matters for efficiency and freshness: active working memory first, then short-term memory, then thread long-term memory, then broader global retrieval. This prevents every query in a thread from starting cold while still allowing a blank thread to discover context globally when needed.
+The lookup order matters for efficiency and freshness inside a thread: active working memory first, then short-term memory, then thread long-term memory, then relevant account-level memory, then broader global retrieval. Globally applicable account memory can still be rendered alongside L0 because it behaves more like durable orientation than retrieved evidence.
 
-The latest user turn still wins over all three bands. When newer evidence contradicts sheet memory, WorkOS should use the fresher evidence and update or supersede the sheet after the reply.
+The latest user turn still wins over all three thread bands and any account-level memory. When newer evidence contradicts sheet memory, WorkOS should use the fresher evidence and update or supersede the sheet after the reply.
 
 The sheet should not become a huge hidden prompt. It is a compact, budget-aware manifest of what the thread currently believes is relevant. The full source trail remains recoverable by ids and citations.
 
@@ -189,11 +252,12 @@ Build a candidate pool without loading full raw histories.
 Each candidate should carry:
 
 - source id
-- source kind: active, mention, family, attached, linked, imported, global
+- source kind: active, mention, family, attached, linked, imported, global, account-memory
 - relationship to active thread
 - title/path
 - source app
 - updated/source timestamps
+- memory category and scope, for account-memory candidates
 - existing context pack, if any
 - memory primitive preview, if any
 - best chunk or post preview
@@ -266,6 +330,8 @@ Every agent invocation should produce an internal manifest:
 - current stage label
 - context budget
 - estimated prompt size
+- account-level memory records included, omitted, or suppressed as sensitive
+- thread context sheet bands used
 - included sources
 - omitted sources
 - inclusion reasons
@@ -283,6 +349,7 @@ Inline agent replies should show a one-line status that reflects the stage WorkO
 Example stages:
 
 - Understanding the request...
+- Checking account memory...
 - Checking this thread's working memory...
 - Searching related WorkOS threads...
 - Searching imported chats...
@@ -316,6 +383,14 @@ The thread context sheet should also be updated after each meaningful agent turn
 - demote or remove stale sources when the user removes, ignores, or contradicts them
 - store enough source ids to make the sheet auditable without embedding raw source text
 
+Account-level memory should be updated on a slower, stricter path:
+
+- add explicit user-authored memory immediately when the user asks WorkOS to remember something
+- queue candidate promotions from thread sheets when the fact appears durable beyond one thread
+- require strong human signal, repeated evidence, or user confirmation before promoting inferred memories
+- supersede stale memory records instead of overwriting them in place
+- record why a memory was created, updated, suppressed, or retracted
+
 Persistence is not optional. What is optional is whether a given source earns promotion into long-term memory, short-term memory, or only the transient manifest for the current call.
 
 ## Reasoning Architecture
@@ -344,6 +419,7 @@ Prompt in a brand-new thread:
 Expected behavior:
 
 - WorkOS finds relevant imported Claude financial planning chats with no formal thread links.
+- Relevant account-level memory is used only when helpful, such as durable financial-planning preferences or known caveats.
 - The answer synthesizes across multiple relevant sources.
 - The model distinguishes durable facts from stale balances, plans, or market/tax assumptions.
 - The answer uses cautious language and asks clarifying questions where current facts are missing.
@@ -358,6 +434,7 @@ Failure modes:
 - Hallucinated financial facts.
 - Stale facts treated as current.
 - Massive raw transcript prompt.
+- Unrelated private account memory rendered into the prompt.
 - Answer gives high-stakes advice without caveats.
 
 ### B. Lulu Script Revival
@@ -374,6 +451,7 @@ Expected behavior:
 - If actual source files are absent, the model says it found discussion/spec context but needs the file or repo to edit code.
 - The router promotes source snippets only when useful.
 - Follow-up turns reuse the thread's local context sheet instead of rediscovering the same old script context from scratch.
+- Any relevant account-level memory, such as Lulu's role or recurring tool preferences, is included only if it helps disambiguate the request.
 
 Failure modes:
 
@@ -404,6 +482,28 @@ Failure modes:
 - Raw sibling/parent posts included because they are nearby but not actually needed.
 - No distinction between first-token latency and total response time.
 
+### D. Account-Level Memory Discipline
+
+Scenario:
+
+- The user starts a blank thread on a topic that overlaps with durable user preferences, active projects, and sensitive personal context.
+
+Expected behavior:
+
+- WorkOS includes the tiny globally applicable memory kernel.
+- WorkOS includes only task-relevant account-level memories beyond that kernel.
+- Sensitive memories are omitted unless the task makes them clearly relevant.
+- The answer reflects durable preferences without sounding like it blindly pasted a profile.
+- The manifest explains which account memories were included, omitted, or suppressed.
+- If the user corrects a memory, WorkOS treats the correction as higher authority and queues a supersession.
+
+Failure modes:
+
+- Dumping the full account profile into every call.
+- Failing to use an obviously relevant durable preference in a blank thread.
+- Treating account-level memory as fresher than the current user turn.
+- Losing provenance for why WorkOS believes a memory is true.
+
 ## Error Handling And Fallbacks
 
 - If turn resolution fails, default to a conservative local reply plus cheap high-priority scan, not global raw inclusion.
@@ -412,6 +512,8 @@ Failure modes:
 - If an image or file URL is not provider-fetchable, include a text note rather than sending it as a remote attachment.
 - If context is likely relevant but stale or incomplete, the model should say what it found and ask a freshness question.
 - If the context sheet appears stale or contradicted by the user's latest turn, the latest user turn wins and the sheet should be corrected after the reply.
+- If account-level memory conflicts with the latest user turn, the latest user turn wins and WorkOS should queue a memory supersession or retraction.
+- If an account-level memory is sensitive and relevance is ambiguous, suppress it from the provider prompt and record the suppression in the manifest.
 
 ## Debt Retirement
 
@@ -425,6 +527,7 @@ Retire or rewrite:
 - prompt-renderer logic that treats neighborhood threads as a separate raw-context path
 - tests that preserve over-inclusion rather than useful behavior
 - one-turn-only context routing that forces every query in a thread to rediscover the same sources from scratch
+- any hidden global custom-instructions blob that grows without structure, provenance, status, or selective rendering
 
 Keep and evolve:
 
@@ -434,6 +537,7 @@ Keep and evolve:
 - `context_pack`
 - Context Panel and context events
 - per-thread context sheet state, once added
+- account-level memory records and portable Markdown rendering, once added
 - BrainShare concepts as internal architecture, not user-facing product framing
 
 Rule:
@@ -454,6 +558,7 @@ For each golden test, record:
 - source correctness
 - stale-context handling
 - context sheet reuse across follow-up turns
+- account-level memory precision: relevant memories used, irrelevant memories omitted, sensitive memories suppressed
 - whether useful context relationships were persisted
 
 The experiment succeeds when WorkOS can produce coherent context-aware answers in blank threads while keeping prompt size and first-token latency far below broad raw-history inclusion.
@@ -472,3 +577,6 @@ These defaults are intentionally concrete so implementation can begin without an
 3. `context_chunks` should be the first-class scan substrate for imported chats. Native WorkOS posts can use current post-preview scanning in V2 unless a golden test shows that native chunking is necessary.
 4. Do not add embeddings in the first V2 pass. Use topology, lexical/trigram search, chunk previews, memory primitives, and LLM reranking first. Add embeddings only if the financial planning or Lulu tests fail because lexical/chunk retrieval misses semantically obvious context.
 5. Add deterministic term expansion before candidate scoring. At minimum, normalize case, punctuation, possessives, common plural/singular variants, simple stemming, and high-signal synonyms or thematic terms suggested by the turn resolver.
+6. Account-level memory starts as structured records plus a generated Markdown view. It should not start as a manually maintained monolithic Markdown prompt.
+7. The first account-level memory kernel should be tiny: identity/role, product naming discipline, durable collaboration preferences, and standing corrections. Everything else must pass task relevance before inclusion.
+8. Promotion from thread memory to account-level memory requires explicit user instruction, repeated evidence, or strong human-authored evidence. AI-only inference can suggest a memory but should not silently become durable account memory.
