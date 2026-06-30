@@ -48,7 +48,7 @@ import { attachThreadContext } from "./thread-context";
 import { makeContextRouterCandidate } from "../context-router/candidates";
 import {
   MIN_TURN_RESOLUTION_CONFIDENCE,
-  routeAutomaticContext,
+  routeAutomaticContextV2,
 } from "../context-router/router";
 import { resolveContextTurn } from "../context-router/turn-resolver";
 import type { ContextRouterCandidate } from "../context-router/types";
@@ -382,7 +382,7 @@ async function attachAutomaticContextForPost(input: {
     });
   });
 
-  const decisions = await routeAutomaticContext({
+  const routed = await routeAutomaticContextV2({
     currentText: input.currentText,
     previousUserTexts: input.previousUserTexts,
     recentThreadTexts: input.recentThreadTexts,
@@ -390,6 +390,9 @@ async function attachAutomaticContextForPost(input: {
     candidates,
     turnResolution,
   });
+  const decisions = routed.decisions;
+  console.log("[context-router] manifest", routed.manifest);
+
   if (decisions.length === 0) return;
 
   for (const decision of decisions) {

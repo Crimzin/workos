@@ -30,6 +30,13 @@ export function buildRerankerPrompt(input: RerankerInput): RerankerPrompt {
         source_app: candidate.sourceApp,
         source_post_id: candidate.sourcePostId,
         source_message_id: candidate.sourceMessageId,
+        source_kind: candidate.sourceKind ?? "global",
+        relation: candidate.relation ?? null,
+        path: candidate.path ?? null,
+        freshness_hint: candidate.freshnessHint ?? null,
+        sensitivity_label: candidate.sensitivityLabel ?? null,
+        estimated_chars: candidate.estimatedChars ?? candidate.snippet.length,
+        prior_weight: candidate.priorWeight ?? 0,
         snippet: candidate.snippet,
       })),
       required_json_shape: {

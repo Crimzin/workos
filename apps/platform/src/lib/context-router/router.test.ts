@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildContextPacksForDecisions,
   routeAutomaticContext,
+  routeAutomaticContextV2,
 } from "./router.ts";
 import type { ContextRerankDecision, ContextRouterCandidate } from "./types.ts";
 
@@ -278,6 +279,63 @@ async function main() {
     }
   );
   assert.deepEqual(skippedByConfidence, []);
+
+  const routedV2 = await routeAutomaticContextV2(
+    {
+      currentText: "Help me with finance planning.",
+      previousUserTexts: [],
+      activeThreadTitle: "Blank",
+      candidates: [
+        {
+          id: "finances",
+          title: "Personal finances",
+          sourceApp: "claude",
+          updatedAt: "2026-06-29T12:00:00.000Z",
+          sourcePostId: "p-fin",
+          sourceMessageId: "m-fin",
+          snippet: "Retirement, taxes, budget, and cash flow.",
+          lexicalScore: 0,
+          sourceKind: "imported",
+          priorWeight: 3,
+        },
+      ],
+    },
+    {
+      resolveTurn: async () => ({
+        originalText: "Help me with finance planning.",
+        resolvedQuery: "financial planning taxes budget retirement",
+        shouldRetrieve: true,
+        confidence: 0.95,
+        reason: "Blank-thread discovery.",
+      }),
+      rerankCandidates: async (input) => {
+        assert.deepEqual(
+          input.candidates.map((candidate) => candidate.id),
+          ["finances"]
+        );
+
+        return [
+          {
+            candidateId: input.candidates[0].id,
+            action: "include",
+            confidence: 0.93,
+            reason: "Finance planning context.",
+            usefulFacts: ["Retirement and taxes were discussed."],
+            sourcePostId: null,
+            sourceMessageId: null,
+          },
+        ];
+      },
+    }
+  );
+
+  assert.equal(routedV2.decisions.length, 1);
+  assert.equal(routedV2.manifest.router_version, "context-router-v2");
+  assert.equal(
+    routedV2.manifest.resolved_query,
+    "financial planning taxes budget retirement"
+  );
+  assert.equal(routedV2.manifest.included_sources[0].id, "finances");
 }
 
 main().catch((err: unknown) => {

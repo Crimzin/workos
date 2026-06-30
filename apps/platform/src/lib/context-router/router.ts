@@ -1,9 +1,16 @@
 import { rankCandidateSnippets } from "./candidates";
+import { prioritizeCheapCandidates } from "./discovery";
+import { contextBudgetForTask } from "./budget";
+import {
+  createContextPromptManifest,
+  updateManifestStage,
+} from "./manifest";
 import { selectIncludedContext } from "./reranker";
 import { rerankContextCandidates, type RerankerInput } from "./reranker";
 import { resolveContextTurn, type TurnResolverInput } from "./turn-resolver";
 import type {
   ContextPack,
+  ContextPromptManifest,
   ContextRerankDecision,
   ContextRouterCandidate,
   ContextTurnResolution,
@@ -40,10 +47,15 @@ export interface RouteAutomaticContextCallers {
 
 export const MIN_TURN_RESOLUTION_CONFIDENCE = 0.5;
 
-export async function routeAutomaticContext(
+export interface RouteAutomaticContextResult {
+  decisions: ContextPackDecision[];
+  manifest: ContextPromptManifest;
+}
+
+export async function routeAutomaticContextV2(
   input: RouteAutomaticContextInput,
   callers: RouteAutomaticContextCallers = {}
-): Promise<ContextPackDecision[]> {
+): Promise<RouteAutomaticContextResult> {
   const resolution =
     input.turnResolution ??
     (await (callers.resolveTurn ?? resolveContextTurn)({
@@ -52,19 +64,28 @@ export async function routeAutomaticContext(
       recentThreadTexts: input.recentThreadTexts,
       activeThreadTitle: input.activeThreadTitle,
     }));
+  const budget = contextBudgetForTask("ordinary");
+  let manifest = createContextPromptManifest({
+    resolvedQuery: resolution.resolvedQuery,
+    taskType: "blank-thread context discovery",
+    budgetChars: budget.targetChars,
+  });
 
   if (
     !resolution.shouldRetrieve ||
     resolution.confidence < MIN_TURN_RESOLUTION_CONFIDENCE
   ) {
-    return [];
+    return { decisions: [], manifest };
   }
 
+  manifest = updateManifestStage(manifest, "Ranking candidate context...");
   const rankedCandidates = rankCandidateSnippets(
     resolution.resolvedQuery,
-    input.candidates
+    prioritizeCheapCandidates(input.candidates)
   );
-  if (rankedCandidates.length === 0) return [];
+  if (rankedCandidates.length === 0) {
+    return { decisions: [], manifest };
+  }
 
   const decisions = await (callers.rerankCandidates ?? rerankContextCandidates)(
     {
@@ -73,11 +94,46 @@ export async function routeAutomaticContext(
     }
   );
 
-  return buildContextPacksForDecisions({
+  const packs = buildContextPacksForDecisions({
     resolvedQuery: resolution.resolvedQuery,
     candidates: rankedCandidates,
     decisions,
   });
+
+  const includedIds = new Set(packs.map((pack) => pack.candidate.id));
+
+  return {
+    decisions: packs,
+    manifest: {
+      ...manifest,
+      estimated_prompt_chars: packs.reduce(
+        (sum, item) =>
+          sum + (item.candidate.estimatedChars ?? item.pack.snippet.length),
+        0
+      ),
+      included_sources: packs.map((item) => ({
+        id: item.candidate.id,
+        title: item.candidate.title,
+        source_kind: item.candidate.sourceKind ?? "global",
+        reason: item.inclusionReason,
+      })),
+      omitted_sources: rankedCandidates
+        .filter((candidate) => !includedIds.has(candidate.id))
+        .map((candidate) => ({
+          id: candidate.id,
+          title: candidate.title,
+          source_kind: candidate.sourceKind ?? "global",
+          reason: "Not selected by reranker or below confidence threshold.",
+        })),
+    },
+  };
+}
+
+export async function routeAutomaticContext(
+  input: RouteAutomaticContextInput,
+  callers: RouteAutomaticContextCallers = {}
+): Promise<ContextPackDecision[]> {
+  return (await routeAutomaticContextV2(input, callers)).decisions;
 }
 
 export function buildContextPacksForDecisions(input: {

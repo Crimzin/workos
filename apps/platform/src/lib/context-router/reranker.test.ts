@@ -19,6 +19,8 @@ const prompt = buildRerankerPrompt({
       sourceMessageId: "m1",
       snippet: "Danny discussed Anthropic roles and product strategy.",
       lexicalScore: 3,
+      sourceKind: "mention",
+      priorWeight: 8,
     },
     {
       id: "scratch",
@@ -36,6 +38,8 @@ const prompt = buildRerankerPrompt({
 assert.match(prompt.system, /rerank WorkOS context candidates/);
 assert.match(prompt.user, /Danny @ Anthropic/);
 assert.match(prompt.user, /Scratch notes/);
+assert.match(prompt.user, /source_kind/);
+assert.match(prompt.user, /prior_weight/);
 
 const decisions = parseRerankResponse(
   `{"decisions":[{"candidate_id":"anthropic","action":"include","confidence":0.91,"reason":"Directly about Anthropic career process","useful_facts":["Anthropic roles were discussed"],"source_post_id":"p1","source_message_id":"m1"},{"candidate_id":"scratch","action":"exclude","confidence":0.97,"reason":"Unrelated to career comparison","useful_facts":[],"source_post_id":"p2","source_message_id":"m2"}]}`
