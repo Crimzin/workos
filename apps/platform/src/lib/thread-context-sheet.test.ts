@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildThreadContextSheetUpsertPayload,
   buildThreadContextSheetMarkdown,
   mergeThreadContextSheetUpdate,
   selectThreadSheetForPrompt,
@@ -72,6 +73,51 @@ assert.deepEqual(
 );
 assert.equal(updated.short_term.length, 1);
 assert.equal(updated.long_term.length, 1);
+
+const partialUpdate = mergeThreadContextSheetUpdate(sheet, {
+  activeWorking: [
+    {
+      id: "active-3",
+      statement: "The current task moved to withdrawal sequencing.",
+      source_refs: [],
+    },
+  ],
+});
+
+assert.deepEqual(
+  partialUpdate.short_term.map((item) => item.id),
+  ["source"]
+);
+assert.deepEqual(
+  partialUpdate.long_term.map((item) => item.id),
+  ["durable"]
+);
+
+const payload = buildThreadContextSheetUpsertPayload({
+  instanceId: "instance-1",
+  threadId: "thread-1",
+  existingSheet: sheet,
+  update: {
+    activeWorking: [
+      {
+        id: "active-4",
+        statement: "Only the active working band changed.",
+        source_refs: [],
+      },
+    ],
+  },
+});
+
+assert.deepEqual(
+  payload.short_term.map((item) => item.id),
+  ["source"]
+);
+assert.deepEqual(
+  payload.long_term.map((item) => item.id),
+  ["durable"]
+);
+assert.match(payload.markdown, /Only the active working band changed/);
+assert.match(payload.markdown, /Imported finance chat was useful last turn/);
 
 const markdown = buildThreadContextSheetMarkdown(updated);
 assert.match(markdown, /# Thread Context Sheet/);

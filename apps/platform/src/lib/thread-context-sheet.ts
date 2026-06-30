@@ -9,6 +9,16 @@ export interface ThreadContextSheetUpdate {
   metadata?: Record<string, unknown>;
 }
 
+export interface ThreadContextSheetUpsertPayload {
+  instance_id: string;
+  thread_id: string;
+  active_working: ThreadContextSheetItem[];
+  short_term: ThreadContextSheetItem[];
+  long_term: ThreadContextSheetItem[];
+  markdown: string;
+  metadata: Record<string, unknown>;
+}
+
 export function selectThreadSheetForPrompt(
   sheet: ThreadContextSheet | null
 ): ThreadContextSheetItem[] {
@@ -30,6 +40,39 @@ export function mergeThreadContextSheetUpdate(
     metadata: { ...sheet.metadata, ...(update.metadata ?? {}) },
   };
   return { ...next, markdown: buildThreadContextSheetMarkdown(next) };
+}
+
+export function buildThreadContextSheetUpsertPayload(input: {
+  instanceId: string;
+  threadId: string;
+  existingSheet: ThreadContextSheet | null;
+  update: ThreadContextSheetUpdate;
+}): ThreadContextSheetUpsertPayload {
+  const baseSheet =
+    input.existingSheet ??
+    ({
+      id: "",
+      instance_id: input.instanceId,
+      thread_id: input.threadId,
+      active_working: [],
+      short_term: [],
+      long_term: [],
+      markdown: "",
+      metadata: {},
+      created_at: "",
+      updated_at: "",
+    } satisfies ThreadContextSheet);
+  const merged = mergeThreadContextSheetUpdate(baseSheet, input.update);
+
+  return {
+    instance_id: input.instanceId,
+    thread_id: input.threadId,
+    active_working: merged.active_working,
+    short_term: merged.short_term,
+    long_term: merged.long_term,
+    markdown: merged.markdown,
+    metadata: merged.metadata,
+  };
 }
 
 export function buildThreadContextSheetMarkdown(
