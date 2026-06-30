@@ -39,7 +39,7 @@ export interface ContextRouterCandidate {
   lexicalScore: number;
   sourceKind?: ContextCandidateSourceKind;
   relation?: string;
-  path?: string[];
+  path?: string | null;
   previewFacts?: string[];
   freshnessHint?: string;
   sensitivityLabel?: string;
@@ -85,7 +85,7 @@ export interface ContextPromptManifestAccountMemory {
 export interface ContextPromptManifest {
   router_version: "context-router-v2";
   resolved_query: string;
-  task_type: "ordinary" | "source-heavy";
+  task_type: string;
   current_stage_label: string;
   context_budget_chars: number;
   estimated_prompt_chars: number;

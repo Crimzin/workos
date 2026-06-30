@@ -3,13 +3,12 @@ import type {
   ContextPromptManifestAccountMemory,
   ContextPromptManifestSource,
 } from "./types";
-import type { ContextTaskType } from "./budget";
 
 export interface CreateContextPromptManifestInput {
   resolvedQuery: string;
-  taskType: ContextTaskType;
-  contextBudgetChars: number;
-  estimatedPromptChars: number;
+  taskType: string;
+  budgetChars: number;
+  estimatedPromptChars?: number;
   includedSources?: ContextPromptManifestSource[];
   omittedSources?: ContextPromptManifestSource[];
   accountMemory?: ContextPromptManifestAccountMemory;
@@ -28,8 +27,8 @@ export function createContextPromptManifest(
     resolved_query: input.resolvedQuery,
     task_type: input.taskType,
     current_stage_label: INITIAL_STAGE_LABEL,
-    context_budget_chars: input.contextBudgetChars,
-    estimated_prompt_chars: input.estimatedPromptChars,
+    context_budget_chars: input.budgetChars,
+    estimated_prompt_chars: input.estimatedPromptChars ?? 0,
     included_sources: input.includedSources ?? [],
     omitted_sources: input.omittedSources ?? [],
     account_memory: input.accountMemory ?? {

@@ -127,16 +127,25 @@ export function expandContextQueryTerms(query: string): string[] {
 export function expandedTextMatchScore(
   input: ExpandedTextMatchScoreInput
 ): ExpandedTextMatchScore {
-  const normalizedText = normalizeSearchText(input.text);
   const textTokens = tokenizeSearchText(input.text);
   const matchedTerms = expandContextQueryTerms(input.query).filter(
-    (term) => normalizedText.includes(term) || textTokens.includes(term)
+    (term) => termMatchesText(term, textTokens)
   );
 
   return {
     score: matchedTerms.length,
     matchedTerms,
   };
+}
+
+function termMatchesText(term: string, textTokens: string[]): boolean {
+  const termTokens = tokenizeSearchText(term);
+  if (termTokens.length === 0) return false;
+  if (termTokens.length === 1) return textTokens.includes(termTokens[0]);
+
+  return textTokens.some((_, index) =>
+    termTokens.every((termToken, offset) => textTokens[index + offset] === termToken)
+  );
 }
 
 function tokenVariants(token: string): string[] {

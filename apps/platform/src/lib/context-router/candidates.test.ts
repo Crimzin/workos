@@ -55,6 +55,21 @@ const financeRanked = rankCandidateSnippets("finance", [
 
 assert.deepEqual(financeRanked.map((item) => item.id), ["finances"]);
 
+const taxonomyRanked = rankCandidateSnippets("finance", [
+  {
+    id: "taxonomy",
+    title: "Taxonomy refactor",
+    sourceApp: "claude",
+    updatedAt: "2026-06-29T12:00:00.000Z",
+    sourcePostId: "p-taxonomy",
+    sourceMessageId: "m-taxonomy",
+    snippet: "Taxonomy refactor notes for imported source labels.",
+    lexicalScore: 0,
+  },
+]);
+
+assert.deepEqual(taxonomyRanked.map((item) => item.id), []);
+
 const recencyRanked = rankCandidateSnippets("career role", [
   {
     id: "missing-date",

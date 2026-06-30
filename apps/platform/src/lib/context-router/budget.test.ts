@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { chooseContextFidelity, contextBudgetForTask } from "./budget.ts";
 
 assert.deepEqual(contextBudgetForTask("ordinary"), {
+  taskType: "ordinary",
   targetChars: 25_000,
   warningChars: 50_000,
 });

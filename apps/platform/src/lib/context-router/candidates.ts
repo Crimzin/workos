@@ -50,7 +50,7 @@ export function rankCandidateSnippets(
         text: [
           candidate.title,
           candidate.snippet,
-          candidate.path?.join(" ") ?? "",
+          candidate.path ?? "",
           candidate.previewFacts?.join(" ") ?? "",
         ].join(" "),
       });

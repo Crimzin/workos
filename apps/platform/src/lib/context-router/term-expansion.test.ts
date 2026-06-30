@@ -29,3 +29,11 @@ assert.ok(
     text: "Python code that cleans campaign exports.",
   }).matchedTerms.includes("python")
 );
+
+assert.equal(
+  expandedTextMatchScore({
+    query: "finance",
+    text: "taxonomy refactor",
+  }).score,
+  0
+);

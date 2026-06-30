@@ -3,6 +3,7 @@ import type { ContextFidelity } from "./types";
 export type ContextTaskType = "ordinary" | "source-heavy";
 
 export interface ContextBudget {
+  taskType: ContextTaskType;
   targetChars: number;
   warningChars: number;
 }
@@ -16,12 +17,14 @@ export interface ChooseContextFidelityInput {
 export function contextBudgetForTask(taskType: ContextTaskType): ContextBudget {
   if (taskType === "source-heavy") {
     return {
+      taskType,
       targetChars: 80_000,
       warningChars: 120_000,
     };
   }
 
   return {
+    taskType,
     targetChars: 25_000,
     warningChars: 50_000,
   };
