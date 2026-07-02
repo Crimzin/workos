@@ -213,7 +213,8 @@ export async function createInlineAgentRun(
     .select("*")
     .single();
   if (error && isMissingInlineAgentRunColumnError(error)) {
-    const { current_stage, ...legacyInsert } = buildInlineAgentRunInsert(input);
+    const legacyInsert = buildInlineAgentRunInsert(input);
+    delete legacyInsert.current_stage;
     const fallback = await supabase
       .from("agent_runs")
       .insert(legacyInsert)

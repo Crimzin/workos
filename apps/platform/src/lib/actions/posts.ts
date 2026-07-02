@@ -7,7 +7,11 @@ import { getCurrentActor } from "../actor";
 import { getAgentSettings } from "../agent-settings";
 import { DEFAULT_AI_STANDARDS } from "../ai-standards";
 import { getEffectiveAIStandards } from "../ai-standards-server";
-import { revalidateNodePosts, revalidateWorkspaceFeed } from "../cache";
+import {
+  revalidateNodePosts,
+  revalidateThreadContextSheet,
+  revalidateWorkspaceFeed,
+} from "../cache";
 import { recordWorkOSEvent } from "../events";
 import {
   getNodePosts,
@@ -25,7 +29,7 @@ import {
   type NodeContext,
 } from "../agents/node-context";
 import { renderClaudePrompt } from "../agents/claude-prompt";
-import { streamClaude } from "../agents/claude";
+import { streamClaude, type ClaudeUsageReport } from "../agents/claude";
 import {
   modelSelectionMetadata,
   providerKeyForResponderName,
@@ -43,26 +47,39 @@ import { agentInvocationFailureReply } from "../agents/invocation-error";
 import { routeAgentMentions } from "../agents/router";
 import { isAgentRunConfirmation } from "../agents/confirmation";
 import {
+  appendAgentRunEvent,
   completeInlineAgentRun,
+  createInlineAgentRun,
   failInlineAgentRun,
   getActiveInlineAgentRuns,
   queueAwaitingRunsForConfirmation,
   updateInlineAgentRunStage,
 } from "../agents/runs";
 import { processNextQueuedAgentRun } from "../agents/worker";
-import { attachThreadContext } from "./thread-context";
+import { attachThreadContexts } from "./thread-context";
 import { makeContextRouterCandidate } from "../context-router/candidates";
+import { contextSourceProvenanceForNode } from "../context-router/provenance";
 import {
   MIN_TURN_RESOLUTION_CONFIDENCE,
   routeAutomaticContextV2,
 } from "../context-router/router";
-import { resolveContextTurn } from "../context-router/turn-resolver";
+import { resolveContextTurnWithFallback } from "../context-router/turn-resolver";
 import type { ContextRouterCandidate } from "../context-router/types";
 import {
   isContextEventMetadata,
-  normalizeSourceApp,
   scoreAutomaticContextTextMatch,
 } from "../thread-context";
+import {
+  buildThreadContextSheetSeedUpdate,
+  getThreadContextSheet,
+  shouldUseThreadContextSheetForTurn,
+  upsertThreadContextSheetRecord,
+  type ThreadContextSheetSeedDecision,
+} from "../thread-context-sheet";
+import {
+  extractThreadContextSheetPostTurnUpdate,
+  type ThreadContextPostTurnSourceFact,
+} from "../thread-context-extractor";
 import type { NodeType } from "../types";
 
 /**
@@ -87,8 +104,7 @@ export async function pollActiveInlineAgentRuns(
  *  At 400ms + the client's 750ms poll cadence the user sees new text every
  *  ~1.2s on average — close enough to feel real-time. */
 const STREAM_FLUSH_INTERVAL_MS = 400;
-const AUTOMATIC_CONTEXT_CANDIDATE_LIMIT = 50;
-const AUTOMATIC_IMPORTED_CONTEXT_CANDIDATE_LIMIT = 200;
+const AUTOMATIC_CONTEXT_CANDIDATE_POOL_LIMIT = 1000;
 const AUTOMATIC_CONTEXT_PREVIEW_CHARS = 500;
 
 async function getNodeInstanceId(nodeId: string): Promise<string> {
@@ -227,33 +243,82 @@ export async function createPost(
 
   if (mentions.length === 0) return;
 
+  const precreatedInlineRunIds = await createImmediateInlineClaudeRuns({
+    mentions,
+    actor,
+    nodeId,
+    workspaceId,
+    targetPost,
+    modelSelection,
+    inlineClaudeEnabled:
+      agentSettings?.providers.some(
+        (provider) =>
+          provider.provider_key === "inline_claude" && provider.enabled
+      ) ?? false,
+  }).catch((err) => {
+    console.error("[agent-runtime] failed to precreate inline run:", err);
+    return new Map<string, string>();
+  });
+
+  after(async () => {
+    await processAgentMentionsForPost({
+      mentions,
+      actor,
+      nodeId,
+      workspaceId,
+      targetPost,
+      plainText,
+      modelSelection,
+      precreatedInlineRunIds,
+    });
+  });
+}
+
+async function processAgentMentionsForPost(input: {
+  mentions: MentionedAgent[];
+  actor: Awaited<ReturnType<typeof getCurrentActor>>;
+  nodeId: string;
+  workspaceId: string;
+  targetPost: PostRecord;
+  plainText: string;
+  modelSelection: AgentModelSelection | null;
+  precreatedInlineRunIds: Map<string, string>;
+}): Promise<void> {
   try {
     const [previousUserTexts, recentThreadTexts, activeThreadTitle] =
       await Promise.all([
         getPreviousUserPostTexts({
-          nodeId,
-          actorId: actor.id,
-          targetPostId: targetPost.id,
+          nodeId: input.nodeId,
+          actorId: input.actor.id,
+          targetPostId: input.targetPost.id,
         }),
         getPreviousThreadPostTexts({
-          nodeId,
-          targetPostId: targetPost.id,
+          nodeId: input.nodeId,
+          targetPostId: input.targetPost.id,
         }),
-        getActiveThreadTitle(nodeId),
+        getActiveThreadTitle(input.nodeId),
       ]);
+    await updatePrecreatedInlineRunsStage(
+      input.precreatedInlineRunIds,
+      "Searching relevant chats..."
+    );
     await attachAutomaticContextForPost({
-      nodeId,
-      actorInstanceId: actor.instance_id,
-      currentText: plainText,
+      nodeId: input.nodeId,
+      actorInstanceId: input.actor.instance_id,
+      currentText: input.plainText,
       previousUserTexts,
       recentThreadTexts,
       activeThreadTitle,
     });
+    await updatePrecreatedInlineRunsStage(
+      input.precreatedInlineRunIds,
+      "Loading selected context..."
+    );
   } catch (err) {
     console.error("[thread-context] automatic attach failed:", err);
   }
 
-  const standards = await getEffectiveAIStandards(actor.instance_id).catch(
+  const standards = await getEffectiveAIStandards(input.actor.instance_id).catch(
     (err) => {
       console.error("[1.11] ai standards fallback:", err);
       return DEFAULT_AI_STANDARDS;
@@ -261,19 +326,19 @@ export async function createPost(
   );
   try {
     await routeAgentMentions({
-      mentions,
-      actor,
-      nodeId,
-      workspaceId,
-      targetPost,
-      modelSelection,
+      mentions: input.mentions,
+      actor: input.actor,
+      nodeId: input.nodeId,
+      workspaceId: input.workspaceId,
+      targetPost: input.targetPost,
+      modelSelection: input.modelSelection,
       renderClaudePromptForContext: (ctx) => {
-        const targetAwareCtx = ensureTargetPostInOwnThread(ctx, targetPost);
+        const targetAwareCtx = ensureTargetPostInOwnThread(ctx, input.targetPost);
         console.log(
           `[1.11] context gathered (own=${targetAwareCtx.ownThread.length} attached=${targetAwareCtx.attachedContexts.length} parent=${targetAwareCtx.parentThread ? targetAwareCtx.parentThread.posts.length : 0} siblings=${targetAwareCtx.siblingThreads.length} children=${targetAwareCtx.childThreads.length}, standards=${standards.length})`
         );
         const prompt = renderClaudePrompt(targetAwareCtx, {
-          targetPostId: targetPost.id,
+          targetPostId: input.targetPost.id,
           standards,
         });
         console.log(
@@ -281,31 +346,103 @@ export async function createPost(
         );
         return prompt;
       },
-      scheduleInlineClaude: (agent, ctxPrompt, selectedModel, runId) => {
+      precreatedInlineRunIds: input.precreatedInlineRunIds,
+      scheduleInlineClaude: async (agent, ctxPrompt, selectedModel, runId) => {
         console.log(
           `[1.11] createPost: scheduling after() for ${agent.name}(${agent.id.slice(0, 8)}) model=${selectedModel?.modelId ?? "default"}`
         );
-        after(async () => {
-          await streamInlineClaudeReply({
-            agent,
-            nodeId,
-            workspaceId,
-            ctxPrompt,
-            modelSelection: selectedModel,
-            runId,
-          });
+        await streamInlineClaudeReply({
+          agent,
+          nodeId: input.nodeId,
+          workspaceId: input.workspaceId,
+          ctxPrompt,
+          modelSelection: selectedModel,
+          runId,
+          latestUserText: input.plainText,
         });
       },
     });
   } catch (err) {
     console.error("[1.11] agent mention routing failed:", err);
+    await failPrecreatedInlineRuns(input.precreatedInlineRunIds, err);
     await postAgentRoutingFailureReplies({
-      mentions,
-      nodeId,
-      workspaceId,
+      mentions: input.mentions,
+      nodeId: input.nodeId,
+      workspaceId: input.workspaceId,
       error: err,
     });
   }
+}
+
+async function createImmediateInlineClaudeRuns(input: {
+  mentions: MentionedAgent[];
+  actor: Awaited<ReturnType<typeof getCurrentActor>>;
+  nodeId: string;
+  workspaceId: string;
+  targetPost: PostRecord;
+  modelSelection: AgentModelSelection | null;
+  inlineClaudeEnabled: boolean;
+}): Promise<Map<string, string>> {
+  if (!input.inlineClaudeEnabled) return new Map();
+
+  const inlineMentions = input.mentions.filter(
+    (mention) => providerKeyForResponderName(mention.name) === "inline_claude"
+  );
+  if (inlineMentions.length === 0) return new Map();
+
+  const selectedModel =
+    input.modelSelection?.providerKey === "inline_claude"
+      ? input.modelSelection
+      : null;
+  const runIds = new Map<string, string>();
+  await Promise.all(
+    inlineMentions.map(async (mention) => {
+      const run = await createInlineAgentRun({
+        instanceId: input.actor.instance_id,
+        workspaceId: input.workspaceId,
+        targetNodeId: input.nodeId,
+        triggerPostId: input.targetPost.id,
+        requesterActorId: input.actor.id,
+        agentActorId: mention.id,
+        currentStage: "Understanding the request...",
+        metadata: {
+          model_selection: selectedModel,
+          created_before_context_retrieval: true,
+        },
+      });
+      runIds.set(mention.id, run.id);
+    })
+  );
+
+  return runIds;
+}
+
+async function updatePrecreatedInlineRunsStage(
+  runIds: Map<string, string>,
+  stage: string
+): Promise<void> {
+  if (runIds.size === 0) return;
+  await Promise.all(
+    [...runIds.values()].map((runId) =>
+      updateInlineAgentRunStage(runId, stage).catch((error) => {
+        console.error("[agent-runtime] failed to update inline run stage:", error);
+      })
+    )
+  );
+}
+
+async function failPrecreatedInlineRuns(
+  runIds: Map<string, string>,
+  error: unknown
+): Promise<void> {
+  if (runIds.size === 0) return;
+  await Promise.all(
+    [...runIds.values()].map((runId) =>
+      failInlineAgentRun({ runId, error }).catch((failError) => {
+        console.error("[agent-runtime] failed to fail inline run:", failError);
+      })
+    )
+  );
 }
 
 async function postAgentRoutingFailureReplies(input: {
@@ -343,7 +480,7 @@ async function attachAutomaticContextForPost(input: {
   recentThreadTexts: string[];
   activeThreadTitle: string;
 }): Promise<void> {
-  const turnResolution = await resolveContextTurn({
+  const turnResolution = await resolveContextTurnWithFallback({
     currentText: input.currentText,
     previousUserTexts: input.previousUserTexts,
     recentThreadTexts: input.recentThreadTexts,
@@ -359,50 +496,62 @@ async function attachAutomaticContextForPost(input: {
   const contextQueryText = turnResolution.resolvedQuery;
   const [
     { data: existingRows, error: existingError },
-    { data: recentNodeRows, error: recentNodeError },
-    { data: importedNodeRows, error: importedNodeError },
-  ] =
-    await Promise.all([
-      supabase
-        .from("thread_context_attachments")
-        .select("context_source_node_id,status")
-        .eq("thread_id", input.nodeId)
-        .in("status", ["active", "removed", "ignored_for_suggestions"]),
-      supabase
-        .from("nodes")
-        .select("id,title,type,source_app,source_kind,updated_at")
-        .eq("instance_id", input.actorInstanceId)
-        .is("archived_at", null)
-        .eq("suggestion_status", "allowed")
-        .neq("id", input.nodeId)
-        .order("updated_at", { ascending: false })
-        .limit(AUTOMATIC_CONTEXT_CANDIDATE_LIMIT),
-      supabase
-        .from("nodes")
-        .select("id,title,type,source_app,source_kind,updated_at,source_updated_at")
-        .eq("instance_id", input.actorInstanceId)
-        .is("archived_at", null)
-        .eq("suggestion_status", "allowed")
-        .eq("source_kind", "imported_ai_chat")
-        .neq("id", input.nodeId)
-        .order("source_updated_at", {
-          ascending: false,
-          nullsFirst: false,
-        })
-        .order("updated_at", { ascending: false })
-        .limit(AUTOMATIC_IMPORTED_CONTEXT_CANDIDATE_LIMIT),
-    ]);
+    existingThreadSheet,
+  ] = await Promise.all([
+    supabase
+      .from("thread_context_attachments")
+      .select("context_source_node_id,status")
+      .eq("thread_id", input.nodeId)
+      .in("status", ["active", "removed", "ignored_for_suggestions"]),
+    getThreadContextSheet(input.nodeId),
+  ]);
   if (existingError) throw existingError;
-  if (recentNodeError) throw recentNodeError;
-  if (importedNodeError) throw importedNodeError;
+
+  const activeAttachmentCount = (existingRows ?? []).filter(
+    (row) => row.status === "active"
+  ).length;
+
+  if (
+    shouldUseThreadContextSheetForTurn({
+      resolvedQuery: contextQueryText,
+      sheet: existingThreadSheet,
+      activeAttachmentCount,
+    })
+  ) {
+    await upsertAutomaticThreadContextSheet({
+      instanceId: input.actorInstanceId,
+      threadId: input.nodeId,
+      currentText: input.currentText,
+      resolvedQuery: contextQueryText,
+      decisions: [],
+    });
+    console.log("[context-router] skipped broad retrieval; thread sheet covered turn", {
+      nodeId: input.nodeId,
+      activeAttachmentCount,
+      resolvedQuery: contextQueryText,
+    });
+    return;
+  }
+
+  const { data: candidateNodeRows, error: candidateNodeError } = await supabase
+    .from("nodes")
+    .select("id,title,type,source_app,source_kind,updated_at,source_updated_at")
+    .eq("instance_id", input.actorInstanceId)
+    .is("archived_at", null)
+    .eq("suggestion_status", "allowed")
+    .neq("id", input.nodeId)
+    .order("updated_at", { ascending: false })
+    .limit(AUTOMATIC_CONTEXT_CANDIDATE_POOL_LIMIT);
+  if (candidateNodeError) throw candidateNodeError;
 
   const excludedSourceIds = new Set(
     (existingRows ?? []).map((row) => row.context_source_node_id as string)
   );
-  const rowsById = new Map<string, NonNullable<typeof recentNodeRows>[number]>();
-  for (const row of [...(recentNodeRows ?? []), ...(importedNodeRows ?? [])]) {
-    rowsById.set(row.id as string, row);
-  }
+  const rowsById = new Map<
+    string,
+    NonNullable<typeof candidateNodeRows>[number]
+  >();
+  for (const row of candidateNodeRows ?? []) rowsById.set(row.id as string, row);
 
   const candidateRows = [...rowsById.values()].filter(
     (row) => !excludedSourceIds.has(row.id as string) && isNodeType(row.type)
@@ -417,18 +566,26 @@ async function attachAutomaticContextForPost(input: {
     const id = row.id as string;
     const title = row.title as string;
     const preview = previewsByNodeId.get(id);
+    const provenance = contextSourceProvenanceForNode({
+      sourceApp: row.source_app,
+      sourceKind: row.source_kind,
+    });
     return {
       ...makeContextRouterCandidate({
         id,
         title,
-        sourceApp: normalizeSourceApp(row.source_app),
+        sourceApp: provenance.sourceApp,
         updatedAt: (row.updated_at as string | null) ?? null,
         sourcePostId: preview?.sourcePostId ?? null,
         sourceMessageId: preview?.sourceMessageId ?? null,
         text: `${title}\n${preview?.bodyPreview ?? ""}`.trim(),
         query: contextQueryText,
       }),
-      sourceKind: contextRouterSourceKindFromNode(row.source_kind),
+      sourceKind: provenance.sourceKind,
+      sourceOrigin: provenance.sourceOrigin,
+      sourceProvenance: provenance.sourceProvenance,
+      sourcePostCount: preview?.sourcePostCount ?? 0,
+      sourceBodyChars: preview?.sourceBodyChars ?? 0,
     };
   });
 
@@ -445,17 +602,163 @@ async function attachAutomaticContextForPost(input: {
 
   if (decisions.length === 0) return;
 
-  for (const decision of decisions) {
-    await attachThreadContext({
-      threadId: input.nodeId,
+  await attachThreadContexts({
+    threadId: input.nodeId,
+    attachedBy: "automatic",
+    sources: decisions.map((decision) => ({
       sourceNodeId: decision.candidate.id,
-      attachedBy: "automatic",
       reason: decision.inclusionReason,
       sourcePostId: decision.sourcePostId,
       sourceMessageId: decision.sourceMessageId,
       metadata: { context_pack: decision.pack },
-    });
-  }
+    })),
+  });
+
+  await upsertAutomaticThreadContextSheet({
+    instanceId: input.actorInstanceId,
+    threadId: input.nodeId,
+    currentText: input.currentText,
+    resolvedQuery: contextQueryText,
+    decisions: decisions.map((decision) => ({
+      sourceNodeId: decision.candidate.id,
+      sourceTitle: decision.candidate.title,
+      sourceRole: decision.pack.source_role ?? "supporting",
+      confidence: decision.pack.relevance_confidence,
+      sourcePostId: decision.sourcePostId,
+      sourceMessageId: decision.sourceMessageId,
+      usefulFacts: decision.pack.useful_facts,
+    })),
+  });
+}
+
+async function upsertAutomaticThreadContextSheet(input: {
+  instanceId: string;
+  threadId: string;
+  currentText: string;
+  resolvedQuery: string;
+  decisions: ThreadContextSheetSeedDecision[];
+}): Promise<void> {
+  const didUpsert = await upsertThreadContextSheetRecord({
+    instanceId: input.instanceId,
+    threadId: input.threadId,
+    update: buildThreadContextSheetSeedUpdate({
+      currentText: input.currentText,
+      resolvedQuery: input.resolvedQuery,
+      decisions: input.decisions,
+    }),
+  });
+
+  if (didUpsert) revalidateThreadContextSheet(input.threadId);
+}
+
+async function updateThreadContextSheetAfterReply(input: {
+  instanceId: string;
+  threadId: string;
+  threadTitle: string;
+  userText: string;
+  assistantText: string;
+  runId: string;
+}): Promise<void> {
+  if (!input.assistantText.trim()) return;
+
+  const [existingSheet, attachedContextFacts] = await Promise.all([
+    getThreadContextSheet(input.threadId),
+    getAttachedContextFactsForThread(input.threadId),
+  ]);
+
+  const update = await extractThreadContextSheetPostTurnUpdate({
+    threadTitle: input.threadTitle,
+    userText: input.userText,
+    assistantText: input.assistantText,
+    existingSheet,
+    attachedContextFacts,
+  });
+  if (isThreadContextSheetUpdateEmpty(update)) return;
+
+  const didUpsert = await upsertThreadContextSheetRecord({
+    instanceId: input.instanceId,
+    threadId: input.threadId,
+    update,
+  });
+  if (!didUpsert) return;
+
+  revalidateThreadContextSheet(input.threadId);
+  await appendAgentRunEvent(input.runId, "memory_updated", "Thread memory updated.", {
+    active_working_count: update.activeWorking?.length ?? 0,
+    short_term_count: update.shortTerm?.length ?? 0,
+    long_term_count: update.longTerm?.length ?? 0,
+  }).catch((eventError) => {
+    console.error("[thread-context] failed to append memory event:", eventError);
+  });
+}
+
+async function getAttachedContextFactsForThread(
+  threadId: string
+): Promise<ThreadContextPostTurnSourceFact[]> {
+  const { data, error } = await supabase
+    .from("thread_context_attachments")
+    .select(
+      "metadata,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(title)"
+    )
+    .eq("thread_id", threadId)
+    .eq("status", "active")
+    .order("created_at", { ascending: true })
+    .limit(30);
+  if (error) throw error;
+
+  return (data ?? []).flatMap((row): ThreadContextPostTurnSourceFact[] => {
+    const metadata = isRecord(row.metadata) ? row.metadata : {};
+    const pack = isRecord(metadata.context_pack) ? metadata.context_pack : {};
+    const facts = contextPackFacts(pack);
+    if (facts.length === 0) return [];
+
+    const sourceNode = Array.isArray(row.source_node)
+      ? row.source_node[0]
+      : row.source_node;
+    const sourceTitle =
+      isRecord(sourceNode) && typeof sourceNode.title === "string"
+        ? sourceNode.title
+        : "Attached context";
+
+    return [
+      {
+        sourceTitle,
+        sourceRole: contextPackSourceRole(pack.source_role),
+        facts,
+      },
+    ];
+  });
+}
+
+function contextPackFacts(pack: Record<string, unknown>): string[] {
+  const facts =
+    Array.isArray(pack.useful_facts)
+      ? pack.useful_facts
+      : Array.isArray(pack.usefulFacts)
+        ? pack.usefulFacts
+        : [];
+  return facts
+    .filter((fact): fact is string => typeof fact === "string")
+    .map((fact) => fact.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function contextPackSourceRole(
+  value: unknown
+): ThreadContextPostTurnSourceFact["sourceRole"] {
+  if (value === "core" || value === "watchlist") return value;
+  return "supporting";
+}
+
+function isThreadContextSheetUpdateEmpty(
+  update: Awaited<ReturnType<typeof extractThreadContextSheetPostTurnUpdate>>
+): boolean {
+  return (
+    (update.activeWorking?.length ?? 0) === 0 &&
+    (update.shortTerm?.length ?? 0) === 0 &&
+    (update.longTerm?.length ?? 0) === 0
+  );
 }
 
 async function getActiveThreadTitle(nodeId: string): Promise<string> {
@@ -528,10 +831,12 @@ async function getPreviousThreadPostTexts(input: {
 
 interface AutomaticContextPostPreview {
   bodyPreview: string;
-  sourcePostId: string;
+  sourcePostId: string | null;
   sourceMessageId: string | null;
   score: number;
   matchedTokens: string[];
+  sourcePostCount: number;
+  sourceBodyChars: number;
 }
 
 async function getBestPostPreviewsByNodeId(
@@ -561,19 +866,28 @@ async function getBestPostPreviewsByNodeId(
       if (!nodeId || !postId || !body) continue;
 
       const text = plainTextFromBody(body);
+      const existing = bestByNodeId.get(nodeId) ?? {
+        bodyPreview: "",
+        sourcePostId: null,
+        sourceMessageId: null,
+        score: 0,
+        matchedTokens: [],
+        sourcePostCount: 0,
+        sourceBodyChars: 0,
+      };
+      existing.sourcePostCount += 1;
+      existing.sourceBodyChars += text.length;
+
       const match = scoreAutomaticContextTextMatch(userText, text);
-      if (match.score === 0) continue;
+      if (match.score > existing.score) {
+        existing.bodyPreview = previewAroundMatch(text, match.matchedTokens);
+        existing.sourcePostId = postId;
+        existing.sourceMessageId = metadataString(row.metadata?.source_message_id);
+        existing.score = match.score;
+        existing.matchedTokens = match.matchedTokens;
+      }
 
-      const existing = bestByNodeId.get(nodeId);
-      if (existing && existing.score >= match.score) continue;
-
-      bestByNodeId.set(nodeId, {
-        bodyPreview: previewAroundMatch(text, match.matchedTokens),
-        sourcePostId: postId,
-        sourceMessageId: metadataString(row.metadata?.source_message_id),
-        score: match.score,
-        matchedTokens: match.matchedTokens,
-      });
+      bestByNodeId.set(nodeId, existing);
     }
 
     if (!data || data.length < pageSize) break;
@@ -617,12 +931,6 @@ function isNodeType(value: unknown): value is NodeType {
   return value === "workspace" || value === "stack" || value === "card";
 }
 
-function contextRouterSourceKindFromNode(
-  sourceKind: unknown
-): ContextRouterCandidate["sourceKind"] {
-  return sourceKind === "imported_ai_chat" ? "imported" : "global";
-}
-
 async function streamInlineClaudeReply(input: {
   agent: MentionedAgent;
   nodeId: string;
@@ -630,6 +938,7 @@ async function streamInlineClaudeReply(input: {
   ctxPrompt: ReturnType<typeof renderClaudePrompt>;
   modelSelection: AgentModelSelection | null;
   runId: string;
+  latestUserText: string;
   promptManifest?: Record<string, unknown>;
 }): Promise<void> {
   const t0 = Date.now();
@@ -652,6 +961,7 @@ async function streamInlineClaudeReply(input: {
   let lastFlush = 0;
   let flushCount = 0;
   let markedWriting = false;
+  let usageReport: ClaudeUsageReport | null = null;
 
   try {
     await updateInlineAgentRunStage(input.runId, "Waiting for Claude...");
@@ -701,6 +1011,7 @@ async function streamInlineClaudeReply(input: {
         // Canonical final text — supersedes anything we accumulated, in
         // case the SDK provided trailing content not in chunk deltas.
         accumulated = event.text;
+        usageReport = event.usage;
       }
     }
 
@@ -729,15 +1040,26 @@ async function streamInlineClaudeReply(input: {
       flushCount++;
     }
 
+    const finalPromptManifest = usageReport
+      ? {
+          ...promptManifest,
+          claude_usage: usageReport.usage,
+          estimated_cost_usd: usageReport.estimated_cost_usd,
+          model: usageReport.model,
+          request_id: usageReport.request_id,
+        }
+      : promptManifest;
+
     await completeInlineAgentRun({
       runId: input.runId,
-      manifest: promptManifest,
+      manifest: finalPromptManifest,
       summary: accumulated.slice(0, 500),
     });
 
+    let instanceId: string | null = null;
     if (handle) {
       try {
-        const instanceId = await getNodeInstanceId(input.nodeId);
+        instanceId = await getNodeInstanceId(input.nodeId);
         await recordWorkOSEvent({
           instanceId,
           workspaceId: input.workspaceId,
@@ -750,11 +1072,32 @@ async function streamInlineClaudeReply(input: {
           metadata: {
             flush_count: flushCount,
             body_preview: accumulated.slice(0, 240),
+            ...(usageReport
+              ? {
+                  claude_usage: usageReport.usage,
+                  estimated_cost_usd: usageReport.estimated_cost_usd,
+                  model: usageReport.model,
+                  request_id: usageReport.request_id,
+                }
+              : {}),
           },
         });
       } catch (eventError) {
         console.error("[1.11] failed to record reply completion:", eventError);
       }
+    }
+
+    try {
+      await updateThreadContextSheetAfterReply({
+        instanceId: instanceId ?? (await getNodeInstanceId(input.nodeId)),
+        threadId: input.nodeId,
+        threadTitle: await getActiveThreadTitle(input.nodeId),
+        userText: input.latestUserText,
+        assistantText: accumulated,
+        runId: input.runId,
+      });
+    } catch (memoryError) {
+      console.error("[thread-context] post-turn memory extraction failed:", memoryError);
     }
 
     console.log(

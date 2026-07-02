@@ -6,11 +6,13 @@ import { revalidateNodePosts, revalidateThreadContext } from "../cache";
 import { supabase } from "../supabase";
 import {
   buildContextEventMetadata,
+  buildGroupedContextEventMetadata,
   isContextEventMetadata,
-  normalizeSourceApp,
+  isSingleContextEventMetadata,
   type ContextEventAction,
   updateContextEventMetadataAction,
 } from "../thread-context";
+import { contextSourceProvenanceForNode } from "../context-router/provenance";
 import type {
   ContextAttachedBy,
   SourceApp,
@@ -25,6 +27,18 @@ export interface AttachThreadContextInput {
   sourcePostId?: string | null;
   sourceMessageId?: string | null;
   metadata?: Record<string, unknown>;
+}
+
+export interface AttachThreadContextsInput {
+  threadId: string;
+  attachedBy: ContextAttachedBy;
+  sources: Array<{
+    sourceNodeId: string;
+    reason?: string | null;
+    sourcePostId?: string | null;
+    sourceMessageId?: string | null;
+    metadata?: Record<string, unknown>;
+  }>;
 }
 
 interface SourceNodeForContext {
@@ -86,6 +100,84 @@ export async function attachThreadContext(
     sourceMessageId: input.sourceMessageId ?? null,
     reason: input.reason ?? null,
   });
+  revalidateContextSurfaces(input.threadId);
+}
+
+export async function attachThreadContexts(
+  input: AttachThreadContextsInput
+): Promise<void> {
+  const actor = await getCurrentActor();
+  await validateThread(input.threadId, actor.instance_id);
+
+  const sourceInputsById = new Map<
+    string,
+    AttachThreadContextsInput["sources"][number]
+  >();
+  for (const source of input.sources) {
+    if (source.sourceNodeId.trim()) {
+      sourceInputsById.set(source.sourceNodeId, source);
+    }
+  }
+  const sourceNodeIds = [...sourceInputsById.keys()];
+  if (sourceNodeIds.length === 0) return;
+
+  const [sourceNodesById, existingBySourceId] = await Promise.all([
+    getSourceNodes(sourceNodeIds, actor.instance_id),
+    getExistingAttachments(input.threadId, sourceNodeIds),
+  ]);
+
+  const rows = sourceNodeIds.flatMap((sourceNodeId) => {
+    const sourceInput = sourceInputsById.get(sourceNodeId);
+    const source = sourceNodesById.get(sourceNodeId);
+    if (!sourceInput || !source) return [];
+
+    return [
+      {
+        instance_id: actor.instance_id,
+        thread_id: input.threadId,
+        context_source_node_id: sourceNodeId,
+        attached_by: input.attachedBy,
+        status: "active",
+        reason: sourceInput.reason ?? null,
+        source_post_id: sourceInput.sourcePostId ?? null,
+        source_message_id: sourceInput.sourceMessageId ?? null,
+        metadata: sourceInput.metadata ?? {},
+        removed_at: null,
+      },
+    ];
+  });
+  if (rows.length === 0) return;
+
+  const { error } = await supabase.from("thread_context_attachments").upsert(
+    rows,
+    { onConflict: "thread_id,context_source_node_id" }
+  );
+  if (error) throw error;
+
+  const newlyVisibleSources = rows
+    .filter((row) => existingBySourceId.get(row.context_source_node_id)?.status !== "active")
+    .flatMap((row) => {
+      const source = sourceNodesById.get(row.context_source_node_id);
+      if (!source) return [];
+
+      return [
+        {
+          source,
+          sourcePostId: row.source_post_id,
+          sourceMessageId: row.source_message_id,
+          reason: row.reason,
+        },
+      ];
+    });
+
+  if (newlyVisibleSources.length > 0) {
+    await insertGroupedContextEventPost({
+      threadId: input.threadId,
+      action: "attached",
+      sources: newlyVisibleSources,
+    });
+  }
+
   revalidateContextSurfaces(input.threadId);
 }
 
@@ -188,6 +280,32 @@ async function getExistingAttachment(
   return data as ExistingAttachmentForContext | null;
 }
 
+async function getExistingAttachments(
+  threadId: string,
+  sourceNodeIds: string[]
+): Promise<Map<string, ExistingAttachmentForContext>> {
+  if (sourceNodeIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("thread_context_attachments")
+    .select("context_source_node_id,status,source_post_id,source_message_id,reason")
+    .eq("thread_id", threadId)
+    .in("context_source_node_id", sourceNodeIds);
+  if (error) throw error;
+
+  return new Map(
+    (data ?? []).map((row) => [
+      row.context_source_node_id as string,
+      {
+        status: row.status as ThreadContextAttachmentStatus,
+        source_post_id: (row.source_post_id as string | null) ?? null,
+        source_message_id: (row.source_message_id as string | null) ?? null,
+        reason: (row.reason as string | null) ?? null,
+      },
+    ])
+  );
+}
+
 async function validateThread(
   threadId: string,
   instanceId: string
@@ -206,20 +324,40 @@ async function getSourceNode(
   sourceNodeId: string,
   instanceId: string
 ): Promise<SourceNodeForContext> {
+  const source = (await getSourceNodes([sourceNodeId], instanceId)).get(
+    sourceNodeId
+  );
+  if (!source) throw new Error("Context source not found");
+
+  return source;
+}
+
+async function getSourceNodes(
+  sourceNodeIds: string[],
+  instanceId: string
+): Promise<Map<string, SourceNodeForContext>> {
+  if (sourceNodeIds.length === 0) return new Map();
+
   const { data, error } = await supabase
     .from("nodes")
-    .select("id,title,source_app")
-    .eq("id", sourceNodeId)
+    .select("id,title,source_app,source_kind")
     .eq("instance_id", instanceId)
-    .maybeSingle();
+    .in("id", sourceNodeIds);
   if (error) throw error;
-  if (!data) throw new Error("Context source not found");
 
-  return {
-    id: data.id as string,
-    title: data.title as string,
-    source_app: normalizeSourceApp(data.source_app),
-  };
+  return new Map(
+    (data ?? []).map((row) => [
+      row.id as string,
+      {
+        id: row.id as string,
+        title: row.title as string,
+        source_app: contextSourceProvenanceForNode({
+          sourceApp: row.source_app,
+          sourceKind: row.source_kind,
+        }).sourceApp,
+      },
+    ])
+  );
 }
 
 async function insertContextEventPost(input: {
@@ -243,6 +381,38 @@ async function insertContextEventPost(input: {
       sourcePostId: input.sourcePostId,
       sourceMessageId: input.sourceMessageId,
       reason: input.reason,
+    }),
+  });
+  if (error) throw error;
+}
+
+async function insertGroupedContextEventPost(input: {
+  threadId: string;
+  action: ContextEventAction;
+  sources: Array<{
+    source: SourceNodeForContext;
+    sourcePostId?: string | null;
+    sourceMessageId?: string | null;
+    reason?: string | null;
+  }>;
+}): Promise<void> {
+  const sourceApp = input.sources[0]?.source.source_app ?? "unknown";
+  const { error } = await supabase.from("posts").insert({
+    node_id: input.threadId,
+    actor_id: null,
+    post_type: "context_event",
+    body: null,
+    metadata: buildGroupedContextEventMetadata({
+      action: input.action,
+      sourceApp,
+      sources: input.sources.map((item) => ({
+        sourceNodeId: item.source.id,
+        sourceTitle: item.source.title,
+        sourceApp: item.source.source_app,
+        sourcePostId: item.sourcePostId,
+        sourceMessageId: item.sourceMessageId,
+        reason: item.reason,
+      })),
     }),
   });
   if (error) throw error;
@@ -308,7 +478,7 @@ async function findContextEventPost(input: {
     const row = data as ContextEventPostRow | null;
     if (
       row &&
-      isContextEventMetadata(row.metadata) &&
+      isSingleContextEventMetadata(row.metadata) &&
       row.metadata.source_node_id === input.sourceNodeId
     ) {
       return row;
@@ -328,7 +498,7 @@ async function findContextEventPost(input: {
   return (
     rows.find(
       (row) =>
-        isContextEventMetadata(row.metadata) &&
+        isSingleContextEventMetadata(row.metadata) &&
         row.metadata.source_node_id === input.sourceNodeId
     ) ?? null
   );

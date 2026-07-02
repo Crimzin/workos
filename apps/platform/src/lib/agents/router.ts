@@ -29,13 +29,14 @@ export interface RouteAgentMentionsInput {
   workspaceId: string;
   targetPost: PostRecord;
   modelSelection?: AgentModelSelection | null;
+  precreatedInlineRunIds?: Map<string, string>;
   renderClaudePromptForContext: (ctx: NodeContext) => ClaudePrompt;
   scheduleInlineClaude: (
     agent: MentionedAgent,
     prompt: ClaudePrompt,
     modelSelection: AgentModelSelection | null,
     runId: string
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 function enabledProviderKeysFromSettings(
@@ -86,28 +87,33 @@ export async function routeAgentMentions(
         input.modelSelection?.providerKey === route.providerKey
           ? input.modelSelection
           : null;
-      const run = await createInlineAgentRun({
-        instanceId: input.actor.instance_id,
-        workspaceId: input.workspaceId,
-        targetNodeId: input.nodeId,
-        triggerPostId: input.targetPost.id,
-        requesterActorId: input.actor.id,
-        agentActorId: route.mention.id,
-        currentStage: "Understanding the request...",
-        metadata: {
-          model_selection: selectedModel,
-        },
-      });
+      const precreatedRunId = input.precreatedInlineRunIds?.get(route.mention.id);
+      const runId =
+        precreatedRunId ??
+        (
+          await createInlineAgentRun({
+            instanceId: input.actor.instance_id,
+            workspaceId: input.workspaceId,
+            targetNodeId: input.nodeId,
+            triggerPostId: input.targetPost.id,
+            requesterActorId: input.actor.id,
+            agentActorId: route.mention.id,
+            currentStage: "Understanding the request...",
+            metadata: {
+              model_selection: selectedModel,
+            },
+          })
+        ).id;
       try {
-        input.scheduleInlineClaude(
+        await input.scheduleInlineClaude(
           route.mention,
           input.renderClaudePromptForContext(nodeContext),
           selectedModel,
-          run.id
+          runId
         );
       } catch (error) {
         try {
-          await failInlineAgentRun({ runId: run.id, error });
+          await failInlineAgentRun({ runId, error });
         } catch (failError) {
           console.error("[agent-runtime] failed to mark inline run failed", failError);
         }

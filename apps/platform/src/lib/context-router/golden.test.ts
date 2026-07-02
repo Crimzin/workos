@@ -41,7 +41,7 @@ async function testFinanceBlankThreadRetrieval() {
       resolveTurn: async (input) => {
         assert.equal(
           input.currentText,
-          "Help me think through my financial planning situation."
+          "Help me think through my financial planning situation.",
         );
         return {
           originalText: input.currentText,
@@ -55,7 +55,7 @@ async function testFinanceBlankThreadRetrieval() {
       rerankCandidates: async (input) => {
         assert.deepEqual(
           input.candidates.map((candidate) => candidate.id),
-          ["personal-finances", "vacation-planning"]
+          ["personal-finances", "vacation-planning"],
         );
 
         return [
@@ -81,18 +81,18 @@ async function testFinanceBlankThreadRetrieval() {
           },
         ];
       },
-    }
+    },
   );
 
   assert.deepEqual(
     routed.decisions.map((decision) => decision.candidate.id),
-    ["personal-finances"]
+    ["personal-finances"],
   );
   assert.equal(routed.manifest.included_sources.length, 1);
   assert.equal(routed.manifest.included_sources[0].id, "personal-finances");
   assert.deepEqual(
     routed.manifest.omitted_sources.map((source) => source.id),
-    ["vacation-planning"]
+    ["vacation-planning"],
   );
 }
 
@@ -137,7 +137,7 @@ async function testLuluOldScriptRevivalRetrieval() {
       rerankCandidates: async (input) => {
         assert.deepEqual(
           input.candidates.map((candidate) => candidate.id),
-          ["campaign-export-python-program"]
+          ["campaign-export-python-program"],
         );
 
         return [
@@ -155,26 +155,138 @@ async function testLuluOldScriptRevivalRetrieval() {
           },
         ];
       },
-    }
+    },
   );
 
   assert.deepEqual(
     routed.decisions.map((decision) => decision.candidate.id),
-    ["campaign-export-python-program"]
+    ["campaign-export-python-program"],
   );
   assert.equal(
     routed.decisions[0].pack.useful_facts[0],
-    "Only discussion context is available; the source file may still be needed before writing the new XYZ version."
+    "Only discussion context is available; the source file may still be needed before writing the new XYZ version.",
   );
   assert.equal(
     routed.manifest.included_sources[0].id,
-    "campaign-export-python-program"
+    "campaign-export-python-program",
   );
+}
+
+async function testFinanceBroadAssessmentRoles() {
+  const routed = await routeAutomaticContextV2(
+    {
+      currentText:
+        "Give me a general financial assessment across all the complicated dynamics.",
+      previousUserTexts: ["I need your help with financial planning."],
+      recentThreadTexts: [],
+      activeThreadTitle: "Finances",
+      candidates: [
+        {
+          id: "career-finance",
+          title: "Career and Finance Strategy",
+          sourceApp: "claude",
+          updatedAt: "2026-06-20T12:00:00.000Z",
+          sourcePostId: "career-post",
+          sourceMessageId: "career-message",
+          snippet:
+            "Career, runway, inheritance, housing, cash reserves, and retirement planning context.",
+          lexicalScore: 0,
+          sourceKind: "imported",
+          priorWeight: 3,
+          sourcePostCount: 120,
+          sourceBodyChars: 180_000,
+        },
+        {
+          id: "prenup",
+          title: "Evaluating a prenuptial agreement",
+          sourceApp: "claude",
+          updatedAt: "2026-06-22T12:00:00.000Z",
+          sourcePostId: "prenup-post",
+          sourceMessageId: "prenup-message",
+          snippet:
+            "Prenup planning, future spouse obligations, Lulu's ability to work in the US, and household financial commitments.",
+          lexicalScore: 1,
+          sourceKind: "imported",
+          priorWeight: 3,
+        },
+        {
+          id: "tmobile-credit",
+          title: "Disputed T-Mobile collection account on credit report",
+          sourceApp: "claude",
+          updatedAt: "2026-06-23T12:00:00.000Z",
+          sourcePostId: "credit-post",
+          sourceMessageId: "credit-message",
+          snippet:
+            "A narrow $122 collection-account dispute on a credit report that may matter for lease friction.",
+          lexicalScore: 1,
+          sourceKind: "imported",
+          priorWeight: 3,
+        },
+      ],
+    },
+    {
+      resolveTurn: async (input) => ({
+        originalText: input.currentText,
+        resolvedQuery:
+          "comprehensive personal financial assessment cash runway housing investments inheritance marriage prenup household obligations",
+        shouldRetrieve: true,
+        confidence: 0.96,
+        reason: "Broad finance assessment.",
+      }),
+      rerankCandidates: async () => [
+        {
+          candidateId: "career-finance",
+          action: "include",
+          sourceRole: "core",
+          confidence: 0.93,
+          reason: "Long-running finance strategy context.",
+          usefulFacts: [
+            "Career, runway, inheritance, housing, and retirement all appear in this thread.",
+          ],
+          sourcePostId: null,
+          sourceMessageId: null,
+        },
+        {
+          candidateId: "prenup",
+          action: "include",
+          sourceRole: "supporting",
+          confidence: 0.88,
+          reason: "Legal and household financial obligations.",
+          usefulFacts: [
+            "Prenup and future spouse obligations may materially affect planning.",
+          ],
+          sourcePostId: null,
+          sourceMessageId: null,
+        },
+        {
+          candidateId: "tmobile-credit",
+          action: "include",
+          sourceRole: "supporting",
+          confidence: 0.78,
+          reason: "Credit report issue may matter.",
+          usefulFacts: ["A small collection-account dispute exists."],
+          sourcePostId: null,
+          sourceMessageId: null,
+        },
+      ],
+    },
+  );
+
+  const roles = new Map(
+    routed.decisions.map((decision) => [
+      decision.candidate.id,
+      decision.pack.source_role,
+    ]),
+  );
+  assert.equal(roles.get("career-finance"), "core");
+  assert.equal(roles.get("prenup"), "supporting");
+  assert.equal(roles.get("tmobile-credit"), "watchlist");
 }
 
 async function main() {
   await testFinanceBlankThreadRetrieval();
   await testLuluOldScriptRevivalRetrieval();
+  await testFinanceBroadAssessmentRoles();
 }
 
 main().catch((err: unknown) => {

@@ -13,6 +13,12 @@ const THEMATIC_TERMS: Record<string, string[]> = {
     "retirement",
     "asset",
     "assets",
+    "income",
+    "housing",
+    "house",
+    "rent",
+    "mortgage",
+    "property",
     "runway",
   ],
   finances: [
@@ -27,6 +33,12 @@ const THEMATIC_TERMS: Record<string, string[]> = {
     "retirement",
     "asset",
     "assets",
+    "income",
+    "housing",
+    "house",
+    "rent",
+    "mortgage",
+    "property",
     "runway",
   ],
   financial: [
@@ -41,6 +53,12 @@ const THEMATIC_TERMS: Record<string, string[]> = {
     "retirement",
     "asset",
     "assets",
+    "income",
+    "housing",
+    "house",
+    "rent",
+    "mortgage",
+    "property",
     "runway",
   ],
   program: [
@@ -125,11 +143,11 @@ export function expandContextQueryTerms(query: string): string[] {
 }
 
 export function expandedTextMatchScore(
-  input: ExpandedTextMatchScoreInput
+  input: ExpandedTextMatchScoreInput,
 ): ExpandedTextMatchScore {
   const textTokens = tokenizeSearchText(input.text);
-  const matchedTerms = expandContextQueryTerms(input.query).filter(
-    (term) => termMatchesText(term, textTokens)
+  const matchedTerms = expandContextQueryTerms(input.query).filter((term) =>
+    termMatchesText(term, textTokens),
   );
 
   return {
@@ -144,7 +162,9 @@ function termMatchesText(term: string, textTokens: string[]): boolean {
   if (termTokens.length === 1) return textTokens.includes(termTokens[0]);
 
   return textTokens.some((_, index) =>
-    termTokens.every((termToken, offset) => textTokens[index + offset] === termToken)
+    termTokens.every(
+      (termToken, offset) => textTokens[index + offset] === termToken,
+    ),
   );
 }
 

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import {
   AUTOMATIC_CONTEXT_AUTO_ATTACH_LIMIT,
   buildContextEventMetadata,
+  buildGroupedContextEventMetadata,
   buildAutomaticContextQueryText,
   chooseAutomaticContextCandidates,
   contextEventSummary,
+  isGroupedContextEventMetadata,
   isContextEventPost,
   updateContextEventMetadataAction,
 } from "./thread-context";
@@ -32,6 +34,65 @@ assert.deepEqual(attachedMetadata, {
 assert.equal(
   contextEventSummary(attachedMetadata),
   "Added context from Claude: Campaign reporting script"
+);
+
+const groupedMetadata = buildGroupedContextEventMetadata({
+  action: "attached",
+  sourceApp: "claude",
+  sources: [
+    {
+      sourceNodeId: "source-thread-1",
+      sourceTitle: "Career and Finance Strategy",
+      sourcePostId: "post-1",
+      reason: "Core financial planning context.",
+    },
+    {
+      sourceNodeId: "source-thread-2",
+      sourceTitle: "Evaluating a prenuptial agreement",
+      reason: "Household obligation context.",
+    },
+  ],
+});
+
+assert.equal(isGroupedContextEventMetadata(groupedMetadata), true);
+assert.deepEqual(groupedMetadata.sources.map((source) => source.source_title), [
+  "Career and Finance Strategy",
+  "Evaluating a prenuptial agreement",
+]);
+assert.equal(
+  contextEventSummary(groupedMetadata),
+  "Added 2 context sources from Claude: Career and Finance Strategy, Evaluating a prenuptial agreement"
+);
+
+const mixedGroupedMetadata = buildGroupedContextEventMetadata({
+  action: "attached",
+  sourceApp: "claude",
+  sources: [
+    {
+      sourceNodeId: "source-thread-1",
+      sourceTitle: "Career and Finance Strategy",
+      sourceApp: "claude",
+    },
+    {
+      sourceNodeId: "source-thread-2",
+      sourceTitle: "WorkOS Development",
+      sourceApp: "workos",
+    },
+    {
+      sourceNodeId: "source-thread-3",
+      sourceTitle: "ChatGPT product notes",
+      sourceApp: "chatgpt",
+    },
+  ],
+});
+
+assert.equal(
+  contextEventSummary(mixedGroupedMetadata),
+  "Added 3 context sources: 1 Claude, 1 ChatGPT, 1 WorkOS: Career and Finance Strategy, WorkOS Development, ChatGPT product notes"
+);
+assert.equal(
+  isContextEventPost({ post_type: "context_event", metadata: groupedMetadata }),
+  true
 );
 
 assert.equal(

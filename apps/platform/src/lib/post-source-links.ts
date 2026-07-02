@@ -7,6 +7,13 @@ const sourceAppLabels: Record<SourceApp, string> = {
   unknown: "Unknown",
 };
 
+const sourceAppMarks: Record<SourceApp, string> = {
+  claude: "C",
+  chatgpt: "G",
+  workos: "W",
+  unknown: "?",
+};
+
 export function messageAnchorId(postId: string): string {
   return `message-${postId}`;
 }
@@ -23,6 +30,12 @@ export function sourceAppLabel(
   sourceApp: SourceApp | null | undefined
 ): string {
   return sourceAppLabels[sourceApp ?? "unknown"];
+}
+
+export function sourceAppMark(
+  sourceApp: SourceApp | null | undefined
+): string {
+  return sourceAppMarks[sourceApp ?? "unknown"];
 }
 
 export function sourceAppFromMetadata(value: unknown): SourceApp {

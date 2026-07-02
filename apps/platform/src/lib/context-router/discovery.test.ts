@@ -47,3 +47,27 @@ assert.deepEqual(
   prioritized.map((item) => item.id),
   ["mention", "account", "attached", "family", "global"]
 );
+
+const prioritizedImportedChats = prioritizeCheapCandidates([
+  {
+    ...candidate("short-finance-chat", "imported"),
+    priorWeight: undefined,
+    sourcePostCount: 5,
+    sourceBodyChars: 8_000,
+  },
+  {
+    ...candidate("career-and-finance-strategy", "imported"),
+    priorWeight: undefined,
+    sourcePostCount: 120,
+    sourceBodyChars: 180_000,
+  },
+]);
+
+assert.deepEqual(
+  prioritizedImportedChats.map((item) => item.id),
+  ["career-and-finance-strategy", "short-finance-chat"]
+);
+assert.ok(
+  (prioritizedImportedChats[0].priorWeight ?? 0) >
+    (prioritizedImportedChats[1].priorWeight ?? 0)
+);

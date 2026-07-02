@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { orderPostsForThread } from "../lib/post-order";
 import type { PostRecord } from "../lib/posts";
 import {
+  buildOptimisticUserPost,
   DEFAULT_INLINE_CLAUDE_STAGE,
   getInlineClaudeIndicatorRows,
   InlineClaudeActiveRun,
+  isLocalInlineClaudeResponder,
   LocalThinkingClaude,
 } from "./posts-tab-content-helpers.ts";
 
@@ -46,6 +48,36 @@ assert.deepEqual(orderPostsForThread(newestFirst).map((p) => p.id), [
 ]);
 
 assert.deepEqual(newestFirst.map((p) => p.id), ["newest", "middle", "oldest"]);
+
+assert.equal(isLocalInlineClaudeResponder("Claude"), true);
+assert.equal(isLocalInlineClaudeResponder("WorkOS"), true);
+assert.equal(isLocalInlineClaudeResponder("Claude Code"), false);
+assert.equal(isLocalInlineClaudeResponder("Codex"), false);
+
+assert.deepEqual(
+  buildOptimisticUserPost({
+    id: "optimistic-1",
+    nodeId: "node-1",
+    actorId: "will-1",
+    actorName: "Will",
+    body: "body-json",
+    now: new Date("2026-07-02T12:00:00.000Z"),
+  }),
+  {
+    id: "optimistic-1",
+    node_id: "node-1",
+    actor_id: "will-1",
+    post_type: "post",
+    body: "body-json",
+    metadata: null,
+    pinned: false,
+    pinned_at: null,
+    created_at: "2026-07-02T12:00:00.000Z",
+    updated_at: "2026-07-02T12:00:00.000Z",
+    actor: { id: "will-1", name: "Will", kind: "human" },
+    reactions: [],
+  }
+);
 
 const activeRuns: InlineClaudeActiveRun[] = [
   {

@@ -27,7 +27,9 @@ import {
 import { orderPostsForThread } from "@/lib/post-order";
 import type { AgentProviderSetting } from "@/lib/types";
 import {
+  buildOptimisticUserPost,
   getInlineClaudeIndicatorRows,
+  isLocalInlineClaudeResponder,
   type InlineClaudeActiveRun,
   type LocalThinkingClaude,
 } from "./posts-tab-content-helpers";
@@ -91,6 +93,7 @@ export function PostsTabContent({
   initialPosts,
   initialActiveInlineRuns = [],
   currentActorId,
+  currentActorName,
   actors,
   inlineClaudeEnabled,
   agentProviders,
@@ -370,8 +373,7 @@ export function PostsTabContent({
     // disabled inline Claude should not create a false waiting state.
     const claudeMentions = inlineClaudeEnabled
       ? requestedAgents.filter((m) => {
-          const name = m.name.toLowerCase();
-          return name.startsWith("claude") && !name.includes("code");
+          return isLocalInlineClaudeResponder(m.name);
         })
       : [];
 
@@ -386,6 +388,18 @@ export function PostsTabContent({
       pollDeadlineRef.current = Date.now() + POLL_INITIAL_DURATION_MS;
       setIsPolling(true);
     }
+
+    const optimisticPostId = `optimistic-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const optimisticPost = buildOptimisticUserPost({
+      id: optimisticPostId,
+      nodeId,
+      actorId: currentActorId,
+      actorName: currentActorName,
+      body,
+    });
+    setPosts((prev) => [optimisticPost, ...prev]);
 
     setComposerKey((k) => k + 1); // remounts editor → clean slate
     setHasContent(false);
@@ -404,6 +418,7 @@ export function PostsTabContent({
         });
       } catch (error) {
         console.error("[posts] failed to submit post", error);
+        setPosts((prev) => prev.filter((p) => p.id !== optimisticPostId));
         if (claudeMentions.length > 0) {
           setThinkingClaudes([]);
           setActiveInlineRuns([]);

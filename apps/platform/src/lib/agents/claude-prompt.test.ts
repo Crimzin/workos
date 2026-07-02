@@ -263,10 +263,14 @@ const compactContextPrompt = renderClaudePrompt(
         contextPack: {
           router_version: "context-router-v1",
           resolved_query: "career advice Anthropic roles",
+          source_role: "core",
           relevance_confidence: 0.91,
           reason: "Directly relevant to Anthropic process.",
           useful_facts: ["Danny discussed Anthropic product roles."],
           snippet: "Danny discussed Anthropic product roles and fit.",
+          source_origin: "imported",
+          source_app: "claude",
+          source_provenance: "Claude import",
         },
       },
     ],
@@ -282,6 +286,11 @@ assert.match(
   /# Attached context: "Danny @ Anthropic"/
 );
 assert.match(compactContextPrompt.userMessage, /Relevance: 91%/);
+assert.match(compactContextPrompt.userMessage, /Source role: core/);
+assert.match(
+  compactContextPrompt.userMessage,
+  /Source provenance: Claude import/
+);
 assert.match(
   compactContextPrompt.userMessage,
   /Why included: Directly relevant to Anthropic process\./
@@ -298,6 +307,90 @@ assert.doesNotMatch(
   compactContextPrompt.userMessage,
   /This full attached thread post should not appear/
 );
+
+const broadFinancePrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    attachedContexts: [
+      {
+        node: {
+          id: "finance",
+          title: "Career and Finance Strategy",
+          type: "stack",
+        },
+        posts: [],
+        contextPack: {
+          router_version: "context-router-v1",
+          resolved_query:
+            "comprehensive personal financial assessment across cash runway housing investments inheritance marriage prenup household obligations",
+          source_role: "core",
+          relevance_confidence: 0.97,
+          reason: "Selected as core finance context by reranker.",
+          useful_facts: ["Runway, housing, inheritance, and retirement were discussed."],
+          snippet: "Financial planning context.",
+        },
+      },
+      {
+        node: {
+          id: "prenup",
+          title: "Evaluating a prenuptial agreement",
+          type: "stack",
+        },
+        posts: [],
+        contextPack: {
+          router_version: "context-router-v1",
+          resolved_query:
+            "comprehensive personal financial assessment across cash runway housing investments inheritance marriage prenup household obligations",
+          source_role: "supporting",
+          relevance_confidence: 0.88,
+          reason: "Household and legal obligation context.",
+          useful_facts: [
+            "Prenup planning may affect future spouse obligations and household financial planning.",
+          ],
+          snippet: "Prenup and household obligation context.",
+        },
+      },
+      {
+        node: {
+          id: "credit",
+          title: "Disputed T-Mobile collection account on credit report",
+          type: "stack",
+        },
+        posts: [],
+        contextPack: {
+          router_version: "context-router-v1",
+          resolved_query:
+            "comprehensive personal financial assessment across cash runway housing investments inheritance marriage prenup household obligations",
+          source_role: "watchlist",
+          relevance_confidence: 0.74,
+          reason: "Narrow credit/collections context.",
+          useful_facts: ["A small credit-report dispute exists."],
+          snippet: "Credit dispute context.",
+        },
+      },
+    ],
+  },
+  {
+    targetPostId: "target",
+    now: new Date("2026-06-22T16:43:00.000Z"),
+  }
+);
+
+assert.match(broadFinancePrompt.userMessage, /# Attached Context Guidance/);
+assert.match(broadFinancePrompt.userMessage, /# Selected Source Fact Check/);
+assert.match(
+  broadFinancePrompt.userMessage,
+  /marriage, prenup, household, and legal obligations/
+);
+assert.match(
+  broadFinancePrompt.userMessage,
+  /Evaluating a prenuptial agreement \(supporting, 88%\): Prenup planning may affect future spouse obligations and household financial planning\./
+);
+assert.match(
+  broadFinancePrompt.userMessage,
+  /Treat watchlist sources as background/
+);
+assert.match(broadFinancePrompt.userMessage, /Source role: watchlist/);
 
 assert.ok(
   prompt.userMessage.indexOf("# Mentioned Node Context") <

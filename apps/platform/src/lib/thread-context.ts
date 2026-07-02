@@ -9,16 +9,34 @@ import type { SourceApp } from "./types";
 
 export type ContextEventAction = "attached" | "removed" | "ignored" | "allowed";
 
-export interface ContextEventMetadata extends Record<string, unknown> {
+export interface ContextEventBaseMetadata extends Record<string, unknown> {
   context_event: true;
   action: ContextEventAction;
+}
+
+export interface ContextEventSourceMetadata extends Record<string, unknown> {
   source_node_id: string;
   source_title: string;
-  source_app: SourceApp;
+  source_app?: SourceApp;
   source_post_id?: string;
   source_message_id?: string;
   reason?: string;
 }
+
+export type SingleContextEventMetadata = ContextEventBaseMetadata &
+  ContextEventSourceMetadata & {
+    source_app: SourceApp;
+  };
+
+export interface GroupedContextEventMetadata extends ContextEventBaseMetadata {
+  grouped_context_event: true;
+  source_app: SourceApp;
+  sources: ContextEventSourceMetadata[];
+}
+
+export type ContextEventMetadata =
+  | SingleContextEventMetadata
+  | GroupedContextEventMetadata;
 
 export interface BuildContextEventMetadataInput {
   action: ContextEventAction;
@@ -28,6 +46,19 @@ export interface BuildContextEventMetadataInput {
   sourcePostId?: string | null;
   sourceMessageId?: string | null;
   reason?: string | null;
+}
+
+export interface BuildGroupedContextEventMetadataInput {
+  action: ContextEventAction;
+  sourceApp: unknown;
+  sources: Array<{
+    sourceNodeId: string;
+    sourceTitle: string;
+    sourceApp?: unknown;
+    sourcePostId?: string | null;
+    sourceMessageId?: string | null;
+    reason?: string | null;
+  }>;
 }
 
 export interface ContextEventPostLike {
@@ -136,7 +167,7 @@ export function normalizeSourceApp(value: unknown): SourceApp {
 
 export function buildContextEventMetadata(
   input: BuildContextEventMetadataInput
-): ContextEventMetadata {
+): SingleContextEventMetadata {
   return {
     context_event: true,
     action: input.action,
@@ -146,6 +177,37 @@ export function buildContextEventMetadata(
     ...(input.sourcePostId ? { source_post_id: input.sourcePostId } : {}),
     ...(input.sourceMessageId ? { source_message_id: input.sourceMessageId } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
+  };
+}
+
+export function buildGroupedContextEventMetadata(
+  input: BuildGroupedContextEventMetadataInput
+): GroupedContextEventMetadata {
+  return {
+    context_event: true,
+    grouped_context_event: true,
+    action: input.action,
+    source_app: normalizeSourceApp(input.sourceApp),
+    sources: input.sources.flatMap((source) => {
+      const sourceNodeId = source.sourceNodeId.trim();
+      const sourceTitle = source.sourceTitle.trim();
+      if (!sourceNodeId || !sourceTitle) return [];
+
+      return [
+        {
+          source_node_id: sourceNodeId,
+          source_title: sourceTitle,
+          source_app: normalizeSourceApp(source.sourceApp ?? input.sourceApp),
+          ...(source.sourcePostId
+            ? { source_post_id: source.sourcePostId }
+            : {}),
+          ...(source.sourceMessageId
+            ? { source_message_id: source.sourceMessageId }
+            : {}),
+          ...(source.reason ? { reason: source.reason } : {}),
+        },
+      ];
+    }),
   };
 }
 
@@ -220,11 +282,40 @@ export function isContextEventMetadata(
 ): metadata is ContextEventMetadata {
   if (!metadata || metadata.context_event !== true) return false;
   if (!isContextEventAction(metadata.action)) return false;
+  if (isGroupedContextEventMetadata(metadata)) return true;
+  return isSingleContextEventMetadata(metadata);
+}
+
+export function isSingleContextEventMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): metadata is SingleContextEventMetadata {
+  if (!metadata || metadata.context_event !== true) return false;
+  if (!isContextEventAction(metadata.action)) return false;
   return (
     typeof metadata.source_node_id === "string" &&
     metadata.source_node_id.trim().length > 0 &&
     typeof metadata.source_title === "string" &&
-    metadata.source_title.trim().length > 0
+      metadata.source_title.trim().length > 0
+  );
+}
+
+export function isGroupedContextEventMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): metadata is GroupedContextEventMetadata {
+  if (!metadata || metadata.context_event !== true) return false;
+  if (metadata.grouped_context_event !== true) return false;
+  if (!isContextEventAction(metadata.action)) return false;
+  if (!Array.isArray(metadata.sources) || metadata.sources.length === 0) {
+    return false;
+  }
+
+  return metadata.sources.every(
+    (source): source is ContextEventSourceMetadata =>
+      isRecord(source) &&
+      typeof source.source_node_id === "string" &&
+      source.source_node_id.trim().length > 0 &&
+      typeof source.source_title === "string" &&
+      source.source_title.trim().length > 0
   );
 }
 
@@ -236,6 +327,36 @@ export function isContextEventPost(post: ContextEventPostLike): boolean {
 
 export function contextEventSummary(metadata: ContextEventMetadata): string {
   const sourceApp = sourceAppLabel(normalizeSourceApp(metadata.source_app));
+
+  if (isGroupedContextEventMetadata(metadata)) {
+    const titles = metadata.sources
+      .map((source) => source.source_title.trim())
+      .filter(Boolean);
+    const previewTitles = titles.slice(0, 3).join(", ");
+    const suffix =
+      titles.length > 3 ? `${previewTitles}, and ${titles.length - 3} more` : previewTitles;
+    const groupedSourceLabel = groupedContextSourceLabel(metadata);
+
+    switch (metadata.action) {
+      case "attached":
+        return `Added ${titles.length} context source${
+          titles.length === 1 ? "" : "s"
+        }${groupedSourceLabel}${suffix ? `: ${suffix}` : ""}`;
+      case "removed":
+        return `Removed ${titles.length} context source${
+          titles.length === 1 ? "" : "s"
+        } from this thread${suffix ? `: ${suffix}` : ""}`;
+      case "ignored":
+        return `Ignored ${titles.length} ${sourceApp} context source${
+          titles.length === 1 ? "" : "s"
+        } going forward${suffix ? `: ${suffix}` : ""}`;
+      case "allowed":
+        return `Allowed ${titles.length} ${sourceApp} context source${
+          titles.length === 1 ? "" : "s"
+        } in suggestions${suffix ? `: ${suffix}` : ""}`;
+    }
+  }
+
   const title = metadata.source_title.trim() || "Untitled";
 
   switch (metadata.action) {
@@ -248,6 +369,32 @@ export function contextEventSummary(metadata: ContextEventMetadata): string {
     case "allowed":
       return `Allowed ${sourceApp} in suggestions: ${title}`;
   }
+}
+
+function groupedContextSourceLabel(
+  metadata: GroupedContextEventMetadata
+): string {
+  const counts = new Map<SourceApp, number>();
+  for (const source of metadata.sources) {
+    const sourceApp = normalizeSourceApp(source.source_app ?? metadata.source_app);
+    counts.set(sourceApp, (counts.get(sourceApp) ?? 0) + 1);
+  }
+
+  if (counts.size === 0) return "";
+  if (counts.size === 1) {
+    return ` from ${sourceAppLabel([...counts.keys()][0])}`;
+  }
+
+  const order: SourceApp[] = ["claude", "chatgpt", "workos", "unknown"];
+  const parts = order.flatMap((sourceApp) => {
+    const count = counts.get(sourceApp) ?? 0;
+    return count > 0 ? [`${count} ${sourceAppLabel(sourceApp)}`] : [];
+  });
+  return `: ${parts.join(", ")}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function scoreAutomaticContextTextMatch(

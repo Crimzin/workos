@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { selectAttachedContextPosts } from "./node-context.ts";
+import {
+  contextPackFromMetadata,
+  selectAttachedContextPosts,
+} from "./node-context.ts";
 import type { PostRecord } from "../posts";
 
 function post(id: string): PostRecord {
@@ -40,4 +43,33 @@ assert.deepEqual(
 assert.deepEqual(
   selectAttachedContextPosts(newestFirstPosts, "missing", 3).map((item) => item.id),
   ["newest", "newer", "match"]
+);
+
+assert.deepEqual(
+  contextPackFromMetadata({
+    context_pack: {
+      router_version: "context-router-v1",
+      resolved_query: "financial planning",
+      source_role: "core",
+      relevance_confidence: 0.94,
+      reason: "Direct finance context.",
+      useful_facts: ["Runway and inheritance are central planning facts."],
+      snippet: "Financial planning context.",
+      source_origin: "imported",
+      source_app: "claude",
+      source_provenance: "Claude import",
+    },
+  }),
+  {
+    router_version: "context-router-v1",
+    resolved_query: "financial planning",
+    source_role: "core",
+    relevance_confidence: 0.94,
+    reason: "Direct finance context.",
+    useful_facts: ["Runway and inheritance are central planning facts."],
+    snippet: "Financial planning context.",
+    source_origin: "imported",
+    source_app: "claude",
+    source_provenance: "Claude import",
+  }
 );

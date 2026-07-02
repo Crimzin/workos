@@ -11,12 +11,25 @@ import {
 
 assert.deepEqual(
   AGENT_MODEL_GROUPS.inline_claude.map((model) => model.label),
-  ["Sonnet", "Haiku", "Opus"]
+  ["Sonnet 5", "Haiku 4.5", "Opus 4.8"]
 );
 
-assert.equal(defaultModelForProvider("inline_claude")?.label, "Sonnet");
+assert.equal(defaultModelForProvider("inline_claude")?.label, "Sonnet 5");
+assert.equal(defaultModelForProvider("inline_claude")?.modelId, "claude-sonnet-5");
 assert.equal(defaultModelForProvider("codex")?.label, "CLI default");
 assert.equal(defaultModelForProvider("claude_code")?.label, "CLI default");
+
+assert.deepEqual(
+  resolveModelSelection("inline_claude", {
+    providerKey: "inline_claude",
+    modelId: "claude-opus-4-8",
+  }),
+  {
+    providerKey: "inline_claude",
+    modelId: "claude-opus-4-8",
+    label: "Opus 4.8",
+  }
+);
 
 assert.deepEqual(
   resolveModelSelection("inline_claude", {
@@ -25,8 +38,8 @@ assert.deepEqual(
   }),
   {
     providerKey: "inline_claude",
-    modelId: "claude-opus-4-1",
-    label: "Opus",
+    modelId: "claude-opus-4-8",
+    label: "Opus 4.8",
   }
 );
 
@@ -37,8 +50,8 @@ assert.deepEqual(
   }),
   {
     providerKey: "inline_claude",
-    modelId: "claude-sonnet-4-5",
-    label: "Sonnet",
+    modelId: "claude-sonnet-5",
+    label: "Sonnet 5",
   }
 );
 
@@ -46,12 +59,12 @@ assert.deepEqual(
   modelSelectionMetadata({
     providerKey: "inline_claude",
     modelId: "claude-haiku-4-5",
-    label: "Haiku",
+    label: "Haiku 4.5",
   }),
   {
     provider_key: "inline_claude",
     model_id: "claude-haiku-4-5",
-    model_label: "Haiku",
+    model_label: "Haiku 4.5",
   }
 );
 
@@ -67,7 +80,7 @@ assert.deepEqual(
   {
     providerKey: "inline_claude",
     modelId: "claude-haiku-4-5",
-    label: "Haiku",
+    label: "Haiku 4.5",
   }
 );
 
@@ -77,8 +90,8 @@ assert.deepEqual(
   }),
   {
     providerKey: "inline_claude",
-    modelId: "claude-sonnet-4-5",
-    label: "Sonnet",
+    modelId: "claude-sonnet-5",
+    label: "Sonnet 5",
   }
 );
 
@@ -86,11 +99,11 @@ assert.deepEqual(
   withProviderDefaultModelConfig(
     { requires_confirmation: true },
     "inline_claude",
-    "claude-opus-4-1"
+    "claude-opus-4-8"
   ),
   {
     requires_confirmation: true,
-    default_model_id: "claude-opus-4-1",
-    default_model_label: "Opus",
+    default_model_id: "claude-opus-4-8",
+    default_model_label: "Opus 4.8",
   }
 );

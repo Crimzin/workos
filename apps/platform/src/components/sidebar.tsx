@@ -55,6 +55,7 @@ import { isSettingsPathActive } from "@/lib/settings-nav";
 import { ThemeToggle } from "./theme-toggle";
 import { InlineCreate } from "./inline-create";
 import { ConfirmModal } from "./confirm-modal";
+import { SourceChip } from "./source-chip";
 
 interface SidebarProps {
   sidebarData: SidebarData;
@@ -1031,7 +1032,7 @@ function ImportedChatRow({
             : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
         ].join(" ")}
       >
-        <SourceLogo sourceApp={node.source_app} />
+        <SourceChip sourceApp={node.source_app} compact />
       </Link>
     );
   }
@@ -1049,7 +1050,7 @@ function ImportedChatRow({
             : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
         ].join(" ")}
       >
-        <SourceLogo sourceApp={node.source_app} />
+        <SourceChip sourceApp={node.source_app} />
         <span className="min-w-0 flex-1 truncate font-medium">{node.title}</span>
       </Link>
 
@@ -1483,24 +1484,6 @@ async function createChildNode(node: SidebarTreeNode, title: string) {
   if (node.type === "workspace") return createStack(node.id, title);
   if (node.type === "stack") return createCard(node.id, node.rootId, title);
   return createSubThread(node.id, node.rootId, title);
-}
-
-const sourceLogoLabels: Record<ImportedChatRowData["source_app"], string> = {
-  claude: "C",
-  chatgpt: "G",
-  unknown: "?",
-};
-
-function SourceLogo({
-  sourceApp,
-}: {
-  sourceApp: ImportedChatRowData["source_app"];
-}) {
-  return (
-    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-bg-card text-[10px] font-semibold text-text-tertiary">
-      {sourceLogoLabels[sourceApp] ?? "?"}
-    </span>
-  );
 }
 
 function SidebarSection({

@@ -1,4 +1,5 @@
 import { chromium } from "playwright-core";
+import { buildPostPdfBrowserLaunchOptions } from "@/lib/post-export-browser";
 import {
   pdfFileNameForPostTitle,
   postPdfExportDocumentTitle,
@@ -8,6 +9,7 @@ import { getPostForPdfExport } from "@/lib/post-export-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 interface PostPdfRouteContext {
   params: Promise<{ postId: string }>;
@@ -25,11 +27,11 @@ export async function GET(
   const exportUrl = new URL(postPdfExportPath(postId), request.url);
   exportUrl.searchParams.set("pdf", "1");
 
-  const browser = await chromium.launch({
-    executablePath: chromeExecutablePath(),
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  const browser = await chromium.launch(
+    await buildPostPdfBrowserLaunchOptions({
+      playwrightExecutablePath: chromium.executablePath(),
+    })
+  );
 
   try {
     const page = await browser.newPage({
@@ -66,11 +68,4 @@ export async function GET(
   } finally {
     await browser.close();
   }
-}
-
-function chromeExecutablePath(): string {
-  return (
-    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-  );
 }

@@ -42,6 +42,7 @@ import {
 } from "@/lib/thread-context";
 import { formatAbsoluteDateTime, formatRelativeAge } from "@/lib/time";
 import { PostEditor, parsePostBody, serializePostBody } from "./post-editor";
+import { SourceChip } from "./source-chip";
 import { ContextEvent } from "./thread/context-event";
 
 interface PostItemProps {
@@ -196,11 +197,7 @@ export function PostItem({
         >
           {formatRelativeAge(post.created_at)}
         </time>
-        {isImportedMessage ? (
-          <span className="rounded-sm border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-            {sourceAppLabel(postSourceApp)}
-          </span>
-        ) : null}
+        {isImportedMessage ? <SourceChip sourceApp={postSourceApp} /> : null}
       </div>
 
       {/* Body */}
@@ -434,9 +431,7 @@ function ActivityBody({ post }: { post: PostRecord }) {
     return (
       <p className="text-sm text-text-secondary">
         Imported from{" "}
-        <span className="text-text-primary font-medium">
-          {sourceAppLabel(sourceApp)}
-        </span>{" "}
+        <SourceChip sourceApp={sourceApp} className="align-middle" />{" "}
         · Continued in WorkOS
       </p>
     );

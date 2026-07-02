@@ -10,8 +10,121 @@ import {
   type AgentAttachment,
 } from "./attachments.ts";
 
-export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
+export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5";
 const MAX_TOKENS_DEFAULT = 4096;
+
+export interface ClaudeUsageInput {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}
+
+export interface NormalizedClaudeUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  total_input_tokens: number;
+  total_tokens: number;
+}
+
+interface ClaudeModelPricing {
+  inputPerMTok: number;
+  outputPerMTok: number;
+  cacheCreationPerMTok: number;
+  cacheReadPerMTok: number;
+}
+
+const CLAUDE_PRICING_BY_MODEL: Record<string, ClaudeModelPricing> = {
+  "claude-opus-4-8": {
+    inputPerMTok: 5,
+    outputPerMTok: 25,
+    cacheCreationPerMTok: 6.25,
+    cacheReadPerMTok: 0.5,
+  },
+  "claude-opus-4-1": {
+    inputPerMTok: 15,
+    outputPerMTok: 75,
+    cacheCreationPerMTok: 18.75,
+    cacheReadPerMTok: 1.5,
+  },
+  "claude-sonnet-5": {
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cacheCreationPerMTok: 2.5,
+    cacheReadPerMTok: 0.2,
+  },
+  "claude-sonnet-4-5": {
+    inputPerMTok: 3,
+    outputPerMTok: 15,
+    cacheCreationPerMTok: 3.75,
+    cacheReadPerMTok: 0.3,
+  },
+  "claude-haiku-4-5": {
+    inputPerMTok: 1,
+    outputPerMTok: 5,
+    cacheCreationPerMTok: 1.25,
+    cacheReadPerMTok: 0.1,
+  },
+};
+
+export function normalizeClaudeUsage(
+  usage: ClaudeUsageInput | null | undefined
+): NormalizedClaudeUsage {
+  const inputTokens = usageNumber(usage?.input_tokens);
+  const outputTokens = usageNumber(usage?.output_tokens);
+  const cacheCreationTokens = usageNumber(usage?.cache_creation_input_tokens);
+  const cacheReadTokens = usageNumber(usage?.cache_read_input_tokens);
+
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cache_creation_input_tokens: cacheCreationTokens,
+    cache_read_input_tokens: cacheReadTokens,
+    total_input_tokens: inputTokens + cacheCreationTokens + cacheReadTokens,
+    total_tokens:
+      inputTokens + cacheCreationTokens + cacheReadTokens + outputTokens,
+  };
+}
+
+export function estimateClaudeUsageCostUsd(
+  model: string,
+  usage: ClaudeUsageInput | null | undefined
+): number | null {
+  const pricing = pricingForClaudeModel(model);
+  if (!pricing) return null;
+
+  const normalized = normalizeClaudeUsage(usage);
+  const cost =
+    (normalized.input_tokens / 1_000_000) * pricing.inputPerMTok +
+    (normalized.output_tokens / 1_000_000) * pricing.outputPerMTok +
+    (normalized.cache_creation_input_tokens / 1_000_000) *
+      pricing.cacheCreationPerMTok +
+    (normalized.cache_read_input_tokens / 1_000_000) *
+      pricing.cacheReadPerMTok;
+
+  return Number(cost.toFixed(6));
+}
+
+function usageNumber(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, value)
+    : 0;
+}
+
+function pricingForClaudeModel(model: string): ClaudeModelPricing | null {
+  return (
+    CLAUDE_PRICING_BY_MODEL[model] ??
+    (model.startsWith("claude-opus-4-8")
+      ? CLAUDE_PRICING_BY_MODEL["claude-opus-4-8"]
+      : model.startsWith("claude-sonnet-5")
+        ? CLAUDE_PRICING_BY_MODEL["claude-sonnet-5"]
+        : model.startsWith("claude-haiku-4-5")
+          ? CLAUDE_PRICING_BY_MODEL["claude-haiku-4-5"]
+          : null)
+  );
+}
 
 let _client: Anthropic | null = null;
 function client(): Anthropic {
@@ -200,13 +313,19 @@ export async function invokeClaude(opts: ClaudeInvocation): Promise<string> {
 // Streaming variant
 // ---------------------------------------------------------------------------
 
-export interface ClaudeStreamEvent {
+export interface ClaudeUsageReport {
+  model: string;
+  usage: NormalizedClaudeUsage;
+  estimated_cost_usd: number | null;
+  request_id: string | null | undefined;
+}
+
+export type ClaudeStreamEvent =
   /** `"delta"` events arrive for each incremental text chunk. A trailing
    *  `"complete"` event is yielded once with the canonical full text after
    *  the stream finishes. */
-  type: "delta" | "complete";
-  text: string;
-}
+  | { type: "delta"; text: string }
+  | { type: "complete"; text: string; usage: ClaudeUsageReport | null };
 
 /**
  * Stream a Claude response token-by-token. The caller drives it with
@@ -260,6 +379,38 @@ export async function* streamClaude(
         yield { type: "delta", text: chunk };
       }
     }
+
+    const finalMessage = await stream.finalMessage().catch((err: unknown) => {
+      console.warn(
+        "[claude.ts] failed to read final stream usage:",
+        err instanceof Error ? err.message : err
+      );
+      return null;
+    });
+    const usage = finalMessage
+      ? {
+          model,
+          usage: normalizeClaudeUsage(finalMessage.usage),
+          estimated_cost_usd: estimateClaudeUsageCostUsd(
+            model,
+            finalMessage.usage
+          ),
+          request_id: stream.request_id,
+        }
+      : null;
+
+    console.log(
+      `[claude.ts] streamClaude complete (chunks=${chunkCount}, replyChars=${fullText.length}, total ${Date.now() - t0}ms${
+        usage
+          ? `, tokens=${usage.usage.total_tokens}, estimatedCost=$${usage.estimated_cost_usd ?? "unknown"}`
+          : ""
+      })`
+    );
+    yield {
+      type: "complete",
+      text: fullText || "(Claude returned an empty response.)",
+      usage,
+    };
   } catch (err) {
     clearTimeout(safety);
     console.error(
@@ -269,12 +420,4 @@ export async function* streamClaude(
     throw err;
   }
   clearTimeout(safety);
-
-  console.log(
-    `[claude.ts] streamClaude complete (chunks=${chunkCount}, replyChars=${fullText.length}, total ${Date.now() - t0}ms)`
-  );
-  yield {
-    type: "complete",
-    text: fullText || "(Claude returned an empty response.)",
-  };
 }

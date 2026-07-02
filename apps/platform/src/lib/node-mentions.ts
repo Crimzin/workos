@@ -1,4 +1,5 @@
-import type { NodeType } from "./types";
+import { sourceAppLabel } from "./post-source-links";
+import type { NodeType, SourceApp, SourceKind } from "./types";
 import { buildContextSearchResults, type ContextSearchCandidate } from "./context-search";
 
 export interface NodeMentionRef {
@@ -12,10 +13,15 @@ export interface NodeMentionSearchRow {
   title: string;
   type: NodeType;
   parent_id: string | null;
+  source_kind?: SourceKind | null;
+  source_app?: SourceApp | null;
+  source_title?: string | null;
+  source_conversation_id?: string | null;
 }
 
 export interface NodeMentionCandidate extends NodeMentionRef {
   path: string;
+  sourceApp: SourceApp;
 }
 
 interface BlockNodeShape {
@@ -69,6 +75,8 @@ export function buildNodeMentionCandidates(
     type: row.type,
     path: pathsById.get(row.id) ?? row.title,
     href: `/n/${row.id}`,
+    sourceApp: sourceAppForRow(row),
+    bodyPreview: sourceSearchText(row),
   }));
 
   if (!query.trim()) {
@@ -77,6 +85,7 @@ export function buildNodeMentionCandidates(
       title: candidate.title,
       type: candidate.type,
       path: candidate.path,
+      sourceApp: candidate.sourceApp ?? "workos",
     }));
   }
 
@@ -85,7 +94,28 @@ export function buildNodeMentionCandidates(
     title: candidate.title,
     type: candidate.type,
     path: candidate.path,
+    sourceApp: candidate.sourceApp ?? "workos",
   }));
+}
+
+function sourceAppForRow(row: NodeMentionSearchRow): SourceApp {
+  if (row.source_kind === "imported_ai_chat") {
+    return row.source_app ?? "unknown";
+  }
+  return row.source_app ?? "workos";
+}
+
+function sourceSearchText(row: NodeMentionSearchRow): string {
+  const sourceApp = sourceAppForRow(row);
+  if (row.source_kind !== "imported_ai_chat") return "";
+
+  return [
+    row.source_title,
+    row.source_conversation_id,
+    sourceAppLabel(sourceApp),
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join(" ");
 }
 
 function walkBlockForNodeMentions(

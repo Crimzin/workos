@@ -12,7 +12,8 @@ export function prioritizeCheapCandidates(
     .map((candidate) => ({
       ...candidate,
       priorWeight:
-        candidate.priorWeight ?? priorForSourceKind(candidate.sourceKind),
+        candidate.priorWeight ??
+        priorForSourceKind(candidate.sourceKind) + sourceSizePrior(candidate),
     }))
     .sort(
       (a, b) =>
@@ -45,4 +46,14 @@ export function priorForSourceKind(
     default:
       return 0;
   }
+}
+
+function sourceSizePrior(candidate: ContextRouterCandidate): number {
+  const bodyChars = candidate.sourceBodyChars ?? 0;
+  const postCount = candidate.sourcePostCount ?? 0;
+
+  if (bodyChars >= 150_000 || postCount >= 100) return 2;
+  if (bodyChars >= 60_000 || postCount >= 40) return 1.25;
+  if (bodyChars >= 20_000 || postCount >= 15) return 0.6;
+  return 0;
 }

@@ -1,5 +1,6 @@
 import type { PostRecord } from "@/lib/posts";
 import type { AgentRun } from "@/lib/types";
+import { providerKeyForResponderName } from "@/lib/agents/model-selection";
 
 export const DEFAULT_INLINE_CLAUDE_STAGE = "Understanding the request...";
 
@@ -18,6 +19,41 @@ export interface InlineClaudeIndicatorRow {
   id: string;
   name: string;
   stage: string;
+}
+
+export interface BuildOptimisticUserPostInput {
+  id: string;
+  nodeId: string;
+  actorId: string;
+  actorName: string;
+  body: string;
+  now?: Date;
+}
+
+export function isLocalInlineClaudeResponder(name: string): boolean {
+  return providerKeyForResponderName(name) === "inline_claude";
+}
+
+export function buildOptimisticUserPost(
+  input: BuildOptimisticUserPostInput
+): PostRecord {
+  const now = input.now ?? new Date();
+  const isoNow = now.toISOString();
+
+  return {
+    id: input.id,
+    node_id: input.nodeId,
+    actor_id: input.actorId,
+    post_type: "post",
+    body: input.body,
+    metadata: null,
+    pinned: false,
+    pinned_at: null,
+    created_at: isoNow,
+    updated_at: isoNow,
+    actor: { id: input.actorId, name: input.actorName, kind: "human" },
+    reactions: [],
+  };
 }
 
 export function getInlineClaudeIndicatorRows({

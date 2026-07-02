@@ -51,6 +51,7 @@ import type { EditorState, Transaction } from "prosemirror-state";
 import type { ActorForMention } from "@/lib/actor";
 import type { NodeMentionCandidate } from "@/lib/node-mentions";
 import { buildPostClipboardPayload } from "@/lib/post-clipboard";
+import { SourceChip } from "./source-chip";
 import { useTheme } from "./theme-provider";
 
 // ---------------------------------------------------------------------------
@@ -368,7 +369,7 @@ function PostEditorInner({
               return nodes.map((node) => ({
                 title: node.title,
                 subtext: node.path,
-                icon: <NodeMentionIcon type={node.type} />,
+                icon: <SourceChip sourceApp={node.sourceApp} />,
                 group: "Nodes",
                 onItemClick: () => {
                   editor.insertInlineContent([
@@ -564,16 +565,6 @@ async function fetchNodeMentionCandidates(
   } catch {
     return [];
   }
-}
-
-function NodeMentionIcon({ type }: { type: NodeMentionCandidate["type"] }) {
-  const label = type === "workspace" ? "W" : type === "stack" ? "S" : "C";
-
-  return (
-    <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-accent/10 text-[9px] font-bold text-accent">
-      {label}
-    </span>
-  );
 }
 
 // ---------------------------------------------------------------------------
