@@ -111,6 +111,23 @@ assert.deepEqual(
   ],
 );
 
+const truncatedRoleArrayDecisions = parseRerankResponse(
+  `{"core":["career-finance"],"supporting":["prenup"],"watchlist":["tmobile-credit"]`,
+);
+
+assert.deepEqual(
+  truncatedRoleArrayDecisions.map((item) => [
+    item.candidateId,
+    item.sourceRole,
+    item.action,
+  ]),
+  [
+    ["career-finance", "core", "include"],
+    ["prenup", "supporting", "include"],
+    ["tmobile-credit", "watchlist", "include"],
+  ],
+);
+
 const decisions = parseRerankResponse(
   `{"decisions":[{"candidate_id":"anthropic","action":"include","source_role":"core","confidence":0.91,"reason":"Directly about Anthropic career process","useful_facts":["Anthropic roles were discussed"],"source_post_id":"p1","source_message_id":"m1"},{"candidate_id":"scratch","action":"exclude","source_role":"exclude","confidence":0.97,"reason":"Unrelated to career comparison","useful_facts":[],"source_post_id":"p2","source_message_id":"m2"}]}`,
 );
@@ -140,24 +157,68 @@ assert.equal(
 
 assert.deepEqual(parseRerankResponse("not json"), []);
 
+async function withMutedConsoleWarn<T>(fn: () => Promise<T>): Promise<T> {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    return await fn();
+  } finally {
+    console.warn = originalWarn;
+  }
+}
+
 async function main() {
-  const fallbackDecisions = await rerankContextCandidates(
-    {
-      resolvedQuery: "career comparison",
-      candidates: [
-        {
-          id: "tenex",
-          title: "Tenex",
-          sourceApp: "claude",
-          updatedAt: null,
-          sourcePostId: "p3",
-          sourceMessageId: "m3",
-          snippet: "Tenex opportunity notes.",
-          lexicalScore: 2,
-        },
-      ],
-    },
-    async () => "```json\nnot json\n```",
+  let retryCalls = 0;
+  const retryDecisions = await withMutedConsoleWarn(() =>
+    rerankContextCandidates(
+      {
+        resolvedQuery: "financial planning",
+        candidates: [
+          {
+            id: "finance",
+            title: "Finance thread",
+            sourceApp: "claude",
+            updatedAt: null,
+            sourcePostId: "p-finance",
+            sourceMessageId: "m-finance",
+            snippet: "Financial planning context.",
+            lexicalScore: 3,
+          },
+        ],
+      },
+      async () => {
+        retryCalls += 1;
+        if (retryCalls === 1) return "```json\nnot json\n```";
+        return `{"core":["finance"],"supporting":[],"watchlist":[]}`;
+      },
+    ),
+  );
+
+  assert.equal(retryCalls, 2);
+  assert.deepEqual(
+    retryDecisions.map((decision) => decision.candidateId),
+    ["finance"],
+  );
+
+  const fallbackDecisions = await withMutedConsoleWarn(() =>
+    rerankContextCandidates(
+      {
+        resolvedQuery: "career comparison",
+        candidates: [
+          {
+            id: "tenex",
+            title: "Tenex",
+            sourceApp: "claude",
+            updatedAt: null,
+            sourcePostId: "p3",
+            sourceMessageId: "m3",
+            snippet: "Tenex opportunity notes.",
+            lexicalScore: 2,
+          },
+        ],
+      },
+      async () => "```json\nnot json\n```",
+    ),
   );
 
   assert.deepEqual(fallbackDecisions, []);

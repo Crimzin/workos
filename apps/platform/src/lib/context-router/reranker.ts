@@ -9,6 +9,7 @@ import type {
 const RERANKER_MODEL = "claude-haiku-4-5";
 const MIN_INCLUDE_CONFIDENCE = 0.72;
 const MAX_FINAL_CONTEXTS = 20;
+const RERANKER_MAX_TOKENS = 1600;
 export const MAX_RERANKER_CANDIDATES = 40;
 export const MAX_RERANKER_SNIPPET_CHARS = 180;
 
@@ -23,6 +24,11 @@ export interface RerankerPrompt {
 }
 
 export type RerankerCaller = (prompt: RerankerPrompt) => Promise<string>;
+
+type ParsedRerankResponse = {
+  decisions: ContextRerankDecision[];
+  isValidResponse: boolean;
+};
 
 export function prepareCandidatesForReranker(
   candidates: ContextRouterCandidate[],
@@ -67,79 +73,94 @@ export function buildRerankerPrompt(input: RerankerInput): RerankerPrompt {
 }
 
 export function parseRerankResponse(text: string): ContextRerankDecision[] {
+  return parseRerankResponseWithStatus(text).decisions;
+}
+
+function parseRerankResponseWithStatus(text: string): ParsedRerankResponse {
   let data: Record<string, unknown>;
 
   try {
     data = parseLlmJsonObject(text);
   } catch {
-    return [];
+    const recoveredDecisions = parsePartialCompactRoleArrays(text);
+    return {
+      decisions: recoveredDecisions,
+      isValidResponse: recoveredDecisions.length > 0,
+    };
   }
 
   if (Array.isArray(data.include_ids)) {
-    return data.include_ids.flatMap((item): ContextRerankDecision[] => {
-      const candidateId = typeof item === "string" ? item.trim() : "";
-      if (!candidateId) return [];
+    return {
+      decisions: data.include_ids.flatMap((item): ContextRerankDecision[] => {
+        const candidateId = typeof item === "string" ? item.trim() : "";
+        if (!candidateId) return [];
 
-      return [
-        {
-          candidateId,
-          action: "include",
-          sourceRole: "supporting",
-          confidence: 0.86,
-          reason: "Selected by compact context reranker.",
-          usefulFacts: [],
-          sourcePostId: null,
-          sourceMessageId: null,
-        },
-      ];
-    });
+        return [
+          {
+            candidateId,
+            action: "include",
+            sourceRole: "supporting",
+            confidence: 0.86,
+            reason: "Selected by compact context reranker.",
+            usefulFacts: [],
+            sourcePostId: null,
+            sourceMessageId: null,
+          },
+        ];
+      }),
+      isValidResponse: true,
+    };
   }
 
   const compactRoleDecisions = parseCompactRoleArrays(data);
   if (compactRoleDecisions.length > 0) {
-    return compactRoleDecisions;
+    return { decisions: compactRoleDecisions, isValidResponse: true };
   }
 
   const decisions = Array.isArray(data.decisions) ? data.decisions : [];
 
-  return decisions.flatMap((item): ContextRerankDecision[] => {
-    if (!item || typeof item !== "object") return [];
+  return {
+    decisions: decisions.flatMap((item): ContextRerankDecision[] => {
+      if (!item || typeof item !== "object") return [];
 
-    const row = item as Record<string, unknown>;
-    const candidateId =
-      typeof row.candidate_id === "string" ? row.candidate_id.trim() : "";
+      const row = item as Record<string, unknown>;
+      const candidateId =
+        typeof row.candidate_id === "string" ? row.candidate_id.trim() : "";
 
-    if (!candidateId) return [];
+      if (!candidateId) return [];
 
-    const usefulFacts = Array.isArray(row.useful_facts)
-      ? row.useful_facts.filter(
-          (fact): fact is string => typeof fact === "string",
-        )
-      : [];
+      const usefulFacts = Array.isArray(row.useful_facts)
+        ? row.useful_facts.filter(
+            (fact): fact is string => typeof fact === "string",
+          )
+        : [];
 
-    return [
-      {
-        candidateId,
-        action: row.action === "include" ? "include" : "exclude",
-        sourceRole: parseContextSourceRole(row.source_role),
-        confidence:
-          typeof row.confidence === "number" && Number.isFinite(row.confidence)
-            ? Math.max(0, Math.min(1, row.confidence))
-            : 0,
-        reason:
-          typeof row.reason === "string" && row.reason.trim()
-            ? row.reason.trim()
-            : "Reranked by Context Router.",
-        usefulFacts,
-        sourcePostId:
-          typeof row.source_post_id === "string" ? row.source_post_id : null,
-        sourceMessageId:
-          typeof row.source_message_id === "string"
-            ? row.source_message_id
-            : null,
-      },
-    ];
-  });
+      return [
+        {
+          candidateId,
+          action: row.action === "include" ? "include" : "exclude",
+          sourceRole: parseContextSourceRole(row.source_role),
+          confidence:
+            typeof row.confidence === "number" &&
+            Number.isFinite(row.confidence)
+              ? Math.max(0, Math.min(1, row.confidence))
+              : 0,
+          reason:
+            typeof row.reason === "string" && row.reason.trim()
+              ? row.reason.trim()
+              : "Reranked by Context Router.",
+          usefulFacts,
+          sourcePostId:
+            typeof row.source_post_id === "string" ? row.source_post_id : null,
+          sourceMessageId:
+            typeof row.source_message_id === "string"
+              ? row.source_message_id
+              : null,
+        },
+      ];
+    }),
+    isValidResponse: true,
+  };
 }
 
 export function selectIncludedContext(
@@ -168,12 +189,18 @@ export async function rerankContextCandidates(
       systemPrompt: prompt.system,
       userMessage: prompt.user,
       model: RERANKER_MODEL,
-      maxTokens: 600,
+      maxTokens: RERANKER_MAX_TOKENS,
     }),
 ): Promise<ContextRerankDecision[]> {
   if (input.candidates.length === 0) return [];
 
   const prompt = buildRerankerPrompt(input);
+  const firstAttempt = parseRerankResponseWithStatus(await caller(prompt));
+  if (firstAttempt.isValidResponse) return firstAttempt.decisions;
+
+  console.warn(
+    "[context-router] context reranker returned invalid JSON; retrying once.",
+  );
   return parseRerankResponse(await caller(prompt));
 }
 
@@ -241,6 +268,54 @@ function parseCompactRoleArrays(
         },
       ];
     });
+  });
+}
+
+function parsePartialCompactRoleArrays(text: string): ContextRerankDecision[] {
+  const roleSpecs: Array<{
+    key: Exclude<ContextSourceRole, "exclude">;
+    confidence: number;
+    reason: string;
+  }> = [
+    {
+      key: "core",
+      confidence: 0.92,
+      reason: "Recovered as core from partial compact context reranker output.",
+    },
+    {
+      key: "supporting",
+      confidence: 0.86,
+      reason:
+        "Recovered as supporting from partial compact context reranker output.",
+    },
+    {
+      key: "watchlist",
+      confidence: 0.74,
+      reason:
+        "Recovered as watchlist from partial compact context reranker output.",
+    },
+  ];
+
+  return roleSpecs.flatMap(({ key, confidence, reason }) => {
+    const arrayMatch = new RegExp(`"${key}"\\s*:\\s*\\[([^\\]]*)`, "i").exec(
+      text,
+    );
+    if (!arrayMatch) return [];
+
+    const ids = Array.from(arrayMatch[1].matchAll(/"([^"]+)"/g))
+      .map((match) => match[1].trim())
+      .filter(Boolean);
+
+    return ids.map((candidateId) => ({
+      candidateId,
+      action: "include" as const,
+      sourceRole: key,
+      confidence,
+      reason,
+      usefulFacts: [],
+      sourcePostId: null,
+      sourceMessageId: null,
+    }));
   });
 }
 

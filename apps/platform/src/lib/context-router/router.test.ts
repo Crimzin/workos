@@ -4,6 +4,7 @@ import {
   routeAutomaticContext,
   routeAutomaticContextV2,
 } from "./router.ts";
+import { rerankContextCandidates } from "./reranker.ts";
 import type { ContextRerankDecision, ContextRouterCandidate } from "./types.ts";
 
 const candidates: ContextRouterCandidate[] = [
@@ -127,6 +128,16 @@ const fallbackFactPacks = buildContextPacksForDecisions({
 assert.deepEqual(fallbackFactPacks[0].pack.useful_facts, [
   "Prenup planning affects future household obligations.",
 ]);
+
+async function withMutedConsoleWarn<T>(fn: () => Promise<T>): Promise<T> {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    return await fn();
+  } finally {
+    console.warn = originalWarn;
+  }
+}
 
 async function main() {
   const routed = await routeAutomaticContext(
@@ -812,38 +823,106 @@ async function main() {
     ["family-finance"],
   );
 
-  const routedWithUnavailableReranker = await routeAutomaticContextV2(
-    {
-      currentText: "find the related thing",
-      previousUserTexts: [],
-      activeThreadTitle: "Loose notes",
-      candidates: [
-        {
-          id: "weak",
-          title: "Weak candidate",
-          sourceApp: "claude",
-          updatedAt: null,
-          sourcePostId: "weak-post",
-          sourceMessageId: "weak-message",
-          snippet: "A single related thing was mentioned.",
-          lexicalScore: 1,
-          sourceKind: "imported",
-          priorWeight: 3,
-        },
-      ],
-    },
-    {
-      resolveTurn: async () => ({
-        originalText: "find the related thing",
-        resolvedQuery: "related thing",
-        shouldRetrieve: true,
-        confidence: 0.8,
-        reason: "Needs retrieval.",
-      }),
-      rerankCandidates: async () => {
-        throw new Error("provider credits exhausted");
+  let retryableRerankerCalls = 0;
+  const routedWithRetryableRerankerOutput = await withMutedConsoleWarn(() =>
+    routeAutomaticContextV2(
+      {
+        currentText: "help me with financial planning",
+        previousUserTexts: [],
+        activeThreadTitle: "Finances",
+        candidates: [
+          {
+            id: "career-finance",
+            title: "Career and Finance Strategy",
+            sourceApp: "claude",
+            updatedAt: "2026-06-28T12:00:00.000Z",
+            sourcePostId: "career-finance-post",
+            sourceMessageId: "career-finance-message",
+            snippet:
+              "Runway, job search urgency, inheritance, housing timing, and retirement risk.",
+            lexicalScore: 0,
+            sourceKind: "imported",
+            priorWeight: 3,
+          },
+          {
+            id: "house",
+            title: "How much house",
+            sourceApp: "claude",
+            updatedAt: "2026-06-29T12:00:00.000Z",
+            sourcePostId: "house-post",
+            sourceMessageId: "house-message",
+            snippet:
+              "Housing affordability, property taxes, down payment tradeoffs, and rent vs. buy timing.",
+            lexicalScore: 0,
+            sourceKind: "imported",
+            priorWeight: 3,
+          },
+        ],
       },
-    },
+      {
+        resolveTurn: async () => ({
+          originalText: "help me with financial planning",
+          resolvedQuery: "personal financial planning housing cash retirement",
+          shouldRetrieve: true,
+          confidence: 0.95,
+          reason: "Blank-thread financial planning request.",
+        }),
+        rerankCandidates: async (input) =>
+          rerankContextCandidates(input, async () => {
+            retryableRerankerCalls += 1;
+            if (retryableRerankerCalls === 1) return "not json";
+            return JSON.stringify({
+              core: ["career-finance"],
+              supporting: ["house"],
+              watchlist: [],
+            });
+          }),
+      },
+    ),
+  );
+
+  assert.equal(retryableRerankerCalls, 2);
+  assert.deepEqual(
+    routedWithRetryableRerankerOutput.decisions.map(
+      (decision) => decision.candidate.id,
+    ),
+    ["career-finance", "house"],
+  );
+
+  const routedWithUnavailableReranker = await withMutedConsoleWarn(() =>
+    routeAutomaticContextV2(
+      {
+        currentText: "find the related thing",
+        previousUserTexts: [],
+        activeThreadTitle: "Loose notes",
+        candidates: [
+          {
+            id: "weak",
+            title: "Weak candidate",
+            sourceApp: "claude",
+            updatedAt: null,
+            sourcePostId: "weak-post",
+            sourceMessageId: "weak-message",
+            snippet: "A single related thing was mentioned.",
+            lexicalScore: 1,
+            sourceKind: "imported",
+            priorWeight: 3,
+          },
+        ],
+      },
+      {
+        resolveTurn: async () => ({
+          originalText: "find the related thing",
+          resolvedQuery: "related thing",
+          shouldRetrieve: true,
+          confidence: 0.8,
+          reason: "Needs retrieval.",
+        }),
+        rerankCandidates: async () => {
+          throw new Error("provider credits exhausted");
+        },
+      },
+    ),
   );
 
   assert.deepEqual(routedWithUnavailableReranker.decisions, []);
