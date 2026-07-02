@@ -179,7 +179,7 @@ States:
 - Off: only call the selected primary responder.
 - Ask first: WorkOS pauses before paid or external specialist calls.
 
-The default should eventually be Auto, but during early rollout Ask first may be safer if key setup, cost tracking, or trust is incomplete.
+The default should be Auto from the start. Early trust should come from clear setup, visible provenance, sane cost controls, and graceful fallback, not from making the user manually approve every useful specialist call.
 
 When a specialist is used, the final answer should show a small provenance affordance:
 
@@ -216,6 +216,33 @@ Recommended settings sections:
 
 Provider setup should be hand-held. A non-engineer user should understand whether they need an API key, subscription, or built-in WorkOS credit later.
 
+## Provider Onboarding
+
+Adding a model brand usually means connecting an API provider account, not just subscribing to the consumer chat product.
+
+WorkOS should make this explicit before implementation and during setup:
+
+- ChatGPT in WorkOS generally means an OpenAI API key or future WorkOS-managed OpenAI credits, not merely a ChatGPT Plus/Pro subscription.
+- Claude in WorkOS generally means an Anthropic API key or future WorkOS-managed Anthropic credits, not merely a Claude app subscription.
+- Gemini generally means a Google AI Studio or Vertex AI API key/project.
+- DeepSeek generally means a DeepSeek platform API key.
+- Perplexity generally means a Perplexity API key for Sonar/research usage.
+
+Consumer subscriptions and API access should be treated as separate surfaces unless a provider explicitly unifies them. The setup UI should avoid implying that a consumer subscription automatically pays for WorkOS model calls.
+
+The implementation plan should include a provider setup checklist for each V1 provider:
+
+- where to create the API key,
+- whether billing must be enabled,
+- which environment variable or encrypted setting WorkOS stores,
+- a tiny validation call,
+- expected failure states,
+- a redacted connected-state display,
+- what the provider is used for by default,
+- how Auto routing affects usage and cost.
+
+During implementation, WorkOS should guide the user through one provider at a time. The first shippable path can require user-provided API keys. Later, WorkOS can add hosted credits or billing abstraction so users do not have to manage several provider accounts.
+
 ## Data And Runtime Design
 
 The existing `agent_provider_settings`, `agent_runs`, and `AGENT_MODEL_GROUPS` shape is a useful starting point, but it is too narrow for model routing because `provider_key` is currently constrained to execution-oriented providers.
@@ -228,6 +255,30 @@ Model Routing V1 should introduce or emulate these concepts:
 - Routing policy config: per-instance and per-thread settings for Auto, Ask first, Off, cost thresholds, and preferred specialists.
 
 Implementation can start with a static TypeScript catalog and JSON manifests before normalizing into dedicated tables. The key is to avoid baking another hardcoded provider union into multiple UI and database constraints.
+
+## Comparable Patterns
+
+The underlying architecture is an established agent pattern, but the WorkOS product expression should be opinionated and calmer than most implementations.
+
+Existing architecture names include:
+
+- Orchestrator-workers: a central model breaks a task into subtasks, delegates to worker models, and synthesizes the result.
+- Supervisor or manager agent: one primary agent coordinates specialized workers.
+- Agents-as-tools: the main agent remains responsible for the final answer and calls specialists as tools.
+- Handoffs: control transfers from one agent to another when a different specialist should own the next step.
+- Model router: infrastructure chooses between models or providers based on cost, capability, fallback, or availability.
+
+WorkOS should borrow the proven pattern but not expose it as an agent-building framework. The user-facing innovation is the product layer:
+
+- familiar model brands,
+- one primary responder,
+- automatic specialist calls only when useful,
+- durable provenance,
+- context-aware privacy minimization,
+- clear cost and setup guidance,
+- final answers that stay coherent.
+
+This means Model Routing V1 is not a research invention from scratch. It is a productized, WorkOS-specific form of a known orchestration pattern.
 
 ## Manifest Shape
 
@@ -282,13 +333,13 @@ Required controls:
 - Auto, Ask first, Off routing modes.
 - Per-provider enablement.
 - Preferred Research provider.
-- Maximum specialist calls per user query.
+- Per-query specialist budget controls.
 - Cost tier shown in expanded provenance.
 
 Recommended V1 defaults:
 
-- Maximum one automatic research specialist call per query.
-- No automatic broad fan-out.
+- Use as many automatic research specialist calls as are appropriate for the user's ask, bounded by policy, cost, latency, and privacy controls.
+- Avoid broad fan-out for its own sake; each specialist call must have a named sub-question, routing reason, and expected contribution to the final answer.
 - No automatic second opinion unless the user explicitly asks or the thread is configured for high-stakes review.
 
 ## Privacy And Data Boundaries
