@@ -530,11 +530,11 @@ function StackHeader({
     <>
     <div
       className={[
-        "sticky left-0 z-20 w-60 shrink-0 border-r border-border transition-colors",
+        "sticky left-0 z-30 w-60 shrink-0 border-r border-border bg-bg-secondary transition-colors",
         isCollapsed ? "px-3 py-2" : "px-4 py-3",
         isActive
           ? "border-l-2 border-l-accent-warm bg-accent-subtle"
-          : "bg-bg-secondary/60",
+          : "",
       ].join(" ")}
     >
       {isCollapsed ? (
@@ -672,7 +672,7 @@ function StackHeader({
             className="min-w-0 flex-1 group"
           >
             <div className="section-label">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
-            <div className="flex items-start gap-1">
+            <div className="flex min-w-0 items-start gap-1">
               <div className="relative">
                 <button
                   type="button"
@@ -727,7 +727,7 @@ function StackHeader({
               </div>
               <h3
                 className={[
-                  "mt-0.5 truncate text-base font-semibold transition-colors",
+                  "mt-0.5 min-w-0 flex-1 whitespace-normal break-words text-base font-semibold leading-snug transition-colors",
                   isActive
                     ? "text-accent"
                     : "text-text-primary group-hover:text-accent-warm",
