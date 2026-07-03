@@ -6,7 +6,11 @@ import { ArrowUp, Check, ChevronDown, GripHorizontal, Pin } from "lucide-react";
 import type { Block } from "@blocknote/core";
 import type { ActorForMention } from "@/lib/actor";
 import type { PostRecord } from "@/lib/posts";
-import { createPost, pollNodePosts } from "@/lib/actions/posts";
+import {
+  createPost,
+  pollActiveInlineAgentRuns,
+  pollNodePosts,
+} from "@/lib/actions/posts";
 import { findAgentMentions } from "@/lib/agents/mention-detection";
 import {
   AGENT_MODEL_GROUPS,
@@ -22,6 +26,13 @@ import {
 } from "@/lib/composer-resize";
 import { orderPostsForThread } from "@/lib/post-order";
 import type { AgentProviderSetting } from "@/lib/types";
+import {
+  buildOptimisticUserPost,
+  getInlineClaudeIndicatorRows,
+  isLocalInlineClaudeResponder,
+  type InlineClaudeActiveRun,
+  type LocalThinkingClaude,
+} from "./posts-tab-content-helpers";
 import { PostEditor, serializePostBody } from "./post-editor";
 import { PostItem } from "./post-item";
 
@@ -53,24 +64,11 @@ const POLL_INITIAL_DURATION_MS = 90_000;
 const POLL_IDLE_EXTENSION_MS = 15_000;
 const COMPOSER_REVEAL_GRACE_MS = 250;
 
-interface ThinkingClaude {
-  id: string;
-  name: string;
-  /**
-   * Post IDs that already existed when the user submitted. The indicator
-   * clears as soon as we see a post by this Claude actor that ISN'T in this
-   * set — i.e. a brand-new reply that landed after the @-mention. We use
-   * post-id presence rather than `created_at > startedAt` because client and
-   * DB clocks drift, which made timestamp comparisons unreliable (the
-   * indicator stuck even after the reply arrived).
-   */
-  knownPostIds: Set<string>;
-}
-
 interface PostsTabContentProps {
   nodeId: string;
   workspaceId: string;
   initialPosts: PostRecord[];
+  initialActiveInlineRuns?: InlineClaudeActiveRun[];
   currentActorId: string;
   currentActorName: string;
   actors: ActorForMention[];
@@ -93,12 +91,17 @@ export function PostsTabContent({
   nodeId,
   workspaceId,
   initialPosts,
+  initialActiveInlineRuns = [],
   currentActorId,
+  currentActorName,
   actors,
   inlineClaudeEnabled,
   agentProviders,
 }: PostsTabContentProps) {
   const [posts, setPosts] = useState<PostRecord[]>(initialPosts);
+  const [activeInlineRuns, setActiveInlineRuns] = useState<InlineClaudeActiveRun[]>(
+    initialActiveInlineRuns
+  );
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -107,7 +110,7 @@ export function PostsTabContent({
   // Increment to force-remount (reset) the BlockNote composer after submit.
   const [composerKey, setComposerKey] = useState(0);
   // Claude actors we're waiting on. Empty means no thinking indicator shown.
-  const [thinkingClaudes, setThinkingClaudes] = useState<ThinkingClaude[]>([]);
+  const [thinkingClaudes, setThinkingClaudes] = useState<LocalThinkingClaude[]>([]);
   // Toggles the polling loop on. We keep this independent of the indicator
   // state because the indicator hides as soon as Claude's first chunk lands,
   // but we still need to keep polling so subsequent stream flushes update
@@ -126,6 +129,10 @@ export function PostsTabContent({
   const router = useRouter();
   const agentActors = useMemo(
     () => actors.filter((actor) => actor.kind === "agent"),
+    [actors]
+  );
+  const actorNamesById = useMemo(
+    () => new Map(actors.map((actor) => [actor.id, actor.name])),
     [actors]
   );
   const workosBackingAgent =
@@ -185,6 +192,11 @@ export function PostsTabContent({
     setPosts(initialPosts);
   }, [initialPosts]);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveInlineRuns(initialActiveInlineRuns);
+  }, [initialActiveInlineRuns]);
+
   // 1.11 Inline AI streaming poll loop. Runs while `isPolling` is true.
   // Bypasses `router.refresh()` (which goes through unstable_cache and is
   // unreliable to invalidate from inside `after()` callbacks in Next 16 dev)
@@ -218,9 +230,13 @@ export function PostsTabContent({
         return;
       }
       try {
-        const fresh = await pollNodePosts(nodeId);
+        const [fresh, freshActiveInlineRuns] = await Promise.all([
+          pollNodePosts(nodeId),
+          pollActiveInlineAgentRuns(nodeId),
+        ]);
         if (cancelled) return;
         setPosts(fresh);
+        setActiveInlineRuns(freshActiveInlineRuns);
 
         // Did any agent post grow since the last poll? If so, extend the
         // deadline so the next chunk has time to land. We only count GROWTH
@@ -274,19 +290,12 @@ export function PostsTabContent({
     () => orderPostsForThread(visiblePosts),
     [visiblePosts]
   );
-  // Hide the thinking indicator the moment Claude's reply post lands. We
-  // detect a "new" reply as any post authored by one of the Claude actors
-  // we're waiting on whose ID was NOT already known when we started waiting.
-  // ID-based checks sidestep clock skew between client and DB timestamps.
-  const activeThinkingClaudes = thinkingClaudes.filter(
-    (c) =>
-      !posts.some(
-        (p) =>
-          p.actor_id === c.id &&
-          p.post_type === "post" &&
-          !c.knownPostIds.has(p.id)
-      )
-  );
+  const inlineClaudeIndicatorRows = getInlineClaudeIndicatorRows({
+    activeRuns: activeInlineRuns,
+    localThinking: thinkingClaudes,
+    posts,
+    actorNamesById,
+  });
   const feedScrollKey = orderedVisiblePosts
     .map((p) => `${p.id}:${p.updated_at}:${p.body?.length ?? 0}`)
     .join("|");
@@ -297,7 +306,7 @@ export function PostsTabContent({
     requestAnimationFrame(() => {
       feed.scrollTop = feed.scrollHeight;
     });
-  }, [feedScrollKey, activeThinkingClaudes.length, showPinnedOnly]);
+  }, [feedScrollKey, inlineClaudeIndicatorRows.length, showPinnedOnly]);
 
   const handleFeedScroll = () => {
     const feed = feedRef.current;
@@ -364,8 +373,7 @@ export function PostsTabContent({
     // disabled inline Claude should not create a false waiting state.
     const claudeMentions = inlineClaudeEnabled
       ? requestedAgents.filter((m) => {
-          const name = m.name.toLowerCase();
-          return name.startsWith("claude") && !name.includes("code");
+          return isLocalInlineClaudeResponder(m.name);
         })
       : [];
 
@@ -373,31 +381,52 @@ export function PostsTabContent({
     // to decide whether a freshly-arrived Claude post is the awaited reply.
     const knownPostIds = new Set(posts.map((p) => p.id));
 
+    if (claudeMentions.length > 0) {
+      setThinkingClaudes(
+        claudeMentions.map((m) => ({ id: m.id, name: m.name, knownPostIds }))
+      );
+      pollDeadlineRef.current = Date.now() + POLL_INITIAL_DURATION_MS;
+      setIsPolling(true);
+    }
+
+    const optimisticPostId = `optimistic-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const optimisticPost = buildOptimisticUserPost({
+      id: optimisticPostId,
+      nodeId,
+      actorId: currentActorId,
+      actorName: currentActorName,
+      body,
+    });
+    setPosts((prev) => [optimisticPost, ...prev]);
+
+    setComposerKey((k) => k + 1); // remounts editor → clean slate
+    setHasContent(false);
+
     startTransition(async () => {
-      await createPost(nodeId, workspaceId, body, {
-        requestAgentResponse: options.requestAgentResponse,
-        selectedAgent,
-        modelSelection: selectedModel
-          ? {
-              providerKey: selectedModel.providerKey,
-              modelId: selectedModel.modelId,
-            }
-          : null,
-      });
-      setComposerKey((k) => k + 1); // remounts editor → clean slate
-      setHasContent(false);
-      if (claudeMentions.length > 0) {
-        setThinkingClaudes(
-          claudeMentions.map((m) => ({ id: m.id, name: m.name, knownPostIds }))
-        );
-        // Start the streaming poll loop. The deadline is wall-clock; the
-        // poll effect will extend it whenever it observes Claude post body
-        // growth, so polling stays alive for the full duration of the
-        // stream + a 15s buffer afterward.
-        pollDeadlineRef.current = Date.now() + POLL_INITIAL_DURATION_MS;
-        setIsPolling(true);
+      try {
+        await createPost(nodeId, workspaceId, body, {
+          requestAgentResponse: options.requestAgentResponse,
+          selectedAgent,
+          modelSelection: selectedModel
+            ? {
+                providerKey: selectedModel.providerKey,
+                modelId: selectedModel.modelId,
+              }
+            : null,
+        });
+      } catch (error) {
+        console.error("[posts] failed to submit post", error);
+        setPosts((prev) => prev.filter((p) => p.id !== optimisticPostId));
+        if (claudeMentions.length > 0) {
+          setThinkingClaudes([]);
+          setActiveInlineRuns([]);
+          setIsPolling(false);
+        }
+      } finally {
+        router.refresh();
       }
-      router.refresh();
     });
   };
 
@@ -485,7 +514,7 @@ export function PostsTabContent({
         onScroll={handleFeedScroll}
         className="min-h-0 flex-1 overflow-auto"
       >
-        {orderedVisiblePosts.length === 0 && activeThinkingClaudes.length === 0 && (
+        {orderedVisiblePosts.length === 0 && inlineClaudeIndicatorRows.length === 0 && (
           <p className="py-10 text-center text-sm text-text-tertiary">
             {showPinnedOnly
               ? "No pinned posts."
@@ -509,10 +538,14 @@ export function PostsTabContent({
                   onReactionUpdate={handleReactionUpdate}
                 />
                 {idx === orderedVisiblePosts.length - 1 &&
-                  activeThinkingClaudes.length > 0 &&
+                  inlineClaudeIndicatorRows.length > 0 &&
                   !showPinnedOnly &&
-                  activeThinkingClaudes.map((c) => (
-                    <ClaudeThinkingIndicator key={c.id} name={c.name} />
+                  inlineClaudeIndicatorRows.map((row) => (
+                    <ClaudeThinkingIndicator
+                      key={row.id}
+                      name={row.name}
+                      stage={row.stage}
+                    />
                   ))}
               </Fragment>
             ))}
@@ -522,10 +555,14 @@ export function PostsTabContent({
         {/* Edge case: empty thread with an in-flight Claude reply. Shouldn't
             normally happen (the user's post is always inserted first) but we
             render the indicator anyway so the user gets feedback. */}
-        {orderedVisiblePosts.length === 0 && activeThinkingClaudes.length > 0 && !showPinnedOnly && (
+        {orderedVisiblePosts.length === 0 && inlineClaudeIndicatorRows.length > 0 && !showPinnedOnly && (
           <div className="divide-y divide-border">
-            {activeThinkingClaudes.map((c) => (
-              <ClaudeThinkingIndicator key={c.id} name={c.name} />
+            {inlineClaudeIndicatorRows.map((row) => (
+              <ClaudeThinkingIndicator
+                key={row.id}
+                name={row.name}
+                stage={row.stage}
+              />
             ))}
           </div>
         )}
@@ -808,20 +845,20 @@ function AgentModelMenu({
  * a response is generating. Auto-disappears when the reply lands or after the
  * 60s safety timeout.
  */
-function ClaudeThinkingIndicator({ name }: { name: string }) {
+function ClaudeThinkingIndicator({ name, stage }: { name: string; stage: string }) {
   const initial = name.trim().charAt(0).toUpperCase() || "C";
   return (
     <div
       className="px-5 py-3 bg-bg-secondary/40"
       aria-live="polite"
-      aria-label={`${name} is thinking`}
+      aria-label={stage}
     >
       <div className="flex items-center gap-2">
         <div className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold bg-bg-hover text-text-secondary ring-2 ring-agent-accent animate-pulse">
           {initial}
         </div>
         <span className="text-xs font-medium text-text-primary">{name}</span>
-        <span className="text-[11px] text-text-tertiary">is thinking</span>
+        <span className="text-[11px] text-text-tertiary">{stage}</span>
         <span className="inline-flex items-end gap-[3px] ml-0.5" aria-hidden="true">
           <span
             className="h-1 w-1 rounded-full bg-agent-accent animate-bounce"

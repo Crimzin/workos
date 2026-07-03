@@ -31,8 +31,16 @@ import type {
   NodeDetail,
 } from "../node-detail";
 import type { ContextPack } from "../context-router/types";
+import { contextSourceProvenanceForNode } from "../context-router/provenance";
 import type { PostRecord } from "../posts";
-import type { Actor, MemoryPrimitive, WorkNode } from "../types";
+import type {
+  Actor,
+  MemoryPrimitive,
+  SourceApp,
+  ThreadContextSheet,
+  WorkNode,
+} from "../types";
+import { getThreadContextSheet } from "../thread-context-sheet";
 import {
   findNodeMentions,
   limitNodeMentions,
@@ -50,7 +58,13 @@ const RELATIVE_THREAD_LIMIT = 15; // total siblings + children
 // ---------------------------------------------------------------------------
 
 export interface RelativeThread {
-  node: { id: string; title: string; type: string };
+  node: {
+    id: string;
+    title: string;
+    type: string;
+    source_app?: SourceApp | null;
+    source_kind?: string | null;
+  };
   /** Posts on the relative node, newest-first (renderer reverses if it wants chronological). */
   posts: PostRecord[];
   contextPack?: ContextPack;
@@ -114,6 +128,7 @@ export interface NodeContext {
 
   // The thread Claude was @-mentioned in, full
   ownThread: PostRecord[];
+  threadContextSheet: ThreadContextSheet | null;
 
   // Family threads — empty arrays / nulls when not applicable
   attachedContexts: RelativeThread[];
@@ -233,6 +248,7 @@ export async function gatherNodeContext(
     attachedContexts,
     links,
     memory,
+    threadContextSheet,
   ] = await Promise.all([
     getNodePosts(nodeId),
     parentIsStack && parentId
@@ -243,6 +259,7 @@ export async function gatherNodeContext(
     getAttachedContextThreads(nodeId),
     getNodeLinks(nodeId),
     getNodeMemoryPrimitives(nodeId),
+    getThreadContextSheet(nodeId),
   ]);
 
   // -------------------------------------------------------------------------
@@ -363,6 +380,7 @@ export async function gatherNodeContext(
     fields: renderedFields,
     memory: memoryShape,
     ownThread: ownPosts,
+    threadContextSheet,
     attachedContexts,
     parentThread,
     siblingThreads,
@@ -440,12 +458,16 @@ interface ActiveContextAttachmentRow {
         id: string;
         title: string;
         type: string;
+        source_app: SourceApp | null;
+        source_kind: string | null;
         archived_at: string | null;
       }
     | Array<{
         id: string;
         title: string;
         type: string;
+        source_app: SourceApp | null;
+        source_kind: string | null;
         archived_at: string | null;
       }>
     | null;
@@ -461,7 +483,7 @@ async function getAttachedContextThreads(
   const { data, error } = await supabase
     .from("thread_context_attachments")
     .select(
-      "context_source_node_id,created_at,source_post_id,source_message_id,metadata,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,archived_at)"
+      "context_source_node_id,created_at,source_post_id,source_message_id,metadata,source_node:nodes!thread_context_attachments_context_source_node_id_fkey(id,title,type,source_app,source_kind,archived_at)"
     )
     .eq("thread_id", nodeId)
     .eq("status", "active")
@@ -474,6 +496,8 @@ async function getAttachedContextThreads(
     id: string;
     title: string;
     type: string;
+    sourceApp: SourceApp;
+    sourceKind: string | null;
     sourcePostId: string | null;
     contextPack?: ContextPack;
   }> = [];
@@ -489,10 +513,17 @@ async function getAttachedContextThreads(
     if (source.archived_at) continue;
 
     seen.add(row.context_source_node_id);
+    const provenance = contextSourceProvenanceForNode({
+      sourceApp: source.source_app,
+      sourceKind: source.source_kind,
+    });
+
     sourceNodes.push({
       id: source.id,
       title: source.title,
       type: source.type,
+      sourceApp: provenance.sourceApp,
+      sourceKind: provenance.sourceKind,
       sourcePostId: row.source_post_id,
       contextPack: contextPackFromMetadata(row.metadata),
     });
@@ -514,6 +545,8 @@ async function getAttachedContextThreads(
         id: sourceNodes[i].id,
         title: sourceNodes[i].title,
         type: sourceNodes[i].type,
+        source_app: sourceNodes[i].sourceApp,
+        source_kind: sourceNodes[i].sourceKind,
       },
       posts,
       contextPack: sourceNodes[i].contextPack,
@@ -522,7 +555,7 @@ async function getAttachedContextThreads(
   return threads;
 }
 
-function contextPackFromMetadata(
+export function contextPackFromMetadata(
   metadata: Record<string, unknown> | null
 ): ContextPack | undefined {
   const pack = metadata?.context_pack;
@@ -537,6 +570,12 @@ function contextPackFromMetadata(
     router_version: "context-router-v1",
     resolved_query:
       typeof row.resolved_query === "string" ? row.resolved_query : "",
+    source_role:
+      row.source_role === "core" ||
+      row.source_role === "supporting" ||
+      row.source_role === "watchlist"
+        ? row.source_role
+        : undefined,
     relevance_confidence:
       typeof row.relevance_confidence === "number"
         ? row.relevance_confidence
@@ -548,7 +587,29 @@ function contextPackFromMetadata(
         )
       : [],
     snippet: typeof row.snippet === "string" ? row.snippet : "",
+    ...(isContextSourceOrigin(row.source_origin)
+      ? { source_origin: row.source_origin }
+      : {}),
+    ...(isSourceApp(row.source_app) ? { source_app: row.source_app } : {}),
+    ...(typeof row.source_provenance === "string"
+      ? { source_provenance: row.source_provenance }
+      : {}),
   };
+}
+
+function isContextSourceOrigin(
+  value: unknown
+): value is NonNullable<ContextPack["source_origin"]> {
+  return value === "workos" || value === "imported";
+}
+
+function isSourceApp(value: unknown): value is SourceApp {
+  return (
+    value === "workos" ||
+    value === "claude" ||
+    value === "chatgpt" ||
+    value === "unknown"
+  );
 }
 
 export function selectAttachedContextPosts(

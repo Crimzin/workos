@@ -10,6 +10,7 @@ import { getNodeLinks } from "@/lib/links";
 import type { NodeLinks } from "@/lib/links";
 import { getCurrentActor, getActors } from "@/lib/actor";
 import { getAgentSettings } from "@/lib/agent-settings";
+import { getActiveInlineAgentRuns } from "@/lib/agents/runs";
 import {
   buildBoardDetailTrail,
   getHeaderBadges,
@@ -18,12 +19,12 @@ import { formatAbsoluteDateTime } from "@/lib/time";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
 import { NodeActions } from "./node-actions";
-import { CardsTabContent } from "./cards-tab-content";
 import { MirrorsSection } from "./mirrors-section";
 import { NodeLinksSection } from "./node-links-section";
 import { PostsTabContent } from "./posts-tab-content";
 import { MemoryPrimitivesTabContent } from "./memory-primitives-tab-content";
 import { NodeDetailTabs } from "./node-detail-tabs";
+import { ThreadTree } from "./thread/thread-tree";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -42,7 +43,7 @@ export async function DetailPanel({
   ]);
 
   // Fetch mirror targets + posts + links + memory in parallel with detail panel render.
-  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors] = await Promise.all([
+  const [mirrorTargets, posts, links, memoryPrimitives, agentSettings, actors, activeInlineRuns] = await Promise.all([
     detail
       ? getMirrorTargets(detail.node.instance_id, detail.node.type as "stack" | "card")
       : Promise.resolve([]),
@@ -55,12 +56,13 @@ export async function DetailPanel({
       : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
     getAgentSettings(actor.instance_id),
     getActors(actor.instance_id),
+    detail ? getActiveInlineAgentRuns(nodeId) : Promise.resolve([]),
   ]);
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-secondary/70">
       {detail ? (
-        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} agentProviders={agentSettings.providers} />
+        <DetailBody detail={detail} workspaceId={workspaceId} closeHref={closeHref} mirrorTargets={mirrorTargets} posts={posts} links={links} memoryPrimitives={memoryPrimitives} actor={actor} actors={actors} inlineClaudeEnabled={agentSettings.providers.some((provider) => provider.provider_key === "inline_claude" && provider.enabled)} agentProviders={agentSettings.providers} activeInlineRuns={activeInlineRuns} />
       ) : (
         <>
           <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-3">
@@ -87,6 +89,7 @@ function DetailBody({
   actors,
   inlineClaudeEnabled,
   agentProviders,
+  activeInlineRuns,
 }: {
   detail: NonNullable<Awaited<ReturnType<typeof getNodeDetail>>>;
   workspaceId: string;
@@ -99,8 +102,9 @@ function DetailBody({
   actors: import("@/lib/actor").ActorForMention[];
   inlineClaudeEnabled: boolean;
   agentProviders: import("@/lib/types").AgentProviderSetting[];
+  activeInlineRuns: Awaited<ReturnType<typeof getActiveInlineAgentRuns>>;
 }) {
-  const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
+  const { node, owner, members, ancestors, fields, values, children, mirrorPlacements } = detail;
 
   // Determine if we're viewing from the node's home context or a mirror context.
   const homePlacement = mirrorPlacements.find((p) => p.is_home);
@@ -127,6 +131,7 @@ function DetailBody({
       actors={actors}
       inlineClaudeEnabled={inlineClaudeEnabled}
       agentProviders={agentProviders}
+      initialActiveInlineRuns={activeInlineRuns}
     />
   );
 
@@ -152,16 +157,7 @@ function DetailBody({
     />
   );
 
-  const cardsContent =
-    node.type === "stack" ? (
-      <CardsTabContent
-        stackId={node.id}
-        cards={children}
-        fields={fields}
-        childFieldValues={childFieldValues}
-        workspaceId={workspaceId}
-      />
-    ) : null;
+  const treeContent = <ThreadTree threads={children} />;
 
   return (
     <>
@@ -179,7 +175,7 @@ function DetailBody({
                 nodeId={node.id}
                 workspaceId={workspaceId}
                 parentId={node.parent_id}
-                nodeType={node.type as "card" | "stack"}
+                nodeType={node.type}
                 isArchived={!!node.archived_at}
                 closeHref={closeHref}
                 isHomeContext={isHomeContext}
@@ -194,7 +190,7 @@ function DetailBody({
         fieldsContent={fieldsContent}
         memoryContent={memoryContent}
         postsContent={postsContent}
-        treeContent={cardsContent}
+        treeContent={treeContent}
         paddingClassName="px-4"
       />
     </>
@@ -254,10 +250,8 @@ export function FieldsTabContent({
       </div>
       <dl className="mt-2 mx-5 divide-y divide-border rounded-md border border-border bg-bg-card shadow-sm">
         <SystemRow label="Owner" value={owner?.name ?? "—"} />
-        <SystemRow label="Type" value={node.type} />
-        {node.type === "stack" && (
-          <SystemRow label="Lifecycle" value={formatLifecycle(node.stack_lifecycle_status)} />
-        )}
+        <SystemRow label="Type" value="Thread" />
+        <SystemRow label="Lifecycle" value={formatLifecycle(node.stack_lifecycle_status)} />
         <SystemRow label="Created" value={formatAbsoluteDateTime(node.created_at)} />
         <SystemRow label="Updated" value={formatAbsoluteDateTime(node.updated_at)} />
         {fields.length === 0 && (

@@ -3,6 +3,7 @@ import {
   messageAnchorId,
   sourceAppFromMetadata,
   sourceAppLabel,
+  sourceAppMark,
   sourceThreadHref,
 } from "./post-source-links";
 
@@ -20,6 +21,13 @@ assert.equal(sourceAppLabel("workos"), "WorkOS");
 assert.equal(sourceAppLabel("unknown"), "Unknown");
 assert.equal(sourceAppLabel(null), "Unknown");
 assert.equal(sourceAppLabel(undefined), "Unknown");
+
+assert.equal(sourceAppMark("workos"), "W");
+assert.equal(sourceAppMark("claude"), "C");
+assert.equal(sourceAppMark("chatgpt"), "G");
+assert.equal(sourceAppMark("unknown"), "?");
+assert.equal(sourceAppMark(null), "?");
+assert.equal(sourceAppMark(undefined), "?");
 
 assert.equal(sourceAppFromMetadata("claude"), "claude");
 assert.equal(sourceAppFromMetadata("chatgpt"), "chatgpt");

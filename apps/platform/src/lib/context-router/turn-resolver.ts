@@ -16,10 +16,14 @@ export interface TurnResolverPrompt {
   user: string;
 }
 
-export type TurnResolverCaller = (prompt: TurnResolverPrompt) => Promise<string>;
+export type TurnResolverCaller = (
+  prompt: TurnResolverPrompt,
+) => Promise<string>;
+const ACKNOWLEDGEMENT_PATTERN =
+  /^(thanks|thank you|thx|ok|okay|cool|great|nice|got it|sounds good|👍)$/i;
 
 export function buildTurnResolverPrompt(
-  input: TurnResolverInput
+  input: TurnResolverInput,
 ): TurnResolverPrompt {
   return {
     system:
@@ -41,7 +45,7 @@ export function buildTurnResolverPrompt(
 
 export function parseTurnResolution(
   text: string,
-  originalText: string
+  originalText: string,
 ): ContextTurnResolution {
   let data: Record<string, unknown>;
   try {
@@ -84,9 +88,61 @@ export async function resolveContextTurn(
       userMessage: prompt.user,
       model: TURN_RESOLVER_MODEL,
       maxTokens: 600,
-    })
+    }),
 ): Promise<ContextTurnResolution> {
   const prompt = buildTurnResolverPrompt(input);
   const text = await caller(prompt);
   return parseTurnResolution(text, input.currentText);
+}
+
+export async function resolveContextTurnWithFallback(
+  input: TurnResolverInput,
+  caller?: TurnResolverCaller,
+): Promise<ContextTurnResolution> {
+  try {
+    return await resolveContextTurn(input, caller);
+  } catch (error) {
+    console.warn(
+      "[context-router] model turn resolution failed; using local fallback:",
+      error instanceof Error ? error.message : error,
+    );
+    return resolveContextTurnLocally(input, {
+      reason: "Resolved locally after model turn resolution failed.",
+    });
+  }
+}
+
+export function resolveContextTurnLocally(
+  input: TurnResolverInput,
+  options: { reason?: string } = {},
+): ContextTurnResolution {
+  const currentText = input.currentText.trim();
+  if (ACKNOWLEDGEMENT_PATTERN.test(currentText)) {
+    return {
+      originalText: input.currentText,
+      resolvedQuery: currentText,
+      shouldRetrieve: false,
+      confidence: 0.8,
+      reason: "Local resolver treated this as an acknowledgement.",
+    };
+  }
+
+  return {
+    originalText: input.currentText,
+    resolvedQuery: buildLocalResolvedQuery(input),
+    shouldRetrieve: currentText.length > 0,
+    confidence: 0.68,
+    reason: options.reason ?? "Resolved locally from the current turn.",
+  };
+}
+
+function buildLocalResolvedQuery(input: TurnResolverInput): string {
+  return [
+    input.currentText,
+    ...input.previousUserTexts.slice(-2),
+    input.activeThreadTitle,
+  ]
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .join(" ");
 }

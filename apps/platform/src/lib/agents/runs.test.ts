@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import {
   buildAgentRunInsert,
+  buildInlineAgentRunInsert,
+  inlineRunStageFromRecord,
+  isInlineRunActive,
+  isMissingInlineAgentRunColumnError,
   selectConfirmableRunId,
   type CreateAgentRunInput,
 } from "./runs.ts";
@@ -36,6 +40,101 @@ assert.deepEqual(buildAgentRunInsert(input).metadata, {
   aidex_status: "available",
   task: "Task 4",
 });
+
+const inlineInput = {
+  instanceId: "instance-1",
+  workspaceId: "workspace-1",
+  targetNodeId: "node-1",
+  triggerPostId: "post-1",
+  requesterActorId: "human-1",
+  agentActorId: "claude-1",
+  currentStage: "Understanding the request...",
+};
+
+assert.deepEqual(buildInlineAgentRunInsert(inlineInput), {
+  instance_id: "instance-1",
+  workspace_id: "workspace-1",
+  target_node_id: "node-1",
+  trigger_post_id: "post-1",
+  requester_actor_id: "human-1",
+  agent_actor_id: "claude-1",
+  provider_key: "inline_claude",
+  status: "running",
+  current_stage: "Understanding the request...",
+  plan_body: "",
+  metadata: { current_stage: "Understanding the request..." },
+});
+
+assert.equal(
+  buildInlineAgentRunInsert({ ...inlineInput, metadata: { route: "inline" } })
+    .metadata.route,
+  "inline"
+);
+assert.equal(
+  buildInlineAgentRunInsert({ ...inlineInput, metadata: { route: "inline" } })
+    .metadata.current_stage,
+  "Understanding the request..."
+);
+
+assert.equal(
+  inlineRunStageFromRecord({
+    current_stage: null,
+    metadata: { current_stage: "Waiting for Claude..." },
+  }),
+  "Waiting for Claude..."
+);
+assert.equal(
+  inlineRunStageFromRecord({
+    current_stage: "Writing the reply...",
+    metadata: { current_stage: "Waiting for Claude..." },
+  }),
+  "Writing the reply..."
+);
+assert.equal(
+  isMissingInlineAgentRunColumnError({
+    code: "PGRST204",
+    message:
+      "Could not find the 'currentstage' column of 'agentruns' in the schema cache",
+  }),
+  true
+);
+assert.equal(
+  isMissingInlineAgentRunColumnError({
+    code: "PGRST204",
+    message:
+      "Could not find the 'othercolumn' column of 'agentruns' in the schema cache",
+  }),
+  false
+);
+
+assert.equal(
+  isInlineRunActive({
+    provider_key: "inline_claude",
+    status: "running",
+  }),
+  true
+);
+assert.equal(
+  isInlineRunActive({
+    provider_key: "inline_claude",
+    status: "planning",
+  }),
+  true
+);
+assert.equal(
+  isInlineRunActive({
+    provider_key: "inline_claude",
+    status: "completed",
+  }),
+  false
+);
+assert.equal(
+  isInlineRunActive({
+    provider_key: "codex",
+    status: "running",
+  }),
+  false
+);
 
 assert.equal(selectConfirmableRunId([]), null);
 assert.equal(selectConfirmableRunId([{ id: "run-1", agent_actor_id: "agent-1" }]), "run-1");

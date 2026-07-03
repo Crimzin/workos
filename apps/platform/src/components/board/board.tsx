@@ -26,15 +26,19 @@ import {
 import type { BoardCard, BoardData, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
 import type { ViewFilter, WorkspaceView } from "@/lib/views";
-import { createStack } from "@/lib/actions/nodes";
+import {
+  createStack,
+  getThreadPlacementCandidates,
+  placeThreadInBoard,
+} from "@/lib/actions/nodes";
 import { updateViewColumnField, updateViewFilters, updateViewStackFilters, updateViewCollapsedColumns, updateViewStackColumnField } from "@/lib/actions/views";
 import { moveCardAppearance, reorderStack } from "@/lib/actions/dnd";
-import { InlineCreate } from "../inline-create";
 import { FieldCreateDialog } from "../field-create-dialog";
 import { StackRow } from "./stack-row";
 import { CardTileOverlay } from "./card-tile";
 import { ViewTabs } from "./view-tabs";
 import { FilterMenu } from "./filter-menu";
+import { ThreadPickerCreate } from "./thread-picker-create";
 import {
   applyCardDrop,
   findCardLocation,
@@ -62,6 +66,7 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
   const [stackFilters, setStackFilters] = useState<ViewFilter[]>(activeView?.stack_filters ?? []);
   const [hiddenStackIds, setHiddenStackIds] = useState<string[]>(activeView?.hidden_stack_ids ?? []);
   const [collapsedColumnIds, setCollapsedColumnIds] = useState<string[]>(activeView?.collapsed_column_ids ?? []);
+  const [collapsedStackIds, setCollapsedStackIds] = useState<string[]>([]);
   const [stackColumnFields, setStackColumnFields] = useState<Record<string, string | null>>(activeView?.stack_column_fields ?? {});
   const [showArchived, setShowArchived] = useState(false);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
@@ -80,6 +85,9 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
   const searchParams = useSearchParams();
   const activeDetailId = searchParams.get("d");
   const workspaceId = data.workspace.id;
+  const collapsedStackStorageKey = activeView
+    ? `workos:collapsed-stacks:${workspaceId}:${activeView.id}`
+    : `workos:collapsed-stacks:${workspaceId}:default`;
 
   // Sync local state when server data refreshes.
   useEffect(() => {
@@ -100,6 +108,17 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
       cancelled = true;
     };
   }, [views]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setCollapsedStackIds(readCollapsedStackIds(collapsedStackStorageKey));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [collapsedStackStorageKey]);
 
   const handleColumnFieldChange = (fieldId: string | null) => {
     setColumnFieldId(fieldId);
@@ -132,6 +151,14 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
       : [...collapsedColumnIds, colId];
     setCollapsedColumnIds(next);
     if (activeView) updateViewCollapsedColumns(activeView.id, workspaceId, next);
+  };
+
+  const handleToggleStackCollapse = (stackId: string) => {
+    const next = collapsedStackIds.includes(stackId)
+      ? collapsedStackIds.filter((id) => id !== stackId)
+      : [...collapsedStackIds, stackId];
+    setCollapsedStackIds(next);
+    writeCollapsedStackIds(collapsedStackStorageKey, next);
   };
 
   const handleFiltersChange = (newFilters: ViewFilter[]) => {
@@ -462,6 +489,7 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
               setStackFilters(v.stack_filters ?? []);
               setHiddenStackIds(v.hidden_stack_ids ?? []);
               setCollapsedColumnIds(v.collapsed_column_ids ?? []);
+              setCollapsedStackIds([]);
               setStackColumnFields(v.stack_column_fields ?? {});
             }}
             currentColumnFieldId={columnFieldId}
@@ -497,17 +525,31 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
               onShowArchivedChange={setShowArchived}
             />
             <div className="flex-1" />
-            <InlineCreate
-              label="New Stack"
+            <ThreadPickerCreate
+              label="Add Stack"
               placeholder="Stack name"
               icon={<Plus size={13} />}
-              onSubmit={async (title) => {
+              loadCandidates={(query, limit) =>
+                getThreadPlacementCandidates(workspaceId, query, limit)
+              }
+              onSelect={async (threadId) => {
+                const res = await placeThreadInBoard({
+                  threadId,
+                  targetParentId: workspaceId,
+                  workspaceId,
+                });
+                router.refresh();
+                return res;
+              }}
+              onCreate={async (title) => {
                 const res = await createStack(workspaceId, title);
                 router.refresh();
                 return res;
               }}
               buttonClassName="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-              inputClassName="w-48 rounded-md border border-border-strong bg-bg-card px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+              inputClassName="w-48 rounded-md border border-border-strong bg-bg-card py-1 pl-7 pr-2 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+              menuAlign="right"
+              menuClassName="w-96 max-w-[calc(100vw-2rem)]"
             />
           </div>
         </div>
@@ -516,7 +558,25 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
         <div className="flex-1 overflow-auto">
           <div className="min-w-max">
             {localStacks.length === 0 ? (
-              <EmptyWorkspace />
+              <EmptyWorkspace
+                loadCandidates={(query, limit) =>
+                  getThreadPlacementCandidates(workspaceId, query, limit)
+                }
+                onSelect={async (threadId) => {
+                  const res = await placeThreadInBoard({
+                    threadId,
+                    targetParentId: workspaceId,
+                    workspaceId,
+                  });
+                  router.refresh();
+                  return res;
+                }}
+                onCreate={async (title) => {
+                  const res = await createStack(workspaceId, title);
+                  router.refresh();
+                  return res;
+                }}
+              />
             ) : (
               <SortableContext
                 items={localStacks.map((s) => s.id)}
@@ -541,7 +601,9 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
                       actors={data.actors}
                       navigationMode={navigationMode}
                       collapsedColumnIds={collapsedColumnIds}
+                      isStackCollapsed={collapsedStackIds.includes(stack.id)}
                       onToggleColumnCollapse={handleToggleColumnCollapse}
+                      onToggleStackCollapse={() => handleToggleStackCollapse(stack.id)}
                       onColumnFieldChange={(fieldId) => handleStackColumnFieldChange(stack.id, fieldId)}
                     />
                   );
@@ -608,9 +670,41 @@ function getOverCardPlacement(
   return activeMiddle > overMiddle ? "after" : "before";
 }
 
+function readCollapsedStackIds(storageKey: string): string[] {
+  try {
+    const rawValue = window.localStorage.getItem(storageKey);
+    if (!rawValue) return [];
+    const value = JSON.parse(rawValue);
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCollapsedStackIds(storageKey: string, stackIds: string[]) {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(stackIds));
+  } catch {
+    // Ignore storage failures; collapse still works for the current session.
+  }
+}
+
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
-function EmptyWorkspace() {
+function EmptyWorkspace({
+  loadCandidates,
+  onSelect,
+  onCreate,
+}: {
+  loadCandidates: (
+    query: string,
+    limit?: number
+  ) => ReturnType<typeof getThreadPlacementCandidates>;
+  onSelect: (threadId: string) => Promise<void | { id: string }>;
+  onCreate: (title: string) => Promise<void | { id: string }>;
+}) {
   return (
     <div className="flex min-h-[240px] items-center justify-center px-6 py-16">
       <div className="max-w-sm text-center">
@@ -618,14 +712,17 @@ function EmptyWorkspace() {
         <p className="mt-1 text-sm text-text-secondary">
           Create your first stack to start organizing work.
         </p>
-        <button
-          type="button"
-          disabled
-          className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-        >
-          <Plus size={14} />
-          Create Stack
-        </button>
+        <div className="mt-4 inline-block text-left">
+          <ThreadPickerCreate
+            label="Add Stack"
+            placeholder="Stack name"
+            icon={<Plus size={14} />}
+            loadCandidates={loadCandidates}
+            onSelect={onSelect}
+            onCreate={onCreate}
+            buttonClassName="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+          />
+        </div>
       </div>
     </div>
   );

@@ -82,6 +82,7 @@ const ctx: NodeContext = {
       "2026-05-19T02:12:58.000Z"
     ),
   ],
+  threadContextSheet: null,
   parentThread: {
     node: {
       id: "parent-stack",
@@ -201,16 +202,6 @@ assert.match(
 
 assert.ok(
   prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
-    prompt.userMessage.indexOf('# Stack thread (parent: "AI coaching business")')
-);
-
-assert.ok(
-  prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
-    prompt.userMessage.indexOf('# Sibling card: "First AI diagnostic"')
-);
-
-assert.ok(
-  prompt.userMessage.indexOf('# Attached context: "Campaign reporting script"') <
     prompt.userMessage.indexOf(
       '# Active thread on "AI Diagnostic 2.0: Contextual assessment"'
     )
@@ -220,6 +211,41 @@ assert.match(
   prompt.userMessage,
   /The campaign reporting SQL parser expects campaign_id aliases\./
 );
+assert.doesNotMatch(
+  prompt.userMessage,
+  /The first AI diagnostic scored fluency with a simple ladder\./
+);
+assert.doesNotMatch(
+  prompt.userMessage,
+  /@Claude summarize the first AI diagnostic\./
+);
+
+const sheetPrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    threadContextSheet: {
+      id: "sheet-1",
+      instance_id: "instance-1",
+      thread_id: "active-card",
+      active_working: [
+        {
+          id: "aw",
+          statement: "The current task is financial planning synthesis.",
+          source_refs: [],
+        },
+      ],
+      short_term: [],
+      long_term: [],
+      markdown: "",
+      metadata: {},
+      created_at: "2026-06-30T12:00:00.000Z",
+      updated_at: "2026-06-30T12:00:00.000Z",
+    },
+  },
+  { targetPostId: "target", now: new Date("2026-06-22T16:43:00.000Z") }
+);
+assert.match(sheetPrompt.userMessage, /# Thread Context Sheet/);
+assert.match(sheetPrompt.userMessage, /financial planning synthesis/);
 
 const compactContextPrompt = renderClaudePrompt(
   {
@@ -237,10 +263,14 @@ const compactContextPrompt = renderClaudePrompt(
         contextPack: {
           router_version: "context-router-v1",
           resolved_query: "career advice Anthropic roles",
+          source_role: "core",
           relevance_confidence: 0.91,
           reason: "Directly relevant to Anthropic process.",
           useful_facts: ["Danny discussed Anthropic product roles."],
           snippet: "Danny discussed Anthropic product roles and fit.",
+          source_origin: "imported",
+          source_app: "claude",
+          source_provenance: "Claude import",
         },
       },
     ],
@@ -256,6 +286,11 @@ assert.match(
   /# Attached context: "Danny @ Anthropic"/
 );
 assert.match(compactContextPrompt.userMessage, /Relevance: 91%/);
+assert.match(compactContextPrompt.userMessage, /Source role: core/);
+assert.match(
+  compactContextPrompt.userMessage,
+  /Source provenance: Claude import/
+);
 assert.match(
   compactContextPrompt.userMessage,
   /Why included: Directly relevant to Anthropic process\./
@@ -273,12 +308,89 @@ assert.doesNotMatch(
   /This full attached thread post should not appear/
 );
 
-assert.ok(
-  prompt.userMessage.indexOf('# Sibling card: "First AI diagnostic"') <
-    prompt.userMessage.indexOf(
-      '# Active thread on "AI Diagnostic 2.0: Contextual assessment"'
-    )
+const broadFinancePrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    attachedContexts: [
+      {
+        node: {
+          id: "finance",
+          title: "Career and Finance Strategy",
+          type: "stack",
+        },
+        posts: [],
+        contextPack: {
+          router_version: "context-router-v1",
+          resolved_query:
+            "comprehensive personal financial assessment across cash runway housing investments inheritance marriage prenup household obligations",
+          source_role: "core",
+          relevance_confidence: 0.97,
+          reason: "Selected as core finance context by reranker.",
+          useful_facts: ["Runway, housing, inheritance, and retirement were discussed."],
+          snippet: "Financial planning context.",
+        },
+      },
+      {
+        node: {
+          id: "prenup",
+          title: "Evaluating a prenuptial agreement",
+          type: "stack",
+        },
+        posts: [],
+        contextPack: {
+          router_version: "context-router-v1",
+          resolved_query:
+            "comprehensive personal financial assessment across cash runway housing investments inheritance marriage prenup household obligations",
+          source_role: "supporting",
+          relevance_confidence: 0.88,
+          reason: "Household and legal obligation context.",
+          useful_facts: [
+            "Prenup planning may affect future spouse obligations and household financial planning.",
+          ],
+          snippet: "Prenup and household obligation context.",
+        },
+      },
+      {
+        node: {
+          id: "credit",
+          title: "Disputed T-Mobile collection account on credit report",
+          type: "stack",
+        },
+        posts: [],
+        contextPack: {
+          router_version: "context-router-v1",
+          resolved_query:
+            "comprehensive personal financial assessment across cash runway housing investments inheritance marriage prenup household obligations",
+          source_role: "watchlist",
+          relevance_confidence: 0.74,
+          reason: "Narrow credit/collections context.",
+          useful_facts: ["A small credit-report dispute exists."],
+          snippet: "Credit dispute context.",
+        },
+      },
+    ],
+  },
+  {
+    targetPostId: "target",
+    now: new Date("2026-06-22T16:43:00.000Z"),
+  }
 );
+
+assert.match(broadFinancePrompt.userMessage, /# Attached Context Guidance/);
+assert.match(broadFinancePrompt.userMessage, /# Selected Source Fact Check/);
+assert.match(
+  broadFinancePrompt.userMessage,
+  /marriage, prenup, household, and legal obligations/
+);
+assert.match(
+  broadFinancePrompt.userMessage,
+  /Evaluating a prenuptial agreement \(supporting, 88%\): Prenup planning may affect future spouse obligations and household financial planning\./
+);
+assert.match(
+  broadFinancePrompt.userMessage,
+  /Treat watchlist sources as background/
+);
+assert.match(broadFinancePrompt.userMessage, /Source role: watchlist/);
 
 assert.ok(
   prompt.userMessage.indexOf("# Mentioned Node Context") <
@@ -290,7 +402,10 @@ assert.match(prompt.userMessage, /## Pricing rewrite \[card\]/);
 assert.match(prompt.userMessage, /Path: Growth \/ Website \/ Pricing rewrite/);
 assert.match(prompt.userMessage, /- Status: In progress/);
 assert.match(prompt.userMessage, /Rationale: Clarify packaging before launch\./);
-assert.match(prompt.userMessage, /- Assumption: Users understand seat pricing\. \(untested\)/);
+assert.match(
+  prompt.userMessage,
+  /- Assumption: Users understand seat pricing\. \(untested\)/
+);
 assert.match(prompt.userMessage, /- Decision: Lead with team plan\. \(active\)/);
 assert.match(prompt.userMessage, /Use the short-form pricing table\./);
 assert.match(
@@ -325,6 +440,54 @@ assert.match(
   prompt.userMessage,
   /Respond only to the post marked "TARGET @MENTION TO ANSWER"\.$/
 );
+
+const familyBudgetPrompt = renderClaudePrompt(
+  {
+    ...ctx,
+    parentThread: {
+      node: { id: "parent-stack", title: "Big parent", type: "stack" },
+      posts: [
+        post(
+          "parent-raw",
+          "This giant raw parent payload should be omitted unless L3 is justified.",
+          "2026-05-19T02:13:30.000Z"
+        ),
+      ],
+      contextPack: {
+        router_version: "context-router-v1",
+        resolved_query: "context router v2",
+        relevance_confidence: 0.8,
+        reason: "Family thread was scanned and summarized.",
+        useful_facts: ["Parent stack contains related architecture notes."],
+        snippet: "Related architecture notes.",
+      },
+    },
+    siblingThreads: [
+      {
+        node: { id: "sibling-card", title: "Sibling", type: "card" },
+        posts: [
+          post(
+            "sibling-raw",
+            "This giant raw sibling payload should be omitted.",
+            "2026-05-19T02:13:45.000Z"
+          ),
+        ],
+      },
+    ],
+  },
+  { targetPostId: "target", now: new Date("2026-06-22T16:43:00.000Z") }
+);
+
+assert.match(
+  familyBudgetPrompt.userMessage,
+  /Family thread was scanned and summarized/
+);
+assert.match(
+  familyBudgetPrompt.userMessage,
+  /Parent stack contains related architecture notes/
+);
+assert.doesNotMatch(familyBudgetPrompt.userMessage, /giant raw parent payload/);
+assert.doesNotMatch(familyBudgetPrompt.userMessage, /giant raw sibling payload/);
 
 const gapPrompt = renderClaudePrompt(
   {

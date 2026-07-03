@@ -86,7 +86,7 @@ export async function searchNodeMentionCandidates(
 ): Promise<NodeMentionCandidate[]> {
   const { data, error } = await supabase
     .from("nodes")
-    .select("id,title,type,parent_id")
+    .select("id,title,type,parent_id,source_kind,source_app,source_title,source_conversation_id")
     .eq("instance_id", instanceId)
     .is("archived_at", null)
     .order("position", { ascending: true });

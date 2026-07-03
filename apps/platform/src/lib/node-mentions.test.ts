@@ -69,6 +69,7 @@ assert.deepEqual(buildNodeMentionCandidates(rows, "context", 10), [
     title: "Context routing",
     type: "card",
     path: "WorkOS / BrainShare / Context routing",
+    sourceApp: "workos",
   },
 ]);
 
@@ -89,4 +90,53 @@ assert.equal(
 assert.equal(
   buildNodeMentionCandidates(mentionRows, "SQL Campaign Reporting Cleanup", 5)[0].id,
   "script"
+);
+
+const sourcedRows: NodeMentionSearchRow[] = [
+  {
+    id: "native",
+    title: "Launch plan",
+    type: "stack",
+    parent_id: null,
+    source_kind: null,
+    source_app: null,
+    source_title: null,
+    source_conversation_id: null,
+  },
+  {
+    id: "import",
+    title: "Campaign Reporting SQL Cleanup",
+    type: "stack",
+    parent_id: null,
+    source_kind: "imported_ai_chat",
+    source_app: "claude",
+    source_title: "Claude export title",
+    source_conversation_id: "conv-123",
+  },
+];
+
+assert.deepEqual(buildNodeMentionCandidates(sourcedRows, "", 2), [
+  {
+    id: "native",
+    title: "Launch plan",
+    type: "stack",
+    path: "Launch plan",
+    sourceApp: "workos",
+  },
+  {
+    id: "import",
+    title: "Campaign Reporting SQL Cleanup",
+    type: "stack",
+    path: "Campaign Reporting SQL Cleanup",
+    sourceApp: "claude",
+  },
+]);
+
+assert.equal(
+  buildNodeMentionCandidates(sourcedRows, "claude export", 5)[0].id,
+  "import"
+);
+assert.equal(
+  buildNodeMentionCandidates(sourcedRows, "conv-123", 5)[0].id,
+  "import"
 );

@@ -20,6 +20,11 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     label: "Sources",
     description: "Imported chats, visibility, and context suggestion controls.",
   },
+  {
+    href: "/settings/memory",
+    label: "Memory",
+    description: "Long-term account context used across WorkOS threads.",
+  },
 ];
 
 export const DEFAULT_SETTINGS_PATH = SETTINGS_SECTIONS[0].href;

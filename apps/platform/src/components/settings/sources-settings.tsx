@@ -23,6 +23,7 @@ import {
 import type { ImportedChatRow } from "@/lib/imported-chats";
 import { sourceAppLabel } from "@/lib/post-source-links";
 import { ConfirmModal } from "../confirm-modal";
+import { SourceChip } from "../source-chip";
 
 interface SourcesSettingsProps {
   importedChats: ImportedChatRow[];
@@ -218,7 +219,7 @@ function SourceRow({
           {chat.title}
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-tertiary">
-          <span>{sourceAppLabel(chat.source_app)}</span>
+          <SourceChip sourceApp={chat.source_app} />
           <StatusPill label={railLabel} />
           <StatusPill label={ignored ? "Ignored" : "Allowed"} />
         </div>

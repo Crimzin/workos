@@ -8,9 +8,10 @@ import {
 assert.equal(DEFAULT_SETTINGS_PATH, "/settings/agents");
 assert.deepEqual(
   SETTINGS_SECTIONS.map((section) => section.label),
-  ["Agents", "AI Standards"]
+  ["Agents", "AI Standards", "Sources", "Memory"]
 );
 assert.equal(isSettingsPathActive("/settings"), true);
 assert.equal(isSettingsPathActive("/settings/agents"), true);
 assert.equal(isSettingsPathActive("/settings/ai-standards"), true);
+assert.equal(isSettingsPathActive("/settings/memory"), true);
 assert.equal(isSettingsPathActive("/n/workspace-1"), false);

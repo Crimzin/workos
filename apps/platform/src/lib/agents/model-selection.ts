@@ -13,22 +13,27 @@ export interface AgentModelSelectionInput {
 
 export type AgentModelSelection = AgentModelOption;
 
+const LEGACY_MODEL_ID_ALIASES: Record<string, string> = {
+  "claude-sonnet-4-5": "claude-sonnet-5",
+  "claude-opus-4-1": "claude-opus-4-8",
+};
+
 export const AGENT_MODEL_GROUPS: Record<AgentProviderKey, AgentModelOption[]> = {
   inline_claude: [
     {
       providerKey: "inline_claude",
-      modelId: "claude-sonnet-4-5",
-      label: "Sonnet",
+      modelId: "claude-sonnet-5",
+      label: "Sonnet 5",
     },
     {
       providerKey: "inline_claude",
       modelId: "claude-haiku-4-5",
-      label: "Haiku",
+      label: "Haiku 4.5",
     },
     {
       providerKey: "inline_claude",
-      modelId: "claude-opus-4-1",
-      label: "Opus",
+      modelId: "claude-opus-4-8",
+      label: "Opus 4.8",
     },
   ],
   codex: [
@@ -61,9 +66,13 @@ export function resolveModelSelection(
   selection?: AgentModelSelectionInput | null
 ): AgentModelSelection | null {
   const models = AGENT_MODEL_GROUPS[providerKey] ?? [];
+  const requestedModelId =
+    selection?.modelId && LEGACY_MODEL_ID_ALIASES[selection.modelId]
+      ? LEGACY_MODEL_ID_ALIASES[selection.modelId]
+      : selection?.modelId;
   const selected =
     selection?.providerKey === providerKey
-      ? models.find((model) => model.modelId === selection.modelId)
+      ? models.find((model) => model.modelId === requestedModelId)
       : null;
 
   return selected ?? defaultModelForProvider(providerKey);

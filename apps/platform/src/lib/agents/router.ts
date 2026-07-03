@@ -16,7 +16,11 @@ import {
   renderDisabledAgentProviderReply,
 } from "./planning";
 import { createStreamingAgentReply } from "./reply-poster";
-import { createPlanningAgentRun } from "./runs";
+import {
+  createInlineAgentRun,
+  createPlanningAgentRun,
+  failInlineAgentRun,
+} from "./runs";
 
 export interface RouteAgentMentionsInput {
   mentions: MentionedAgent[];
@@ -25,12 +29,14 @@ export interface RouteAgentMentionsInput {
   workspaceId: string;
   targetPost: PostRecord;
   modelSelection?: AgentModelSelection | null;
+  precreatedInlineRunIds?: Map<string, string>;
   renderClaudePromptForContext: (ctx: NodeContext) => ClaudePrompt;
   scheduleInlineClaude: (
     agent: MentionedAgent,
     prompt: ClaudePrompt,
-    modelSelection: AgentModelSelection | null
-  ) => void;
+    modelSelection: AgentModelSelection | null,
+    runId: string
+  ) => void | Promise<void>;
 }
 
 function enabledProviderKeysFromSettings(
@@ -77,13 +83,42 @@ export async function routeAgentMentions(
     }
 
     if (route.kind === "inline_chat") {
-      input.scheduleInlineClaude(
-        route.mention,
-        input.renderClaudePromptForContext(nodeContext),
+      const selectedModel =
         input.modelSelection?.providerKey === route.providerKey
           ? input.modelSelection
-          : null
-      );
+          : null;
+      const precreatedRunId = input.precreatedInlineRunIds?.get(route.mention.id);
+      const runId =
+        precreatedRunId ??
+        (
+          await createInlineAgentRun({
+            instanceId: input.actor.instance_id,
+            workspaceId: input.workspaceId,
+            targetNodeId: input.nodeId,
+            triggerPostId: input.targetPost.id,
+            requesterActorId: input.actor.id,
+            agentActorId: route.mention.id,
+            currentStage: "Understanding the request...",
+            metadata: {
+              model_selection: selectedModel,
+            },
+          })
+        ).id;
+      try {
+        await input.scheduleInlineClaude(
+          route.mention,
+          input.renderClaudePromptForContext(nodeContext),
+          selectedModel,
+          runId
+        );
+      } catch (error) {
+        try {
+          await failInlineAgentRun({ runId, error });
+        } catch (failError) {
+          console.error("[agent-runtime] failed to mark inline run failed", failError);
+        }
+        throw error;
+      }
       continue;
     }
 

@@ -10,8 +10,9 @@ import {
   detailPanelWidthFromPointer,
   snapDetailPanelWidth,
 } from "@/lib/panel-resize";
-import { sourceAppLabel, sourceThreadHref } from "@/lib/post-source-links";
+import { sourceThreadHref } from "@/lib/post-source-links";
 import type { ThreadContextAttachmentWithSource } from "@/lib/thread-surface";
+import { SourceChip } from "../source-chip";
 
 interface ContextPanelProps {
   attachments: ThreadContextAttachmentWithSource[];
@@ -204,9 +205,7 @@ export function ContextPanel({
                           {attachment.source_node?.title ?? "Untitled context"}
                         </div>
                         <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-text-tertiary">
-                          <span className="truncate">
-                            {sourceAppLabel(attachment.source_node?.source_app)}
-                          </span>
+                          <SourceChip sourceApp={attachment.source_node?.source_app} />
                           <span aria-hidden="true">/</span>
                           <span className="truncate">
                             {formatAttachedBy(attachment.attached_by)}

@@ -34,6 +34,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     actors,
     inlineClaudeEnabled,
     agentProviders,
+    activeInlineRuns,
     contextAttachments,
   } = data;
   const {
@@ -58,7 +59,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
         nodeId={node.id}
         workspaceId={workspaceId}
         parentId={node.parent_id}
-        nodeType={node.type as "card" | "stack"}
+        nodeType={node.type}
         isArchived={!!node.archived_at}
         closeHref={`/n/${workspaceId}`}
         isHomeContext={isHomeContext}
@@ -80,6 +81,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
       actors={actors}
       inlineClaudeEnabled={inlineClaudeEnabled}
       agentProviders={agentProviders}
+      initialActiveInlineRuns={activeInlineRuns}
     />
   );
 

@@ -9,7 +9,7 @@ export function chooseGlobalBoardRoot(roots: WorkNode[]): WorkNode | null {
 }
 
 export async function getGlobalBoardData() {
-  const [{ getWorkspaceBoard }, { getRootNodes }, { getWorkspaceViews }] =
+  const [{ getNodeBoard }, { getRootNodes }, { getWorkspaceViews }] =
     await Promise.all([
       import("./board"),
       import("./nodes"),
@@ -20,7 +20,7 @@ export async function getGlobalBoardData() {
   if (!root) return null;
 
   const [board, views] = await Promise.all([
-    getWorkspaceBoard(root.id),
+    getNodeBoard(root.id),
     getWorkspaceViews(root.id),
   ]);
   if (!board) return null;

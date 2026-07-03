@@ -17,6 +17,39 @@ export type MemoryPrimitiveStatus =
   | "active"
   | AssumptionStatus
   | DecisionStatus;
+export type AccountMemoryCategory =
+  | "identity"
+  | "role"
+  | "current_project"
+  | "standing_goal"
+  | "preference"
+  | "communication_style"
+  | "writing_voice"
+  | "recurring_constraint"
+  | "tool_context"
+  | "relationship"
+  | "correction"
+  | "sensitive_fact"
+  | "work_standard";
+export type AccountMemoryScope =
+  | "account"
+  | "workspace"
+  | "project"
+  | "person"
+  | "domain";
+export type AccountMemoryStatus =
+  | "active"
+  | "tentative"
+  | "superseded"
+  | "retracted";
+export type AccountMemorySensitivity =
+  | "normal"
+  | "private"
+  | "financial"
+  | "medical"
+  | "legal"
+  | "credential_like"
+  | "high_care";
 export type StackLifecycleStatus =
   | "prioritized"
   | "deprioritized"
@@ -230,6 +263,49 @@ export interface MemoryPrimitive {
   created_by_actor?: Pick<Actor, "id" | "name" | "kind"> | null;
 }
 
+export interface AccountMemoryRecord {
+  id: string;
+  instance_id: string;
+  category: AccountMemoryCategory;
+  statement: string;
+  scope: AccountMemoryScope;
+  scope_ref_id: string | null;
+  status: AccountMemoryStatus;
+  sensitivity_label: AccountMemorySensitivity;
+  conviction: number;
+  source_refs: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  supersedes_memory_id: string | null;
+  superseded_by_memory_id: string | null;
+  created_by_actor_id: string | null;
+  created_at: string;
+  updated_at: string;
+  last_confirmed_at: string | null;
+  stale_after: string | null;
+  retracted_at: string | null;
+}
+
+export interface ThreadContextSheetItem {
+  id: string;
+  statement: string;
+  source_refs: Array<Record<string, unknown>>;
+  status?: string;
+  updated_at?: string;
+}
+
+export interface ThreadContextSheet {
+  id: string;
+  instance_id: string;
+  thread_id: string;
+  long_term: ThreadContextSheetItem[];
+  short_term: ThreadContextSheetItem[];
+  active_working: ThreadContextSheetItem[];
+  markdown: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export type AIStandardCategory = "interaction" | "output" | "execution";
 export type AIStandardMode = "latent" | "visible_when_useful";
 export type AIStandardSource = "default" | "override" | "custom";
@@ -295,12 +371,14 @@ export interface AgentRun {
   agent_actor_id: string;
   provider_key: AgentProviderKey;
   status: AgentRunStatus;
+  current_stage: string | null;
   branch_name: string | null;
   worktree_path: string | null;
   summary: string | null;
   error: string | null;
   plan_body: string | null;
   confirmation_post_id: string | null;
+  prompt_manifest: Record<string, unknown>;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

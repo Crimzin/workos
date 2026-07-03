@@ -19,6 +19,8 @@ import {
   type AgentAttachment,
 } from "./attachments";
 import { renderAIStandardsForPrompt } from "../ai-standards";
+import { contextSourceProvenanceForNode } from "../context-router/provenance";
+import { selectThreadSheetForPrompt } from "../thread-context-sheet";
 import type { PostRecord } from "../posts";
 import {
   formatPromptTimestamp,
@@ -147,40 +149,62 @@ function buildUserMessage(
 ): string {
   const sections: string[] = [];
 
+  const sheetItems = selectThreadSheetForPrompt(ctx.threadContextSheet);
+  if (sheetItems.length > 0) {
+    sections.push(
+      [
+        "# Thread Context Sheet",
+        "",
+        ...sheetItems.map((item) => `- ${item.statement}`),
+      ].join("\n")
+    );
+  }
+
+  const attachedGuidance = renderAttachedContextGuidance(ctx.attachedContexts);
+  if (attachedGuidance) sections.push(attachedGuidance);
+
+  const sourceFactCheck = renderSelectedSourceFactCheck(ctx.attachedContexts);
+  if (sourceFactCheck) sections.push(sourceFactCheck);
+
   // Explicitly attached context comes before inferred family context.
   for (const attached of ctx.attachedContexts) {
-    sections.push(
-      renderRelativeSection(
-        `# Attached context: "${attached.node.title}"`,
-        attached,
-        now
-      )
+    const rendered = renderRelativeSection(
+      `# Attached context: "${attached.node.title}"`,
+      attached,
+      now,
+      { allowRawPosts: true }
     );
+    if (rendered) sections.push(rendered);
   }
 
   // Parent stack thread, when applicable.
   if (ctx.parentThread) {
-    sections.push(
-      renderRelativeSection(
-        `# Stack thread (parent: "${ctx.parentThread.node.title}")`,
-        ctx.parentThread,
-        now
-      )
+    const rendered = renderRelativeSection(
+      `# Stack thread (parent: "${ctx.parentThread.node.title}")`,
+      ctx.parentThread,
+      now
     );
+    if (rendered) sections.push(rendered);
   }
 
   // Sibling card threads.
   for (const s of ctx.siblingThreads) {
-    sections.push(
-      renderRelativeSection(`# Sibling card: "${s.node.title}"`, s, now)
+    const rendered = renderRelativeSection(
+      `# Sibling card: "${s.node.title}"`,
+      s,
+      now
     );
+    if (rendered) sections.push(rendered);
   }
 
   // Child card threads (when @-mentioned on a stack).
   for (const c of ctx.childThreads) {
-    sections.push(
-      renderRelativeSection(`# Child card: "${c.node.title}"`, c, now)
+    const rendered = renderRelativeSection(
+      `# Child card: "${c.node.title}"`,
+      c,
+      now
     );
+    if (rendered) sections.push(rendered);
   }
 
   const mentionedNodes = ctx.mentionedNodes ?? [];
@@ -240,13 +264,17 @@ function renderThreadSection(
 function renderRelativeSection(
   heading: string,
   thread: RelativeThread,
-  now: Date
-): string {
+  now: Date,
+  options: { allowRawPosts: boolean } = { allowRawPosts: false }
+): string | null {
   if (thread.contextPack) {
     const pack = thread.contextPack;
+    const sourceProvenance = sourceProvenanceForRelativeThread(thread);
     return [
       heading,
       "",
+      pack.source_role ? `Source role: ${pack.source_role}` : null,
+      sourceProvenance ? `Source provenance: ${sourceProvenance}` : null,
       `Relevance: ${Math.round(pack.relevance_confidence * 100)}%`,
       `Why included: ${pack.reason}`,
       pack.useful_facts.length > 0
@@ -259,6 +287,8 @@ function renderRelativeSection(
       .trimEnd();
   }
 
+  if (!options.allowRawPosts) return null;
+
   const lines: string[] = [heading, ``];
   lines.push(
     ...renderChronologicalPosts({
@@ -268,6 +298,93 @@ function renderRelativeSection(
     })
   );
   return lines.join("\n").trimEnd();
+}
+
+function sourceProvenanceForRelativeThread(
+  thread: RelativeThread
+): string | null {
+  if (thread.contextPack?.source_provenance) {
+    return thread.contextPack.source_provenance;
+  }
+
+  return contextSourceProvenanceForNode({
+    sourceApp: thread.contextPack?.source_app ?? thread.node.source_app,
+    sourceKind:
+      thread.contextPack?.source_origin === "imported"
+        ? "imported_ai_chat"
+        : thread.node.source_kind,
+  }).sourceProvenance;
+}
+
+function renderAttachedContextGuidance(
+  attachedContexts: RelativeThread[]
+): string | null {
+  const packs = attachedContexts
+    .map((thread) => thread.contextPack)
+    .filter((pack): pack is NonNullable<RelativeThread["contextPack"]> =>
+      Boolean(pack)
+    );
+  if (packs.length === 0) return null;
+
+  const lines = [
+    "# Attached Context Guidance",
+    "",
+    "- Use core sources to shape the answer.",
+    "- Use supporting sources when they bear on the current request.",
+    "- Treat watchlist sources as background: notice them, but do not center them unless they directly resolve the user's request.",
+  ];
+
+  if (packs.some((pack) => isBroadFinancialAssessmentQuery(pack.resolved_query))) {
+    lines.push(
+      "- For broad financial-planning assessments, scan core and supporting sources for cash/runway, income/career, housing/location, investments/tax, inheritance, debt/credit, immigration/work eligibility, and marriage, prenup, household, and legal obligations. Surface any major axis that materially changes the assessment."
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function renderSelectedSourceFactCheck(
+  attachedContexts: RelativeThread[]
+): string | null {
+  const lines = attachedContexts.flatMap((thread): string[] => {
+    const pack = thread.contextPack;
+    if (!pack) return [];
+    const role = pack.source_role ?? "supporting";
+    const confidence = Math.round(pack.relevance_confidence * 100);
+    const facts =
+      pack.useful_facts.length > 0
+        ? pack.useful_facts
+        : pack.snippet
+          ? [pack.snippet]
+          : [];
+    if (facts.length === 0) return [];
+
+    return [
+      `- ${thread.node.title} (${role}, ${confidence}%): ${facts
+        .slice(0, 3)
+        .join(" ")}`,
+    ];
+  });
+
+  if (lines.length === 0) return null;
+
+  return [
+    "# Selected Source Fact Check",
+    "",
+    "Before answering, scan these selected-source facts and carry forward any materially relevant axis. Do not force weak watchlist facts into the answer.",
+    ...lines,
+  ].join("\n");
+}
+
+function isBroadFinancialAssessmentQuery(query: string): boolean {
+  return (
+    /\b(financial|finance|finances|cash|runway|housing|investment|inheritance|tax|retirement)\b/i.test(
+      query
+    ) &&
+    /\b(assessment|planning|comprehensive|general|across|situation|where I'm at|where i'?m at)\b/i.test(
+      query
+    )
+  );
 }
 
 function renderMentionedNodeSection(

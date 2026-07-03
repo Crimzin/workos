@@ -10,9 +10,12 @@ import {
 } from "@/lib/actions/thread-context";
 import {
   contextEventSummary,
+  isGroupedContextEventMetadata,
   type ContextEventMetadata,
+  type ContextEventSourceMetadata,
 } from "@/lib/thread-context";
 import { sourceThreadHref } from "@/lib/post-source-links";
+import { SourceChip } from "../source-chip";
 
 export interface ContextEventProps {
   threadId: string;
@@ -23,8 +26,9 @@ export interface ContextEventProps {
 export function ContextEvent({ threadId, postId, metadata }: ContextEventProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
-  const sourceNodeId = metadata.source_node_id;
-  const sourcePostId = metadata.source_post_id;
+  const isGrouped = isGroupedContextEventMetadata(metadata);
+  const sourceNodeId = isGrouped ? null : metadata.source_node_id;
+  const sourcePostId = isGrouped ? null : metadata.source_post_id;
   const showAddBack = metadata.action === "removed";
   const showAllow = metadata.action === "ignored";
 
@@ -44,7 +48,30 @@ export function ContextEvent({ threadId, postId, metadata }: ContextEventProps) 
       <p className="text-sm text-text-secondary">
         {contextEventSummary(metadata)}
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      {isGrouped ? (
+        <div className="space-y-2">
+          {metadata.sources.map((source) => (
+            <div
+              key={source.source_node_id}
+              className="flex flex-wrap items-center gap-2 text-xs text-text-secondary"
+            >
+              <span className="min-w-0 max-w-[360px] truncate text-text-secondary">
+                {source.source_title}
+              </span>
+              <SourceChip sourceApp={source.source_app} />
+              <ContextSourceActions
+                threadId={threadId}
+                postId={postId}
+                source={source}
+                action={metadata.action}
+                pending={pending}
+                runAction={runAction}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
         {sourceNodeId ? (
           <Link
             href={sourceThreadHref(sourceNodeId, sourcePostId)}
@@ -111,10 +138,99 @@ export function ContextEvent({ threadId, postId, metadata }: ContextEventProps) 
             Allow in suggestions
           </button>
         ) : null}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const contextEventButtonClassName =
   "inline-flex h-6 items-center rounded border border-border-subtle px-2 text-[11px] font-medium text-text-secondary transition-colors hover:border-border hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50";
+
+function ContextSourceActions({
+  threadId,
+  postId,
+  source,
+  action,
+  pending,
+  runAction,
+}: {
+  threadId: string;
+  postId: string;
+  source: ContextEventSourceMetadata;
+  action: ContextEventMetadata["action"];
+  pending: boolean;
+  runAction: (action: () => Promise<void>) => Promise<void>;
+}) {
+  const showAddBack = action === "removed";
+  const showAllow = action === "ignored";
+
+  return (
+    <>
+      <Link
+        href={sourceThreadHref(source.source_node_id, source.source_post_id)}
+        target="_blank"
+        rel="noreferrer"
+        className={contextEventButtonClassName}
+      >
+        Open
+      </Link>
+      {action !== "removed" ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            void runAction(() =>
+              removeThreadContext(threadId, source.source_node_id, postId)
+            )
+          }
+          className={contextEventButtonClassName}
+        >
+          Remove from this thread
+        </button>
+      ) : null}
+      {action !== "ignored" ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            void runAction(() =>
+              ignoreThreadContext(threadId, source.source_node_id, postId)
+            )
+          }
+          className={contextEventButtonClassName}
+        >
+          Ignore going forward
+        </button>
+      ) : null}
+      {showAddBack ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            void runAction(() =>
+              allowThreadContext(threadId, source.source_node_id, postId)
+            )
+          }
+          className={contextEventButtonClassName}
+        >
+          Add back to this thread
+        </button>
+      ) : null}
+      {showAllow ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            void runAction(() =>
+              allowThreadContext(threadId, source.source_node_id, postId)
+            )
+          }
+          className={contextEventButtonClassName}
+        >
+          Allow in suggestions
+        </button>
+      ) : null}
+    </>
+  );
+}

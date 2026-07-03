@@ -1,5 +1,6 @@
 import { getActors, getCurrentActor } from "./actor";
 import { getAgentSettings } from "./agent-settings";
+import { getActiveInlineAgentRuns } from "./agents/runs";
 import { getNodeLinks, type NodeLinks } from "./links";
 import { getNodeMemoryPrimitives } from "./memory-primitives";
 import { getMirrorTargets, getNodeDetail } from "./node-detail";
@@ -44,6 +45,7 @@ export interface ThreadSurfaceData {
   actors: Awaited<ReturnType<typeof getActors>>;
   inlineClaudeEnabled: boolean;
   agentProviders: AgentProviderSetting[];
+  activeInlineRuns: Awaited<ReturnType<typeof getActiveInlineAgentRuns>>;
   contextAttachments: ThreadContextAttachmentWithSource[];
 }
 
@@ -71,6 +73,7 @@ export async function getThreadSurface(
     memoryPrimitives,
     agentSettings,
     actors,
+    activeInlineRuns,
     contextAttachments,
   ] = await Promise.all([
     mirrorTargetsPromise,
@@ -79,6 +82,7 @@ export async function getThreadSurface(
     getNodeMemoryPrimitives(nodeId),
     getAgentSettings(actor.instance_id),
     actorsPromise,
+    getActiveInlineAgentRuns(nodeId),
     getThreadContextAttachments(nodeId),
   ]);
 
@@ -96,6 +100,7 @@ export async function getThreadSurface(
       (provider) => provider.provider_key === "inline_claude" && provider.enabled
     ),
     agentProviders: agentSettings.providers,
+    activeInlineRuns,
     contextAttachments,
   };
 }
