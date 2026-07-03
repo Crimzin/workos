@@ -16,12 +16,25 @@ import {
   revalidateImportedChats,
 } from "../cache";
 import { nextSidebarPosition } from "../sidebar-tree-dnd";
+import { tokenizeSearchText } from "../context-search";
 import {
   buildSubThreadResolvedMetadata,
   normalizeResolutionSummary,
 } from "../thread-status";
 import { recordWorkOSEvent } from "../events";
+import {
+  THREAD_PLACEMENT_NODE_SELECT,
+  buildThreadPlacementCandidates,
+  filterThreadPlacementCandidates,
+  includeAncestorThreadPlacementCandidates,
+  type ThreadPlacementCandidate,
+  type ThreadPlacementMirrorRow,
+  type ThreadPlacementNodeRow,
+} from "../thread-placement";
 import type { StackLifecycleStatus } from "../types";
+
+const THREAD_PLACEMENT_DIRECT_TITLE_ROW_LIMIT = 80;
+const THREAD_PLACEMENT_FUZZY_ROW_LIMIT = 120;
 
 export async function archiveNode(
   nodeId: string,
@@ -481,6 +494,14 @@ export interface CreateCardResult {
   id: string;
 }
 
+export interface PlaceThreadInBoardInput {
+  threadId: string;
+  targetParentId: string;
+  workspaceId: string;
+  columnFieldId?: string | null;
+  columnOptionId?: string | null;
+}
+
 async function nextPositionForSibling(
   parentId: string | null
 ): Promise<number> {
@@ -495,6 +516,40 @@ async function nextPositionForSibling(
   if (error) throw error;
   const top = data?.[0]?.position ?? -1;
   return top + 1;
+}
+
+async function nextMirrorPositionForParent(parentId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("node_mirrors")
+    .select("position")
+    .eq("mirror_parent_id", parentId)
+    .order("position", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data?.[0]?.position ?? -1) + 1;
+}
+
+async function setBoardColumnValue(
+  nodeId: string,
+  fieldId: string,
+  optionId: string | null
+): Promise<void> {
+  const { error: deleteErr } = await supabase
+    .from("node_field_values")
+    .delete()
+    .eq("node_id", nodeId)
+    .eq("field_id", fieldId);
+  if (deleteErr) throw deleteErr;
+
+  if (!optionId) return;
+
+  const { error: insertErr } = await supabase.from("node_field_values").insert({
+    node_id: nodeId,
+    field_id: fieldId,
+    option_id: optionId,
+    position: 0,
+  });
+  if (insertErr) throw insertErr;
 }
 
 async function ensureDefaultPlanningFields(instanceId: string): Promise<{
@@ -707,13 +762,7 @@ export async function mirrorNode(
   if (node?.parent_id === mirrorParentId) return;
 
   // Next position in the mirror parent context.
-  const { data: posRows } = await supabase
-    .from("node_mirrors")
-    .select("position")
-    .eq("mirror_parent_id", mirrorParentId)
-    .order("position", { ascending: false })
-    .limit(1);
-  const nextPos = ((posRows?.[0]?.position) ?? -1) + 1;
+  const nextPos = await nextMirrorPositionForParent(mirrorParentId);
 
   const { error } = await supabase.from("node_mirrors").insert({
     node_id: nodeId,
@@ -919,6 +968,251 @@ export async function getWorkspacesForStack(
   for (const m of mirrors ?? []) occupied.add(m.mirror_parent_id);
 
   return allWorkspaces.filter((w) => !occupied.has(w.id));
+}
+
+export async function getThreadPlacementCandidates(
+  targetParentId: string,
+  query = "",
+  limit = 8
+): Promise<ThreadPlacementCandidate[]> {
+  const { data: targetParent, error: targetErr } = await supabase
+    .from("nodes")
+    .select("id,instance_id")
+    .eq("id", targetParentId)
+    .maybeSingle();
+  if (targetErr) throw targetErr;
+  if (!targetParent?.instance_id) return [];
+
+  const rows = await getThreadPlacementCandidateRows(
+    targetParent.instance_id,
+    query
+  );
+  const { data: mirrors, error: mirrorsErr } = await supabase
+    .from("node_mirrors")
+    .select("node_id,mirror_parent_id")
+    .eq("mirror_parent_id", targetParentId);
+  if (mirrorsErr) throw mirrorsErr;
+
+  const excludedNodeIds = new Set([
+    targetParentId,
+    ...(await getAncestorNodeIds(targetParentId)),
+  ]);
+  const candidates = buildThreadPlacementCandidates({
+    nodes: rows,
+    mirrors: (mirrors ?? []) as ThreadPlacementMirrorRow[],
+    targetParentId,
+    excludedNodeIds,
+  });
+  const filteredCandidates = filterThreadPlacementCandidates(
+    candidates,
+    query,
+    limit
+  );
+
+  if (query.trim()) return filteredCandidates;
+  return includeAncestorThreadPlacementCandidates(candidates, filteredCandidates);
+}
+
+async function getThreadPlacementCandidateRows(
+  instanceId: string,
+  query: string
+): Promise<ThreadPlacementNodeRow[]> {
+  const trimmed = query.trim();
+  const tokens = tokenizeSearchText(query)
+    .filter((token) => token.length >= 2)
+    .slice(0, 4);
+
+  if (tokens.length > 0) {
+    const directRows = await getDirectTitleThreadPlacementRows(
+      instanceId,
+      trimmed
+    );
+    if (directRows.length > 0) {
+      return includeAncestorThreadPlacementRows(directRows, instanceId);
+    }
+
+    const { data: nodes, error: nodesErr } = await getBaseThreadPlacementRowsQuery(instanceId)
+      .or(tokens.map((token) => `title.ilike.%${escapePostgrestLike(token)}%`).join(","))
+      .limit(THREAD_PLACEMENT_FUZZY_ROW_LIMIT);
+    if (nodesErr) throw nodesErr;
+
+    return includeAncestorThreadPlacementRows(
+      (nodes ?? []) as ThreadPlacementNodeRow[],
+      instanceId
+    );
+  }
+
+  const { data: nodes, error: nodesErr } =
+    await getBaseThreadPlacementRowsQuery(instanceId);
+  if (nodesErr) throw nodesErr;
+
+  return includeAncestorThreadPlacementRows(
+    (nodes ?? []) as ThreadPlacementNodeRow[],
+    instanceId
+  );
+}
+
+async function getDirectTitleThreadPlacementRows(
+  instanceId: string,
+  query: string
+): Promise<ThreadPlacementNodeRow[]> {
+  const escapedQuery = escapePostgrestLike(query);
+  const { data, error } = await getBaseThreadPlacementRowsQuery(instanceId)
+    .ilike("title", `${escapedQuery}%`)
+    .limit(THREAD_PLACEMENT_DIRECT_TITLE_ROW_LIMIT);
+  if (error) throw error;
+
+  return (data ?? []) as ThreadPlacementNodeRow[];
+}
+
+function getBaseThreadPlacementRowsQuery(instanceId: string) {
+  return supabase
+    .from("nodes")
+    .select(THREAD_PLACEMENT_NODE_SELECT)
+    .eq("instance_id", instanceId)
+    .is("archived_at", null);
+}
+
+async function includeAncestorThreadPlacementRows(
+  rows: ThreadPlacementNodeRow[],
+  instanceId: string
+): Promise<ThreadPlacementNodeRow[]> {
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  let missingParentIds = getMissingThreadPlacementParentIds(rows, rowsById);
+
+  while (missingParentIds.length > 0) {
+    const { data: parents, error } = await supabase
+      .from("nodes")
+      .select(THREAD_PLACEMENT_NODE_SELECT)
+      .eq("instance_id", instanceId)
+      .in("id", missingParentIds);
+    if (error) throw error;
+
+    const parentRows = (parents ?? []) as ThreadPlacementNodeRow[];
+    if (parentRows.length === 0) break;
+
+    for (const parent of parentRows) {
+      rowsById.set(parent.id, parent);
+    }
+
+    missingParentIds = getMissingThreadPlacementParentIds(
+      parentRows,
+      rowsById
+    );
+  }
+
+  return [...rowsById.values()];
+}
+
+function getMissingThreadPlacementParentIds(
+  rows: ThreadPlacementNodeRow[],
+  rowsById: Map<string, ThreadPlacementNodeRow>
+): string[] {
+  return [
+    ...new Set(
+      rows
+        .map((row) => row.parent_id)
+        .filter((parentId): parentId is string =>
+          Boolean(parentId && !rowsById.has(parentId))
+        )
+    ),
+  ];
+}
+
+function escapePostgrestLike(value: string): string {
+  return value.replace(/[%_]/g, "\\$&");
+}
+
+export async function placeThreadInBoard({
+  threadId,
+  targetParentId,
+  workspaceId,
+  columnFieldId = null,
+  columnOptionId = null,
+}: PlaceThreadInBoardInput): Promise<{ id: string }> {
+  const [{ data: node, error: nodeErr }, { data: target, error: targetErr }] =
+    await Promise.all([
+      supabase
+        .from("nodes")
+        .select("id,title,type,parent_id,instance_id")
+        .eq("id", threadId)
+        .maybeSingle(),
+      supabase
+        .from("nodes")
+        .select("id,instance_id")
+        .eq("id", targetParentId)
+        .maybeSingle(),
+    ]);
+  if (nodeErr) throw nodeErr;
+  if (targetErr) throw targetErr;
+  if (!node) throw new Error("Thread not found");
+  if (!target) throw new Error("Target thread not found");
+  if (node.instance_id !== target.instance_id) {
+    throw new Error("Thread belongs to another instance");
+  }
+
+  const targetAncestors = await getAncestorNodeIds(targetParentId);
+  if (threadId === targetParentId || targetAncestors.includes(threadId)) {
+    throw new Error("A thread cannot be placed inside itself");
+  }
+
+  if (columnFieldId !== null) {
+    await setBoardColumnValue(threadId, columnFieldId, columnOptionId);
+  }
+
+  if (node.parent_id === targetParentId) {
+    return { id: threadId };
+  }
+
+  const { data: existingMirror, error: existingMirrorErr } = await supabase
+    .from("node_mirrors")
+    .select("id")
+    .eq("node_id", threadId)
+    .eq("mirror_parent_id", targetParentId)
+    .maybeSingle();
+  if (existingMirrorErr) throw existingMirrorErr;
+
+  if (!existingMirror) {
+    const position = await nextMirrorPositionForParent(targetParentId);
+    const { error } = await supabase.from("node_mirrors").insert({
+      node_id: threadId,
+      mirror_parent_id: targetParentId,
+      position,
+    });
+    if (error) throw error;
+
+    const actor = await getCurrentActor();
+    await recordWorkOSEvent({
+      instanceId: actor.instance_id,
+      workspaceId,
+      nodeId: threadId,
+      actorId: actor.id,
+      eventType: "node.updated",
+      subjectType: "node",
+      subjectId: threadId,
+      summary: `${actor.name} placed ${node.title} on the board.`,
+      metadata: {
+        node_id: threadId,
+        node_title: node.title,
+        node_type: node.type,
+        target_parent_id: targetParentId,
+      },
+    });
+  }
+
+  const homeRootId = node.parent_id ? await getRootNodeId(node.parent_id) : threadId;
+  revalidateNode(threadId, node.parent_id);
+  revalidateNodeChildren(targetParentId);
+  revalidateWorkspaceBoard(workspaceId);
+  revalidateThreadSurface(targetParentId);
+  revalidatePath(`/n/${workspaceId}`);
+  revalidatePath("/board");
+  if (homeRootId && homeRootId !== workspaceId) {
+    revalidateWorkspaceBoard(homeRootId);
+    revalidatePath(`/n/${homeRootId}`);
+  }
+
+  return { id: threadId };
 }
 
 export async function createCard(

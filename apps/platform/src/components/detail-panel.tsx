@@ -19,12 +19,12 @@ import { formatAbsoluteDateTime } from "@/lib/time";
 import { FieldRowEditor } from "./field-row-editor";
 import { AddFieldButton } from "./add-field-button";
 import { NodeActions } from "./node-actions";
-import { CardsTabContent } from "./cards-tab-content";
 import { MirrorsSection } from "./mirrors-section";
 import { NodeLinksSection } from "./node-links-section";
 import { PostsTabContent } from "./posts-tab-content";
 import { MemoryPrimitivesTabContent } from "./memory-primitives-tab-content";
 import { NodeDetailTabs } from "./node-detail-tabs";
+import { ThreadTree } from "./thread/thread-tree";
 
 interface DetailPanelProps {
   nodeId: string;
@@ -104,7 +104,7 @@ function DetailBody({
   agentProviders: import("@/lib/types").AgentProviderSetting[];
   activeInlineRuns: Awaited<ReturnType<typeof getActiveInlineAgentRuns>>;
 }) {
-  const { node, owner, members, ancestors, fields, values, children, childFieldValues, mirrorPlacements } = detail;
+  const { node, owner, members, ancestors, fields, values, children, mirrorPlacements } = detail;
 
   // Determine if we're viewing from the node's home context or a mirror context.
   const homePlacement = mirrorPlacements.find((p) => p.is_home);
@@ -157,16 +157,7 @@ function DetailBody({
     />
   );
 
-  const cardsContent =
-    node.type === "stack" ? (
-      <CardsTabContent
-        stackId={node.id}
-        cards={children}
-        fields={fields}
-        childFieldValues={childFieldValues}
-        workspaceId={workspaceId}
-      />
-    ) : null;
+  const treeContent = <ThreadTree threads={children} />;
 
   return (
     <>
@@ -184,7 +175,7 @@ function DetailBody({
                 nodeId={node.id}
                 workspaceId={workspaceId}
                 parentId={node.parent_id}
-                nodeType={node.type as "card" | "stack"}
+                nodeType={node.type}
                 isArchived={!!node.archived_at}
                 closeHref={closeHref}
                 isHomeContext={isHomeContext}
@@ -199,7 +190,7 @@ function DetailBody({
         fieldsContent={fieldsContent}
         memoryContent={memoryContent}
         postsContent={postsContent}
-        treeContent={cardsContent}
+        treeContent={treeContent}
         paddingClassName="px-4"
       />
     </>
@@ -259,10 +250,8 @@ export function FieldsTabContent({
       </div>
       <dl className="mt-2 mx-5 divide-y divide-border rounded-md border border-border bg-bg-card shadow-sm">
         <SystemRow label="Owner" value={owner?.name ?? "—"} />
-        <SystemRow label="Type" value={node.type} />
-        {node.type === "stack" && (
-          <SystemRow label="Lifecycle" value={formatLifecycle(node.stack_lifecycle_status)} />
-        )}
+        <SystemRow label="Type" value="Thread" />
+        <SystemRow label="Lifecycle" value={formatLifecycle(node.stack_lifecycle_status)} />
         <SystemRow label="Created" value={formatAbsoluteDateTime(node.created_at)} />
         <SystemRow label="Updated" value={formatAbsoluteDateTime(node.updated_at)} />
         {fields.length === 0 && (

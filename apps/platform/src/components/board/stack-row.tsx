@@ -3,21 +3,21 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { GitFork, GripVertical, MoreHorizontal, Pencil, Plus, Unlink } from "lucide-react";
+import { ChevronDown, ChevronRight, GitFork, GripVertical, MoreHorizontal, Pencil, Plus, Unlink } from "lucide-react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardActor, BoardField, BoardStack } from "@/lib/board-types";
 import { UNASSIGNED_COL_ID } from "@/lib/board-types";
-import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode, unmirrorNode, mirrorNode, getWorkspacesForStack, updateStackLifecycle } from "@/lib/actions/nodes";
+import { createCard, updateNodeTitle, moveStackUpDown, archiveNode, unarchiveNode, deleteNode, unmirrorNode, mirrorNode, getWorkspacesForStack, updateStackLifecycle, getThreadPlacementCandidates, placeThreadInBoard } from "@/lib/actions/nodes";
 import type { StackLifecycleStatus } from "@/lib/types";
 import { ConfirmModal } from "../confirm-modal";
 import { updateFieldOption } from "@/lib/actions/fields";
-import { InlineCreate } from "../inline-create";
 import { CardTile } from "./card-tile";
 import { MirrorToSubmenu } from "./mirror-to-submenu";
 import { InlineFieldEditor } from "./inline-field-editor";
 import { BoardAvatar } from "./board-avatar";
+import { ThreadPickerCreate } from "./thread-picker-create";
 
 interface StackRowProps {
   stack: BoardStack;
@@ -31,11 +31,13 @@ interface StackRowProps {
   actors: Record<string, BoardActor>;
   navigationMode: "board-detail" | "thread";
   collapsedColumnIds: string[];
+  isStackCollapsed: boolean;
   onToggleColumnCollapse: (colId: string) => void;
+  onToggleStackCollapse: () => void;
   onColumnFieldChange: (fieldId: string | null) => void;
 }
 
-export function StackRow({ stack, workspaceId, columnField, columnFieldId, fields, activeDetailId, stackIndex, totalStacks, actors, navigationMode, collapsedColumnIds, onToggleColumnCollapse, onColumnFieldChange }: StackRowProps) {
+export function StackRow({ stack, workspaceId, columnField, columnFieldId, fields, activeDetailId, stackIndex, totalStacks, actors, navigationMode, collapsedColumnIds, isStackCollapsed, onToggleColumnCollapse, onToggleStackCollapse, onColumnFieldChange }: StackRowProps) {
   const router = useRouter();
   const isActive = activeDetailId === stack.id;
 
@@ -105,12 +107,27 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
           actors={actors}
           columnFieldId={columnFieldId}
           navigationMode={navigationMode}
+          isCollapsed={isStackCollapsed}
+          onToggleCollapsed={onToggleStackCollapse}
           onColumnFieldChange={onColumnFieldChange}
         />
         <div className="flex flex-1 min-w-0">
           {columns.map((col) => {
             const cards = cardsByColumn.get(col.id) ?? [];
             const isUnassigned = col.id === UNASSIGNED_COL_ID;
+            const isColumnCollapsed = collapsedColumnIds.includes(col.id);
+            if (isStackCollapsed) {
+              return (
+                <CollapsedStackColumn
+                  key={col.id}
+                  col={col}
+                  cards={cards}
+                  isColumnCollapsed={isColumnCollapsed}
+                  activeDetailId={activeDetailId}
+                  navigationMode={navigationMode}
+                />
+              );
+            }
             return (
               <DroppableColumn
                 key={col.id}
@@ -123,7 +140,7 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                 columnField={columnField}
                 actors={actors}
                 navigationMode={navigationMode}
-                collapsed={collapsedColumnIds.includes(col.id)}
+                collapsed={isColumnCollapsed}
                 onToggleCollapse={() => onToggleColumnCollapse(col.id)}
                 onAddCard={async (title) => {
                   const res = await createCard(
@@ -136,10 +153,80 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                   router.refresh();
                   return res;
                 }}
+                onSelectThread={async (threadId) => {
+                  const res = await placeThreadInBoard({
+                    threadId,
+                    targetParentId: stack.id,
+                    workspaceId,
+                    columnFieldId: columnField?.id ?? null,
+                    columnOptionId: isUnassigned ? null : col.id,
+                  });
+                  router.refresh();
+                  return res;
+                }}
+                loadCandidates={(query, limit) =>
+                  getThreadPlacementCandidates(stack.id, query, limit)
+                }
               />
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CollapsedStackColumn({
+  col,
+  cards,
+  isColumnCollapsed,
+  activeDetailId,
+  navigationMode,
+}: {
+  col: { id: string; name: string; color: string | null };
+  cards: BoardStack["cards"];
+  isColumnCollapsed: boolean;
+  activeDetailId: string | null;
+  navigationMode: "board-detail" | "thread";
+}) {
+  if (isColumnCollapsed) {
+    return (
+      <div
+        className="flex w-8 shrink-0 items-center justify-center border-l border-border bg-bg-primary"
+        title={`${col.name}: ${cards.length}`}
+      >
+        <span className="text-[10px] font-medium text-text-tertiary">
+          {cards.length}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex w-72 shrink-0 items-center border-l border-border bg-bg-primary px-3 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {cards.length === 0 ? (
+          <span
+            className="h-2 w-2 rounded-[2px] border border-dashed border-border"
+            title={`No cards in ${col.name}`}
+          />
+        ) : (
+          cards.map((card) => (
+            <Link
+              key={card.dnd_id}
+              href={navigationMode === "thread" ? `/n/${card.id}` : `/board?d=${card.id}`}
+              scroll={false}
+              title={card.title}
+              aria-label={`Open ${card.title}`}
+              className={[
+                "h-2.5 w-2.5 shrink-0 rounded-[2px] border transition-colors",
+                activeDetailId === card.id
+                  ? "border-accent bg-accent-subtle"
+                  : "border-border-strong bg-bg-card hover:border-accent hover:bg-accent-subtle",
+              ].join(" ")}
+            />
+          ))
+        )}
       </div>
     </div>
   );
@@ -158,6 +245,8 @@ function DroppableColumn({
   collapsed,
   onToggleCollapse,
   onAddCard,
+  onSelectThread,
+  loadCandidates,
 }: {
   stackId: string;
   col: { id: string; name: string; color: string | null };
@@ -171,6 +260,11 @@ function DroppableColumn({
   collapsed: boolean;
   onToggleCollapse: () => void;
   onAddCard: (title: string) => Promise<void | { id: string }>;
+  onSelectThread: (threadId: string) => Promise<void | { id: string }>;
+  loadCandidates: (
+    query: string,
+    limit?: number
+  ) => ReturnType<typeof getThreadPlacementCandidates>;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col:${stackId}:${col.id}`,
@@ -306,13 +400,16 @@ function DroppableColumn({
               navigationMode={navigationMode}
             />
           ))}
-          <InlineCreate
-            label="Add card"
+          <ThreadPickerCreate
+            label="Add Card"
             placeholder="Card title"
             icon={<Plus size={12} />}
-            onSubmit={onAddCard}
+            loadCandidates={loadCandidates}
+            onSelect={onSelectThread}
+            onCreate={onAddCard}
+            panelClassName="mt-1"
             buttonClassName="mt-1 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border py-1.5 text-xs text-text-tertiary hover:border-border-strong hover:text-text-secondary hover:bg-bg-hover transition-colors"
-            inputClassName="mt-1 w-full rounded-md border border-border-strong bg-bg-card px-2 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+            inputClassName="mt-1 w-full rounded-md border border-border-strong bg-bg-card py-1.5 pl-7 pr-2 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
       </SortableContext>
@@ -333,6 +430,8 @@ function StackHeader({
   actors,
   navigationMode,
   columnFieldId,
+  isCollapsed,
+  onToggleCollapsed,
   onColumnFieldChange,
 }: {
   stack: BoardStack;
@@ -347,6 +446,8 @@ function StackHeader({
   actors: Record<string, BoardActor>;
   navigationMode: "board-detail" | "thread";
   columnFieldId: string | null;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
   onColumnFieldChange: (fieldId: string | null) => void;
 }) {
   const router = useRouter();
@@ -429,12 +530,113 @@ function StackHeader({
     <>
     <div
       className={[
-        "w-60 shrink-0 border-r border-border px-4 py-3 transition-colors",
+        "sticky left-0 z-20 w-60 shrink-0 border-r border-border transition-colors",
+        isCollapsed ? "px-3 py-2" : "px-4 py-3",
         isActive
           ? "border-l-2 border-l-accent-warm bg-accent-subtle"
           : "bg-bg-secondary/60",
       ].join(" ")}
     >
+      {isCollapsed ? (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-label={`Expand ${stack.title}`}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+          >
+            <ChevronRight size={14} />
+          </button>
+          <Link
+            href={navigationMode === "thread" ? `/n/${stack.id}` : `/board?d=${stack.id}`}
+            scroll={false}
+            className="min-w-0 flex-1"
+          >
+            <div className="truncate text-sm font-semibold text-text-primary hover:text-accent-warm">
+              {stack.title}
+            </div>
+          </Link>
+          {stack.is_mirrored && (
+            <GitFork
+              size={10}
+              className="shrink-0 text-text-tertiary"
+              aria-label="Mirrored"
+            />
+          )}
+          {/* QUAM */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={toggleMenu}
+              aria-label="Stack actions"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" aria-hidden onClick={closeMenu} />
+                <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setRenameValue(stack.title);
+                      onToggleCollapsed();
+                      setRenaming(true);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                  >
+                    Rename
+                  </button>
+                  {isArchived ? (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        startTransition(async () => {
+                          await unarchiveNode(stack.id, workspaceId, workspaceId);
+                          router.refresh();
+                        });
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+                    >
+                      Unarchive
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        startTransition(async () => {
+                          await archiveNode(stack.id, workspaceId, workspaceId);
+                          router.refresh();
+                        });
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+                    >
+                      Archive
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setConfirmDelete(true);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:cursor-default disabled:opacity-40"
+                  >
+                    {stack.is_mirror_here || stack.is_mirrored ? "Delete from everywhere" : "Delete"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="flex items-start gap-2">
         <button
           type="button"
@@ -580,6 +782,14 @@ function StackHeader({
         )}
 
         {/* QUAM */}
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-label={`Collapse ${stack.title}`}
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+        >
+          <ChevronDown size={14} />
+        </button>
         <div className="relative">
           <button
             type="button"
@@ -761,6 +971,7 @@ function StackHeader({
           )}
         </div>
       </div>
+      )}
     </div>
 
     {confirmDelete && (

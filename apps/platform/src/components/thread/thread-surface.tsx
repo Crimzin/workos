@@ -59,7 +59,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
         nodeId={node.id}
         workspaceId={workspaceId}
         parentId={node.parent_id}
-        nodeType={node.type as "card" | "stack"}
+        nodeType={node.type}
         isArchived={!!node.archived_at}
         closeHref={`/n/${workspaceId}`}
         isHomeContext={isHomeContext}

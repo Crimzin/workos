@@ -4,13 +4,14 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Archive, ArchiveRestore, Trash2, Unlink } from "lucide-react";
 import { archiveNode, unarchiveNode, deleteNode, unmirrorNode } from "@/lib/actions/nodes";
+import type { WorkNode } from "@/lib/types";
 import { ConfirmModal } from "./confirm-modal";
 
 interface NodeActionsProps {
   nodeId: string;
   workspaceId: string;
   parentId: string | null;
-  nodeType: "card" | "stack";
+  nodeType: WorkNode["type"];
   isArchived: boolean;
   /** href to redirect to after delete or remove-mirror */
   closeHref: string;
@@ -28,7 +29,6 @@ export function NodeActions({
   nodeId,
   workspaceId,
   parentId,
-  nodeType,
   isArchived,
   closeHref,
   isHomeContext,
@@ -77,12 +77,10 @@ export function NodeActions({
 
   // Delete confirm body changes based on context.
   const deleteBody = !isHomeContext
-    ? `This deletes the ${nodeType} from all workspaces${nodeType === "stack" ? ", including all its cards" : ""}. This cannot be undone.`
+    ? "This deletes the thread from every place it appears. This cannot be undone."
     : isMirrored
-    ? `This ${nodeType} appears in other workspaces. Deleting it removes it everywhere${nodeType === "stack" ? ", including all its cards" : ""}. This cannot be undone.`
-    : nodeType === "stack"
-    ? "Are you sure? Deleted stacks and all their cards can't be recovered."
-    : "Are you sure? Deleted cards can't be recovered.";
+    ? "This thread appears in more than one place. Deleting it removes it everywhere. This cannot be undone."
+    : "Are you sure? Deleted threads cannot be recovered.";
 
   const deleteLabel =
     !isHomeContext || isMirrored ? "Delete from everywhere" : "Delete";
@@ -138,7 +136,7 @@ export function NodeActions({
 
       {confirmDelete && (
         <ConfirmModal
-          title={`Delete ${nodeType}?`}
+          title="Delete thread?"
           body={deleteBody}
           confirmLabel={deleteLabel}
           onConfirm={handleDelete}
@@ -148,8 +146,8 @@ export function NodeActions({
 
       {confirmRemove && (
         <ConfirmModal
-          title="Remove from this workspace?"
-          body={`This removes the ${nodeType} from this workspace. It stays in all other workspaces where it appears.`}
+          title="Remove from here?"
+          body="This removes the thread from this place. It stays everywhere else it appears."
           confirmLabel="Remove"
           onConfirm={handleRemoveMirror}
           onCancel={() => setConfirmRemove(false)}
