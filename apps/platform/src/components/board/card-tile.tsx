@@ -170,143 +170,141 @@ export function CardTile({ card, workspaceId, stackId, columnFieldId, actors, na
           scroll={false}
           aria-current={isActive ? "true" : undefined}
           className={[
-            "group block rounded-md border p-2 transition-colors",
+            "group relative block rounded-md border p-2 transition-colors",
             isArchived ? "opacity-50 grayscale" : "",
             isActive
               ? "border-accent-warm bg-accent-subtle shadow-sm"
               : "border-border bg-bg-card hover:border-border-strong hover:bg-bg-hover/70",
           ].join(" ")}
         >
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-1">
-              {isArchived && (
-                <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-bg-hover text-text-tertiary">
-                  Archived
-                </span>
-              )}
-              <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
-              {/* GitFork: shown whenever the card exists in more than one stack */}
-              {isMultiHomed && (
-                <GitFork size={9} className="shrink-0 text-text-tertiary flex-none" aria-label="Appears in multiple stacks" />
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {card.owner_id && actors[card.owner_id] && (
-                <BoardAvatar actor={actors[card.owner_id]} size={16} />
-              )}
-              {/* Rename pencil */}
+          <div className="flex min-w-0 items-center gap-1">
+            {isArchived && (
+              <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-bg-hover text-text-tertiary">
+                Archived
+              </span>
+            )}
+            <div className="min-w-0 flex-1 text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
+            {/* GitFork: shown whenever the card exists in more than one stack */}
+            {isMultiHomed && (
+              <GitFork size={9} className="shrink-0 text-text-tertiary flex-none" aria-label="Appears in multiple stacks" />
+            )}
+          </div>
+          {card.description && (
+            <div className="mt-1 line-clamp-1 text-xs leading-4 text-text-secondary">{card.description}</div>
+          )}
+          <div className="pointer-events-none absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded bg-bg-card/95 px-0.5 py-0.5 opacity-0 shadow-sm ring-1 ring-border/60 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100 focus-within:pointer-events-auto">
+            {card.owner_id && actors[card.owner_id] && (
+              <BoardAvatar actor={actors[card.owner_id]} size={16} />
+            )}
+            {/* Rename pencil */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setEditValue(card.title);
+                setEditing(true);
+              }}
+              aria-label="Rename card"
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:text-text-secondary"
+            >
+              <Pencil size={10} />
+            </button>
+            {/* QUAM */}
+            <div className="relative">
               <button
                 type="button"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setEditValue(card.title);
-                  setEditing(true);
+                  setMenuOpen((v) => !v);
                 }}
-                aria-label="Rename card"
-                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
+                aria-label="Card actions"
+                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:text-text-secondary"
               >
-                <Pencil size={10} />
+                <MoreHorizontal size={12} />
               </button>
-              {/* QUAM */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setMenuOpen((v) => !v);
-                  }}
-                  aria-label="Card actions"
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
-                >
-                  <MoreHorizontal size={12} />
-                </button>
-                {menuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      aria-hidden
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); }}
-                    />
-                    <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-border bg-bg-card py-1 shadow-sm">
-                      {/* Archive / Unarchive */}
-                      {isArchived ? (
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleUnarchive(); }}
-                          className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
-                        >
-                          Unarchive
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleArchive(); }}
-                          className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
-                        >
-                          Archive
-                        </button>
-                      )}
-
-                      {/* Mirror to… */}
+              {menuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    aria-hidden
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); }}
+                  />
+                  <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+                    {/* Archive / Unarchive */}
+                    {isArchived ? (
                       <button
                         type="button"
                         disabled={pending}
-                        onClick={openMirrorMenu}
-                        className={[
-                          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
-                          mirrorOpen ? "text-text-primary" : "text-text-secondary hover:text-text-primary",
-                        ].join(" ")}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleUnarchive(); }}
+                        className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
                       >
-                        <GitFork size={12} />
-                        Mirror to…
+                        Unarchive
                       </button>
-                      {mirrorOpen && (
-                        <MirrorToSubmenu
-                          targets={mirrorTargets}
-                          loading={mirrorLoading}
-                          placeholder="Search stacks…"
-                          emptyMessage="No other stacks available"
-                          onSelect={(id) => handleMirrorTo(id)}
-                        />
-                      )}
-
-                      {/* Remove from this stack — only when card has other appearances */}
-                      {isMultiHomed && (
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmRemove(true); }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
-                        >
-                          <Unlink size={12} />
-                          Remove from this stack
-                        </button>
-                      )}
-
-                      <div className="my-1 h-px bg-border" />
-
-                      {/* Delete */}
+                    ) : (
                       <button
                         type="button"
                         disabled={pending}
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmDelete(true); }}
-                        className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:opacity-40"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleArchive(); }}
+                        className="block w-full px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
                       >
-                        {isMultiHomed ? "Delete from everywhere" : "Delete"}
+                        Archive
                       </button>
-                    </div>
-                  </>
-                )}
-              </div>
+                    )}
+
+                    {/* Mirror to… */}
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={openMirrorMenu}
+                      className={[
+                        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
+                        mirrorOpen ? "text-text-primary" : "text-text-secondary hover:text-text-primary",
+                      ].join(" ")}
+                    >
+                      <GitFork size={12} />
+                      Mirror to…
+                    </button>
+                    {mirrorOpen && (
+                      <MirrorToSubmenu
+                        targets={mirrorTargets}
+                        loading={mirrorLoading}
+                        placeholder="Search stacks…"
+                        emptyMessage="No other stacks available"
+                        onSelect={(id) => handleMirrorTo(id)}
+                      />
+                    )}
+
+                    {/* Remove from this stack — only when card has other appearances */}
+                    {isMultiHomed && (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmRemove(true); }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+                      >
+                        <Unlink size={12} />
+                        Remove from this stack
+                      </button>
+                    )}
+
+                    <div className="my-1 h-px bg-border" />
+
+                    {/* Delete */}
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); setConfirmDelete(true); }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-red-500 transition-colors hover:bg-bg-hover disabled:opacity-40"
+                    >
+                      {isMultiHomed ? "Delete from everywhere" : "Delete"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
-          {card.description && (
-            <div className="mt-1 line-clamp-1 text-xs leading-4 text-text-secondary">{card.description}</div>
-          )}
         </Link>
       </div>
 

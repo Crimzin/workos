@@ -66,8 +66,17 @@ assert.doesNotMatch(cardTileSource, /InlineFieldEditor/);
 assert.doesNotMatch(cardTileSource, /FieldBadge/);
 assert.doesNotMatch(cardTileSource, /getStaticBadges/);
 assert.doesNotMatch(cardTileSource, /editorFields/);
-assert.match(cardTileSource, /"group block rounded-md border p-2 transition-colors"/);
+assert.match(cardTileSource, /"group relative block rounded-md border p-2 transition-colors"/);
 assert.match(cardTileSource, /BoardAvatar actor=\{actors\[card\.owner_id\]\} size=\{16\}/);
+assert.match(cardTileSource, /absolute bottom-1\.5 right-1\.5/);
+assert.match(cardTileSource, /pointer-events-none/);
+assert.match(cardTileSource, /group-hover:pointer-events-auto/);
+assert.match(cardTileSource, /group-hover:opacity-100 focus-within:opacity-100/);
+assert.doesNotMatch(cardTileSource, /flex items-start justify-between gap-2/);
+assert.doesNotMatch(
+  cardTileSource,
+  /<div className="flex shrink-0 items-center gap-1">\s*\{card\.owner_id/
+);
 assert.doesNotMatch(cardTileSource, /mt-2 flex flex-wrap items-center justify-between/);
 assert.doesNotMatch(cardTileSource, /card\.field_values\[field\.id\]/);
 
