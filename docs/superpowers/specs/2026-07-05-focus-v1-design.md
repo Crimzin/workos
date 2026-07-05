@@ -9,9 +9,10 @@ Audience: WorkOS product/design/engineering collaborators
 Focus V1 is the WorkOS home surface for knowing what to do next.
 
 It is not a feed, dashboard, task database, calendar clone, or ranked thread inbox.
-It is a time-aware briefing experience: when the user opens Focus, WorkOS generates
-a fresh planning post appropriate to the moment, helps the user refine it through
-conversation, and can turn the approved plan into scheduled calendar blocks.
+It is a time-aware briefing experience: WorkOS maintains a continuous Focus
+conversation, chimes in when there is reason to re-orient the user, helps the
+user refine the plan through conversation, and can turn the approved plan into
+scheduled calendar blocks.
 
 The simplest product description is:
 
@@ -45,6 +46,7 @@ V1 includes:
 
 - a Focus page accessible as a primary WorkOS surface;
 - generated time-aware Focus briefings;
+- continuity rules that prevent duplicate briefings on ordinary navigation;
 - conversational refinement of the briefing;
 - lightweight Focus items synthesized from existing WorkOS context;
 - a hard thread-anchor invariant for every Focus item;
@@ -89,9 +91,10 @@ live memory used by the normal Focus briefing.
 
 ## Core Experience
 
-When the user opens Focus, WorkOS generates a fresh briefing post. The briefing
-is framed by the current day, time, calendar state, recent work, and durable
-goals.
+When the user opens Focus, WorkOS shows the current Focus conversation. If the
+latest briefing is still relevant, the page resumes that conversation. If there
+is a meaningful reason to re-orient, WorkOS adds a new briefing turn framed by
+the current day, time, calendar state, recent work, and durable goals.
 
 Example modes:
 
@@ -113,13 +116,55 @@ The page should remain simple:
 The default interaction loop is:
 
 1. User opens Focus.
-2. WorkOS generates a time-aware briefing.
+2. WorkOS resumes the current briefing or adds a new briefing turn if warranted.
 3. User corrects, reranks, defers, or confirms.
 4. WorkOS turns priorities into concrete next moves.
 5. User asks WorkOS to draft a schedule.
 6. WorkOS proposes time blocks around existing calendar commitments.
 7. User edits by chat or page controls.
 8. WorkOS writes approved blocks to Google Calendar.
+
+## Briefing Continuity And Generation Rules
+
+Focus should feel like one continuous conversation where the user and WorkOS
+chime in as appropriate.
+
+Navigation, refresh, or returning to the Focus page must not automatically
+generate a new briefing. If the current briefing is still valid, WorkOS should
+show it and preserve the conversation state.
+
+A new WorkOS-generated briefing turn is warranted only when at least one of
+these conditions is true:
+
+- the user explicitly asks to replan, regenerate, repair, summarize, start the
+  day, plan the week, or close the day;
+- there is no active briefing for the current planning window;
+- the user crosses a meaningful planning boundary, such as Monday weekly setup,
+  start of workday, midday check-in, end of day, or Friday reflection, and no
+  briefing for that mode/window already exists;
+- the previous briefing is stale because it belongs to a prior day or prior
+  planning window;
+- the calendar changed materially since the last briefing, such as a new meeting,
+  cancelled meeting, shifted commitment, or conflict with a proposed Focus block;
+- a WorkOS-owned Focus block was missed, completed, shortened, moved, or is about
+  to start;
+- the user completed, deferred, rejected, or materially changed a critical Focus
+  item;
+- a thread anchored to a critical Focus item changed in a way that affects the
+  plan, such as a new decision, blocker, answer, deadline, or open question;
+- new imported/source context materially changes the priority ranking;
+- the user returns after a meaningful absence and the prior plan is no longer a
+  useful guide for the current moment.
+
+When a trigger fires, WorkOS should add the next appropriate turn in the same
+Focus conversation. It should not create a separate disconnected post unless the
+product deliberately starts a new planning window, such as a new week.
+
+WorkOS may show lightweight status changes without a full new briefing. For
+example, if the user returns five minutes after navigating away, the right
+behavior is likely no new message. If the user returns after a meeting that
+created a conflict, WorkOS may add a short repair prompt rather than a full
+weekly briefing.
 
 ## Focus Briefings
 
@@ -525,7 +570,11 @@ V1 should follow these rules:
 
 Focus V1 is successful when:
 
-- opening Focus generates a useful time-aware briefing;
+- opening Focus shows a useful time-aware briefing, generating one only when no
+  valid briefing exists for the current moment;
+- ordinary navigation away from and back to Focus does not create duplicate
+  briefings;
+- WorkOS adds a new briefing turn only when a clear continuity trigger is met;
 - the briefing changes meaningfully by Monday morning, normal morning, midday,
   end of day, and Friday afternoon contexts;
 - every Focus item links to at least one WorkOS thread;
@@ -550,8 +599,9 @@ The implementation plan should decide:
 - how Google OAuth tokens are stored and refreshed;
 - how WorkOS distinguishes WorkOS-owned Focus blocks from external calendar
   commitments;
-- how generated briefings are cached so opening Focus feels fresh without
-  generating redundant posts on every navigation;
+- how Focus tracks active planning windows, briefing staleness, and generation
+  triggers so opening Focus resumes the conversation instead of generating
+  redundant posts;
 - how user corrections feed future prioritization.
 
 These are implementation choices, not open product requirements.
