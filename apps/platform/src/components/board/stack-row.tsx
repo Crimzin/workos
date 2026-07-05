@@ -122,7 +122,6 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                   key={col.id}
                   col={col}
                   cards={cards}
-                  isColumnCollapsed={isColumnCollapsed}
                   activeDetailId={activeDetailId}
                   navigationMode={navigationMode}
                 />
@@ -179,35 +178,31 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
 function CollapsedStackColumn({
   col,
   cards,
-  isColumnCollapsed,
   activeDetailId,
   navigationMode,
 }: {
   col: { id: string; name: string; color: string | null };
   cards: BoardStack["cards"];
-  isColumnCollapsed: boolean;
   activeDetailId: string | null;
   navigationMode: "board-detail" | "thread";
 }) {
-  if (isColumnCollapsed) {
-    return (
-      <div
-        className="flex w-8 shrink-0 items-center justify-center border-l border-border bg-bg-primary"
-        title={`${col.name}: ${cards.length}`}
-      >
-        <span className="text-[10px] font-medium text-text-tertiary">
-          {cards.length}
-        </span>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex w-72 shrink-0 items-center border-l border-border bg-bg-primary px-3 py-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-1">
+    <div
+      className="flex w-72 shrink-0 items-center justify-between gap-3 border-l border-border bg-bg-primary px-3 py-2"
+      title={`${col.name}: ${cards.length}`}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+          {col.name}
+        </div>
+        <div className="mt-0.5 text-[10px] text-text-tertiary">
+          {cards.length} {cards.length === 1 ? "card" : "cards"}
+        </div>
+      </div>
+      <div className="flex max-w-[9rem] shrink-0 flex-wrap items-center justify-end gap-1">
         {cards.length === 0 ? (
           <span
-            className="h-2 w-2 rounded-[2px] border border-dashed border-border"
+            className="h-3 w-3 rounded-[3px] border border-dashed border-border"
             title={`No cards in ${col.name}`}
           />
         ) : (
@@ -219,12 +214,23 @@ function CollapsedStackColumn({
               title={card.title}
               aria-label={`Open ${card.title}`}
               className={[
-                "h-2.5 w-2.5 shrink-0 rounded-[2px] border transition-colors",
+                "group/card-preview relative h-3 w-3 shrink-0 rounded-[3px] border transition-colors",
                 activeDetailId === card.id
                   ? "border-accent bg-accent-subtle"
                   : "border-border-strong bg-bg-card hover:border-accent hover:bg-accent-subtle",
               ].join(" ")}
-            />
+            >
+              <span className="pointer-events-none absolute right-0 top-5 z-40 hidden w-56 rounded-md border border-border bg-bg-card p-2 text-left shadow-lg group-hover/card-preview:block">
+                <span className="block text-xs font-semibold leading-snug text-text-primary">
+                  {card.title}
+                </span>
+                {card.description && (
+                  <span className="mt-1 block line-clamp-3 text-[11px] leading-4 text-text-secondary">
+                    {card.description}
+                  </span>
+                )}
+              </span>
+            </Link>
           ))
         )}
       </div>
@@ -530,7 +536,7 @@ function StackHeader({
     <>
     <div
       className={[
-        "sticky left-0 z-30 w-60 shrink-0 border-r border-border bg-bg-secondary transition-colors",
+        "sticky left-0 z-30 w-[28rem] shrink-0 border-r border-border bg-bg-secondary transition-colors",
         isCollapsed ? "px-3 py-2" : "px-4 py-3",
         isActive
           ? "border-l-2 border-l-accent-warm bg-accent-subtle"
@@ -557,11 +563,10 @@ function StackHeader({
             </div>
           </Link>
           {stack.is_mirrored && (
-            <GitFork
-              size={10}
-              className="shrink-0 text-text-tertiary"
-              aria-label="Mirrored"
-            />
+            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
+              <GitFork size={10} aria-hidden />
+              Mirrored
+            </span>
           )}
           {/* QUAM */}
           <div className="relative">
@@ -640,6 +645,14 @@ function StackHeader({
       <div className="flex items-start gap-2">
         <button
           type="button"
+          onClick={onToggleCollapsed}
+          aria-label={`Collapse ${stack.title}`}
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+        >
+          <ChevronDown size={14} />
+        </button>
+        <button
+          type="button"
           {...dragListeners}
           {...dragAttributes}
           aria-label="Drag to reorder stack"
@@ -671,8 +684,8 @@ function StackHeader({
             scroll={false}
             className="min-w-0 flex-1 group"
           >
-            <div className="section-label">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
-            <div className="flex min-w-0 items-start gap-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="section-label truncate">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
               <div className="relative">
                 <button
                   type="button"
@@ -682,7 +695,7 @@ function StackHeader({
                     setLifecycleOpen((v) => !v);
                   }}
                   aria-label="Change stack lifecycle"
-                  className="mt-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-bg-hover"
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-bg-hover"
                 >
                   <LifecycleDot status={lifecycle} />
                 </button>
@@ -725,9 +738,17 @@ function StackHeader({
                   </>
                 )}
               </div>
+              {stack.is_mirrored && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
+                  <GitFork size={10} aria-hidden />
+                  Mirrored
+                </span>
+              )}
+            </div>
+            <div className="mt-1 flex min-w-0 items-start gap-1">
               <h3
                 className={[
-                  "mt-0.5 min-w-0 flex-1 whitespace-normal break-words text-base font-semibold leading-snug transition-colors",
+                  "min-w-0 flex-1 whitespace-normal break-words text-xl font-semibold leading-tight transition-colors",
                   isActive
                     ? "text-accent"
                     : "text-text-primary group-hover:text-accent-warm",
@@ -735,13 +756,6 @@ function StackHeader({
               >
                 {stack.title}
               </h3>
-              {stack.is_mirrored && (
-                <GitFork
-                  size={10}
-                  className="mt-2 shrink-0 text-text-tertiary"
-                  aria-label="Mirrored"
-                />
-              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -751,7 +765,7 @@ function StackHeader({
                   setRenaming(true);
                 }}
                 aria-label="Rename stack"
-                className="mt-1.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
+                className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
               >
                 <Pencil size={10} />
               </button>
@@ -781,15 +795,6 @@ function StackHeader({
           </Link>
         )}
 
-        {/* QUAM */}
-        <button
-          type="button"
-          onClick={onToggleCollapsed}
-          aria-label={`Collapse ${stack.title}`}
-          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
-        >
-          <ChevronDown size={14} />
-        </button>
         <div className="relative">
           <button
             type="button"
@@ -1044,7 +1049,7 @@ function LifecycleDot({ status }: { status: StackLifecycleStatus }) {
   return (
     <span
       title={STACK_LIFECYCLE_OPTIONS.find((o) => o.value === status)?.label}
-      className={["mt-2 h-2 w-2 shrink-0 rounded-full", className].join(" ")}
+      className={["h-2 w-2 shrink-0 rounded-full", className].join(" ")}
     />
   );
 }
