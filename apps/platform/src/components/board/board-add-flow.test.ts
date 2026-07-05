@@ -45,6 +45,11 @@ assert.doesNotMatch(stackRowSource, /group relative block min-w-0 px-1 pr-7/);
 assert.doesNotMatch(stackRowSource, /section-label truncate">\s*Stack/);
 assert.match(stackRowSource, /menuOpen \? "z-\[70\]" : "z-30"/);
 assert.match(stackRowSource, /z-\[80\]/);
+assert.match(stackRowSource, /aria-label="Mirrored stack"/);
+assert.doesNotMatch(
+  stackRowSource,
+  /<span className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1\.5 py-0\.5 text-\[10px\] font-medium text-text-tertiary">\s*<GitFork size=\{10\} aria-hidden \/>\s*Mirrored\s*<\/span>/
+);
 assert.match(stackRowSource, /group\/card-preview/);
 assert.match(stackRowSource, /group-hover\/card-preview:block/);
 assert.match(stackRowSource, /{col\.name}/);

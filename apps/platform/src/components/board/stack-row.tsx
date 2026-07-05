@@ -563,9 +563,12 @@ function StackHeader({
             </div>
           </Link>
           {stack.is_mirrored && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-              <GitFork size={10} aria-hidden />
-              Mirrored
+            <span
+              aria-label="Mirrored stack"
+              title="Mirrored stack"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border text-text-tertiary"
+            >
+              <GitFork size={12} aria-hidden />
             </span>
           )}
           {/* QUAM */}
