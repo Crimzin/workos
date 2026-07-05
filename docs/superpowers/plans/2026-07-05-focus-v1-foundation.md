@@ -27,7 +27,7 @@ The first usable milestone is: clicking Focus opens one continuous Focus convers
 
 | File | Responsibility |
 | --- | --- |
-| `apps/platform/supabase/migrations/0031_focus_foundation.sql` | Add Focus sessions, messages, items, and item-thread anchor tables. |
+| `apps/platform/supabase/migrations/0033_focus_foundation.sql` | Add Focus sessions, messages, items, and item-thread anchor tables. |
 | `apps/platform/supabase/migrations/focus-foundation.test.ts` | Migration contract test for Focus schema, constraints, and indexes. |
 | `apps/platform/src/lib/types.ts` | Add Focus session/message/item/anchor TypeScript types and event types. |
 | `apps/platform/src/lib/cache.ts` | Add Focus cache tag and revalidation helper. |
@@ -54,10 +54,15 @@ The first usable milestone is: clicking Focus opens one continuous Focus convers
 ### Task 1: Focus Schema
 
 **Files:**
-- Create: `apps/platform/supabase/migrations/0031_focus_foundation.sql`
+- Create: `apps/platform/supabase/migrations/0033_focus_foundation.sql`
 - Create: `apps/platform/supabase/migrations/focus-foundation.test.ts`
 - Modify: `apps/platform/src/lib/types.ts`
 - Modify: `apps/platform/src/lib/cache.ts`
+
+Implementation note: the original decomposition expected the next migration to
+be `0031`, based on the local checkout. During execution, the linked Supabase
+project reported remote-only migrations `0031` and `0032`, so Focus uses
+`0033_focus_foundation.sql` to avoid a version collision.
 
 - [ ] **Step 1: Write the failing migration contract test**
 
@@ -68,7 +73,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const sql = readFileSync(
-  "supabase/migrations/0031_focus_foundation.sql",
+  "supabase/migrations/0033_focus_foundation.sql",
   "utf8"
 );
 
@@ -113,11 +118,11 @@ Run:
 cd apps/platform && npx --yes tsx supabase/migrations/focus-foundation.test.ts
 ```
 
-Expected: FAIL with `ENOENT` for `0031_focus_foundation.sql`.
+Expected: FAIL with `ENOENT` for `0033_focus_foundation.sql`.
 
 - [ ] **Step 3: Add the Focus migration**
 
-Create `apps/platform/supabase/migrations/0031_focus_foundation.sql`:
+Create `apps/platform/supabase/migrations/0033_focus_foundation.sql`:
 
 ```sql
 create table if not exists focus_sessions (
@@ -370,7 +375,7 @@ Expected: PASS.
 Run:
 
 ```bash
-git add apps/platform/supabase/migrations/0031_focus_foundation.sql apps/platform/supabase/migrations/focus-foundation.test.ts apps/platform/src/lib/types.ts apps/platform/src/lib/cache.ts
+git add apps/platform/supabase/migrations/0033_focus_foundation.sql apps/platform/supabase/migrations/focus-foundation.test.ts apps/platform/src/lib/types.ts apps/platform/src/lib/cache.ts
 git commit -m "feat(focus): add foundation schema"
 ```
 

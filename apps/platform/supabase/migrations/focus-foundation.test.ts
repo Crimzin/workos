@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const sql = readFileSync(
-  "supabase/migrations/0031_focus_foundation.sql",
+  "supabase/migrations/0033_focus_foundation.sql",
   "utf8"
 );
 
