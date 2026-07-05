@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Crosshair,
   EyeOff,
   FileText,
   LayoutGrid,
@@ -418,6 +419,14 @@ export function Sidebar({
       </div>
 
       <SidebarSection collapsed={effectiveCollapsed}>
+        <NavLink
+          href="/focus"
+          label="Focus"
+          icon={<Crosshair size={15} />}
+          active={pathname === "/focus"}
+          collapsed={effectiveCollapsed}
+          onNavigate={onNavigate}
+        />
         <NavLink
           href="/feed"
           label="Feed"
