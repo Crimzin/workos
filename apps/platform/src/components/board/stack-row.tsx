@@ -135,7 +135,6 @@ export function StackRow({ stack, workspaceId, columnField, columnFieldId, field
                 cards={cards}
                 isUnassigned={isUnassigned}
                 workspaceId={workspaceId}
-                fields={fields}
                 columnField={columnField}
                 actors={actors}
                 navigationMode={navigationMode}
@@ -244,7 +243,6 @@ function DroppableColumn({
   cards,
   isUnassigned,
   workspaceId,
-  fields,
   columnField,
   actors,
   navigationMode,
@@ -259,7 +257,6 @@ function DroppableColumn({
   cards: BoardStack["cards"];
   isUnassigned: boolean;
   workspaceId: string;
-  fields: BoardField[];
   columnField: BoardField | null;
   actors: Record<string, BoardActor>;
   navigationMode: "board-detail" | "thread";
@@ -393,14 +390,13 @@ function DroppableColumn({
         items={cards.map((c) => c.dnd_id)}
         strategy={verticalListSortingStrategy}
       >
-        <div className="flex flex-1 flex-col gap-2 px-3 pb-3">
+        <div className="flex flex-1 flex-col gap-1.5 px-3 pb-2.5">
           {cards.map((c) => (
             <CardTile
               key={c.dnd_id}
               card={c}
               workspaceId={workspaceId}
               stackId={stackId}
-              fields={fields}
               columnFieldId={columnField?.id ?? null}
               actors={actors}
               navigationMode={navigationMode}

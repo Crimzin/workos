@@ -617,11 +617,7 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
       <DragOverlay>
         {activeItem?.type === "card" && (
           <div className="w-72">
-            <CardTileOverlay
-              card={activeItem.card}
-              fields={data.fields}
-              columnFieldId={activeItem.columnFieldId}
-            />
+            <CardTileOverlay card={activeItem.card} />
           </div>
         )}
         {activeItem?.type === "stack" && (

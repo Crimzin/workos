@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { GitFork, MoreHorizontal, Pencil, Unlink } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { BoardActor, BoardCard, BoardField } from "@/lib/board-types";
+import type { BoardActor, BoardCard } from "@/lib/board-types";
 import {
   updateNodeTitle,
   archiveNode,
@@ -16,8 +16,6 @@ import {
   removeCardFromStack,
   getStacksForCard,
 } from "@/lib/actions/nodes";
-import { FieldBadge } from "../field-badge";
-import { InlineFieldEditor } from "./inline-field-editor";
 import { BoardAvatar } from "./board-avatar";
 import { ConfirmModal } from "../confirm-modal";
 import { MirrorToSubmenu } from "./mirror-to-submenu";
@@ -26,13 +24,12 @@ interface CardTileProps {
   card: BoardCard;
   workspaceId: string;
   stackId: string;
-  fields: BoardField[];
   columnFieldId: string | null;
   actors: Record<string, BoardActor>;
   navigationMode: "board-detail" | "thread";
 }
 
-export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, actors, navigationMode }: CardTileProps) {
+export function CardTile({ card, workspaceId, stackId, columnFieldId, actors, navigationMode }: CardTileProps) {
   const search = useSearchParams();
   const isActive = search.get("d") === card.id;
   const router = useRouter();
@@ -143,13 +140,10 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
     opacity: isDragging ? 0 : 1,
   };
 
-  // All fields except the column field get inline editors
-  const editorFields = fields.filter((f) => f.id !== columnFieldId);
-
   if (editing) {
     return (
       <div ref={setNodeRef} style={style} className="touch-none">
-        <div className="rounded-md border border-accent-warm bg-bg-card p-2.5 shadow-sm">
+        <div className="rounded-md border border-accent-warm bg-bg-card p-2 shadow-sm">
           <input
             ref={editRef}
             type="text"
@@ -176,15 +170,15 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
           scroll={false}
           aria-current={isActive ? "true" : undefined}
           className={[
-            "group block rounded-md border p-2.5 transition-colors",
+            "group block rounded-md border p-2 transition-colors",
             isArchived ? "opacity-50 grayscale" : "",
             isActive
               ? "border-accent-warm bg-accent-subtle shadow-sm"
               : "border-border bg-bg-card hover:border-border-strong hover:bg-bg-hover/70",
           ].join(" ")}
         >
-          <div className="flex items-start justify-between gap-1">
-            <div className="flex items-center gap-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1">
               {isArchived && (
                 <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-bg-hover text-text-tertiary">
                   Archived
@@ -196,7 +190,10 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
                 <GitFork size={9} className="shrink-0 text-text-tertiary flex-none" aria-label="Appears in multiple stacks" />
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div className="flex shrink-0 items-center gap-1">
+              {card.owner_id && actors[card.owner_id] && (
+                <BoardAvatar actor={actors[card.owner_id]} size={16} />
+              )}
               {/* Rename pencil */}
               <button
                 type="button"
@@ -308,26 +305,7 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
             </div>
           </div>
           {card.description && (
-            <div className="mt-1 text-xs text-text-secondary line-clamp-2">{card.description}</div>
-          )}
-          {(editorFields.length > 0 || (card.owner_id && actors[card.owner_id])) && (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
-              <div className="flex flex-wrap gap-1">
-                {editorFields.map((field) => (
-                  <InlineFieldEditor
-                    key={field.id}
-                    field={field}
-                    selectedOptionIds={card.field_values[field.id] ?? []}
-                    nodeId={card.id}
-                    parentId={stackId}
-                    workspaceId={workspaceId}
-                  />
-                ))}
-              </div>
-              {card.owner_id && actors[card.owner_id] && (
-                <BoardAvatar actor={actors[card.owner_id]} size={20} />
-              )}
-            </div>
+            <div className="mt-1 line-clamp-1 text-xs leading-4 text-text-secondary">{card.description}</div>
           )}
         </Link>
       </div>
@@ -362,40 +340,15 @@ export function CardTile({ card, workspaceId, stackId, fields, columnFieldId, ac
 /** Pure visual used inside DragOverlay — no sortable wiring. */
 export function CardTileOverlay({
   card,
-  fields,
-  columnFieldId,
 }: {
   card: BoardCard;
-  fields: BoardField[];
-  columnFieldId: string | null;
 }) {
-  const badges = getStaticBadges(card, fields, columnFieldId);
   return (
-    <div className="rounded-md border border-accent-warm bg-bg-card p-2.5 shadow-lg ring-1 ring-accent-warm/30">
+    <div className="rounded-md border border-accent-warm bg-bg-card p-2 shadow-lg ring-1 ring-accent-warm/30">
       <div className="text-sm font-medium text-text-primary line-clamp-2">{card.title}</div>
       {card.description && (
-        <div className="mt-1 text-xs text-text-secondary line-clamp-2">{card.description}</div>
-      )}
-      {badges.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {badges.map((b) => (
-            <FieldBadge key={b.id} name={b.name} color={b.color} />
-          ))}
-        </div>
+        <div className="mt-1 line-clamp-1 text-xs leading-4 text-text-secondary">{card.description}</div>
       )}
     </div>
   );
-}
-
-function getStaticBadges(card: BoardCard, fields: BoardField[], columnFieldId: string | null) {
-  const badges: { id: string; name: string; color: string }[] = [];
-  for (const field of fields) {
-    if (field.id === columnFieldId) continue;
-    const selected = card.field_values[field.id] ?? [];
-    for (const optionId of selected) {
-      const opt = field.options.find((o) => o.id === optionId);
-      if (opt) badges.push({ id: `${field.id}:${opt.id}`, name: opt.name, color: field.color });
-    }
-  }
-  return badges;
 }

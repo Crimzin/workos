@@ -9,6 +9,10 @@ const stackRowSource = readFileSync(
   new URL("./stack-row.tsx", import.meta.url),
   "utf8"
 );
+const cardTileSource = readFileSync(
+  new URL("./card-tile.tsx", import.meta.url),
+  "utf8"
+);
 const threadPickerSource = readFileSync(
   new URL("./thread-picker-create.tsx", import.meta.url),
   "utf8"
@@ -57,6 +61,15 @@ assert.match(stackRowSource, /Mirrored/);
 assert.match(stackRowSource, /CollapsedStackColumn/);
 assert.match(stackRowSource, /title={card.title}/);
 assert.match(stackRowSource, /aria-label=\{`Open \$\{card\.title\}`\}/);
+
+assert.doesNotMatch(cardTileSource, /InlineFieldEditor/);
+assert.doesNotMatch(cardTileSource, /FieldBadge/);
+assert.doesNotMatch(cardTileSource, /getStaticBadges/);
+assert.doesNotMatch(cardTileSource, /editorFields/);
+assert.match(cardTileSource, /"group block rounded-md border p-2 transition-colors"/);
+assert.match(cardTileSource, /BoardAvatar actor=\{actors\[card\.owner_id\]\} size=\{16\}/);
+assert.doesNotMatch(cardTileSource, /mt-2 flex flex-wrap items-center justify-between/);
+assert.doesNotMatch(cardTileSource, /card\.field_values\[field\.id\]/);
 
 assert.match(threadPickerSource, /SERVER_SEARCH_DEBOUNCE_MS/);
 assert.match(threadPickerSource, /menuAlign/);
