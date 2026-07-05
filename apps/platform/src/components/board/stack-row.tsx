@@ -467,7 +467,6 @@ function StackHeader({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(stack.title);
   const [pending, startTransition] = useTransition();
-  const columnFieldName = columnFieldId ? (fields.find((f) => f.id === columnFieldId)?.name ?? null) : null;
   const renameRef = useRef<HTMLInputElement>(null);
   const lifecycle = stack.stack_lifecycle_status ?? "prioritized";
 
@@ -536,7 +535,8 @@ function StackHeader({
     <>
     <div
       className={[
-        "sticky left-0 z-30 w-[28rem] shrink-0 border-r border-border bg-bg-secondary transition-colors",
+        "sticky left-0 w-60 shrink-0 border-r border-border bg-bg-secondary transition-colors",
+        menuOpen ? "z-[70]" : "z-30",
         isCollapsed ? "px-3 py-2" : "px-4 py-3",
         isActive
           ? "border-l-2 border-l-accent-warm bg-accent-subtle"
@@ -580,8 +580,8 @@ function StackHeader({
             </button>
             {menuOpen && (
               <>
-                <div className="fixed inset-0 z-10" aria-hidden onClick={closeMenu} />
-                <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+                <div className="fixed inset-0 z-[60]" aria-hidden onClick={closeMenu} />
+                <div className="absolute right-0 top-full z-[80] mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
                   <button
                     type="button"
                     onClick={() => {
@@ -642,12 +642,12 @@ function StackHeader({
           </div>
         </div>
       ) : (
-      <div className="flex items-start gap-2">
+      <div className="relative min-w-0 pt-8">
         <button
           type="button"
           onClick={onToggleCollapsed}
           aria-label={`Collapse ${stack.title}`}
-          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+          className="absolute left-0 top-0 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
         >
           <ChevronDown size={14} />
         </button>
@@ -656,14 +656,71 @@ function StackHeader({
           {...dragListeners}
           {...dragAttributes}
           aria-label="Drag to reorder stack"
-          className="mt-0.5 flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded text-text-tertiary hover:text-text-secondary active:cursor-grabbing"
+          className="absolute left-8 top-0.5 flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded text-text-tertiary hover:text-text-secondary active:cursor-grabbing"
         >
           <GripVertical size={14} />
         </button>
+        <div className="absolute left-14 top-0.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setLifecycleOpen((v) => !v);
+            }}
+            aria-label="Change stack lifecycle"
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-bg-hover"
+          >
+            <LifecycleDot status={lifecycle} />
+          </button>
+          {lifecycleOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-[60]"
+                aria-hidden
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setLifecycleOpen(false);
+                }}
+              />
+              <div
+                className="absolute left-0 top-full z-[80] mt-1 w-40 rounded-md border border-border bg-bg-card py-1 shadow-sm"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                {STACK_LIFECYCLE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={pending}
+                    onClick={() => updateLifecycle(option.value)}
+                    className={[
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
+                      option.value === lifecycle
+                        ? "font-medium text-text-primary"
+                        : "text-text-secondary hover:text-text-primary",
+                    ].join(" ")}
+                  >
+                    <LifecycleDot status={option.value} />
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        {stack.is_mirrored && (
+          <span className="absolute left-20 top-0 inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
+            <GitFork size={10} aria-hidden />
+            Mirrored
+          </span>
+        )}
 
         {renaming ? (
-          <div className="min-w-0 flex-1">
-            <div className="section-label">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
+          <div className="min-w-0 px-1">
             <input
               ref={renameRef}
               type="text"
@@ -682,70 +739,8 @@ function StackHeader({
           <Link
             href={navigationMode === "thread" ? `/n/${stack.id}` : `/board?d=${stack.id}`}
             scroll={false}
-            className="min-w-0 flex-1 group"
+            className="group relative block min-w-0 px-1"
           >
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="section-label truncate">Stack{columnFieldName ? ` · ${columnFieldName}` : ""}</div>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setLifecycleOpen((v) => !v);
-                  }}
-                  aria-label="Change stack lifecycle"
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-bg-hover"
-                >
-                  <LifecycleDot status={lifecycle} />
-                </button>
-                {lifecycleOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-20"
-                      aria-hidden
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setLifecycleOpen(false);
-                      }}
-                    />
-                    <div
-                      className="absolute left-0 top-full z-30 mt-1 w-40 rounded-md border border-border bg-bg-card py-1 shadow-sm"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }}
-                    >
-                      {STACK_LIFECYCLE_OPTIONS.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          disabled={pending}
-                          onClick={() => updateLifecycle(option.value)}
-                          className={[
-                            "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-bg-hover disabled:opacity-40",
-                            option.value === lifecycle
-                              ? "font-medium text-text-primary"
-                              : "text-text-secondary hover:text-text-primary",
-                          ].join(" ")}
-                        >
-                          <LifecycleDot status={option.value} />
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-              {stack.is_mirrored && (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-                  <GitFork size={10} aria-hidden />
-                  Mirrored
-                </span>
-              )}
-            </div>
-            <div className="mt-1 flex min-w-0 items-start gap-1">
               <h3
                 className={[
                   "min-w-0 flex-1 whitespace-normal break-words text-xl font-semibold leading-tight transition-colors",
@@ -765,11 +760,10 @@ function StackHeader({
                   setRenaming(true);
                 }}
                 aria-label="Rename stack"
-                className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
+                className="absolute right-0 top-0 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-bg-secondary text-text-tertiary opacity-0 transition-opacity hover:text-text-secondary group-hover:opacity-100"
               >
                 <Pencil size={10} />
               </button>
-            </div>
             {stack.description && (
               <p className="mt-1 line-clamp-2 text-xs text-text-secondary">{stack.description}</p>
             )}
@@ -795,19 +789,19 @@ function StackHeader({
           </Link>
         )}
 
-        <div className="relative">
+        <div className="absolute right-0 top-0 z-[80]">
           <button
             type="button"
             onClick={toggleMenu}
             aria-label="Stack actions"
-            className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-tertiary hover:bg-bg-hover hover:text-text-secondary transition-colors"
           >
             <MoreHorizontal size={14} />
           </button>
           {menuOpen && (
             <>
-              <div className="fixed inset-0 z-10" aria-hidden onClick={closeMenu} />
-              <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
+              <div className="fixed inset-0 z-[60]" aria-hidden onClick={closeMenu} />
+              <div className="absolute right-0 top-full z-[80] mt-1 w-44 rounded-md border border-border bg-bg-card py-1 shadow-sm">
                 <button
                   type="button"
                   onClick={() => { setMenuOpen(false); setRenameValue(stack.title); setRenaming(true); }}

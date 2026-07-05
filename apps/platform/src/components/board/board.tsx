@@ -625,9 +625,8 @@ export function Board({ data, views, navigationMode = "board-detail" }: BoardPro
           </div>
         )}
         {activeItem?.type === "stack" && (
-          <div className="w-[28rem] rounded-md border border-accent bg-bg-secondary/80 px-4 py-3 shadow-lg">
-            <div className="section-label">Stack</div>
-            <div className="mt-0.5 line-clamp-2 text-base font-semibold text-text-primary">
+          <div className="w-60 rounded-md border border-accent bg-bg-secondary/80 px-4 py-3 shadow-lg">
+            <div className="line-clamp-2 text-base font-semibold text-text-primary">
               {activeItem.stack.title}
             </div>
           </div>
