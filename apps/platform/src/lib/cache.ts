@@ -27,6 +27,8 @@ export const cacheTags = {
   threadContextSheet: (threadId: string) => `thread-context-sheet:${threadId}`,
   agentSettings: (instanceId: string) => `agent-settings:${instanceId}`,
   agentRuns: (nodeId: string) => `agent-runs:${nodeId}`,
+  focusHome: (instanceId: string, actorId: string) =>
+    `focus-home:${instanceId}:${actorId}`,
 };
 
 // Next 16 `revalidateTag` requires a profile arg; "max" = stale-while-revalidate.
@@ -129,4 +131,8 @@ export function revalidateAgentSettings(instanceId: string) {
 
 export function revalidateAgentRuns(nodeId: string) {
   revalidateTag(cacheTags.agentRuns(nodeId), IMMEDIATE);
+}
+
+export function revalidateFocusHome(instanceId: string, actorId: string) {
+  revalidateTag(cacheTags.focusHome(instanceId, actorId), IMMEDIATE);
 }

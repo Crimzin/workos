@@ -74,6 +74,29 @@ export type ThreadContextAttachmentStatus =
   | "active"
   | "removed"
   | "ignored_for_suggestions";
+export type FocusSessionMode =
+  | "weekly"
+  | "morning"
+  | "midday"
+  | "end_of_day"
+  | "friday_reflection"
+  | "ad_hoc";
+export type FocusSessionStatus = "active" | "closed";
+export type FocusMessageRole = "user" | "workos" | "system";
+export type FocusMessageKind = "briefing" | "reply" | "status" | "repair_prompt";
+export type FocusItemType =
+  | "priority"
+  | "next_move"
+  | "planning_question"
+  | "radar";
+export type FocusItemStatus =
+  | "proposed"
+  | "accepted"
+  | "deferred"
+  | "dismissed"
+  | "completed";
+export type FocusItemAnchorStatus = "anchored" | "needs_thread" | "dismissed";
+export type FocusThreadRole = "primary" | "supporting";
 
 export type WorkOSEventType =
   | "node.created"
@@ -108,7 +131,12 @@ export type WorkOSEventType =
   | "context.allowed"
   | "agent.reply_started"
   | "agent.reply_completed"
-  | "agent.reply_failed";
+  | "agent.reply_failed"
+  | "focus.session_started"
+  | "focus.message_created"
+  | "focus.item_created"
+  | "focus.item_updated"
+  | "focus.item_thread_attached";
 
 export interface WorkOSEvent {
   id: string;
@@ -122,6 +150,61 @@ export interface WorkOSEvent {
   occurred_at: string;
   summary: string | null;
   metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface FocusSession {
+  id: string;
+  instance_id: string;
+  actor_id: string | null;
+  mode: FocusSessionMode;
+  window_key: string;
+  status: FocusSessionStatus;
+  title: string;
+  summary: string | null;
+  metadata: Record<string, unknown>;
+  opened_at: string;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FocusMessage {
+  id: string;
+  instance_id: string;
+  focus_session_id: string;
+  actor_id: string | null;
+  role: FocusMessageRole;
+  message_kind: FocusMessageKind;
+  body: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FocusItem {
+  id: string;
+  instance_id: string;
+  focus_session_id: string;
+  created_by_message_id: string | null;
+  title: string;
+  body: string | null;
+  item_type: FocusItemType;
+  status: FocusItemStatus;
+  anchor_status: FocusItemAnchorStatus;
+  priority_rank: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  deferred_until: string | null;
+}
+
+export interface FocusItemThread {
+  id: string;
+  focus_item_id: string;
+  thread_id: string;
+  thread_role: FocusThreadRole;
   created_at: string;
 }
 
