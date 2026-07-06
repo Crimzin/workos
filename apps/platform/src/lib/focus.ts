@@ -68,6 +68,27 @@ async function getLatestActiveFocusSession(
   return data as FocusSession | null;
 }
 
+async function getRecentFocusSessionIds(
+  instanceId: string,
+  actorId: string,
+  currentSessionId: string
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("focus_sessions")
+    .select("id")
+    .eq("instance_id", instanceId)
+    .eq("actor_id", actorId)
+    .eq("status", "active")
+    .order("opened_at", { ascending: false })
+    .limit(8);
+  if (error) throw error;
+
+  const ids = ((data ?? []) as Array<Pick<FocusSession, "id">>)
+    .map((session) => session.id)
+    .reverse();
+  return ids.includes(currentSessionId) ? ids : [...ids, currentSessionId];
+}
+
 async function ensureFocusSession({
   instanceId,
   actorId,
@@ -121,6 +142,7 @@ async function ensureFocusSession({
     return session as FocusSession;
   }
 
+  const briefingDedupeKey = `${window.windowKey}:briefing`;
   const candidateThreads = await getCandidateThreads(instanceId);
   const draft = buildFocusBriefingDraft({
     window,
@@ -134,6 +156,7 @@ async function ensureFocusSession({
     role: "workos",
     messageKind: "briefing",
     body: draft.body,
+    dedupeKey: briefingDedupeKey,
     metadata: { generated_reason: decision.reason },
   });
 
@@ -148,6 +171,7 @@ async function ensureFocusSession({
       anchorStatus: item.anchorStatus,
       priorityRank: index + 1,
       threadIds: item.threadIds,
+      dedupeKey: `${window.windowKey}:item:${index + 1}`,
     });
   }
 
@@ -161,6 +185,19 @@ export async function getFocusMessages(
     .from("focus_messages")
     .select("*")
     .eq("focus_session_id", sessionId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as FocusMessage[];
+}
+
+async function getFocusMessagesForSessions(
+  sessionIds: string[]
+): Promise<FocusMessage[]> {
+  if (sessionIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("focus_messages")
+    .select("*")
+    .in("focus_session_id", sessionIds)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as FocusMessage[];
@@ -218,11 +255,37 @@ export async function getFocusHomeData({
   actorName: string;
 }): Promise<FocusHomeData> {
   const session = await ensureFocusSession({ instanceId, actorId, actorName });
+  const timelineSessionIds = await getRecentFocusSessionIds(
+    instanceId,
+    actorId,
+    session.id
+  );
   const [messages, items] = await Promise.all([
-    getFocusMessages(session.id),
+    getFocusMessagesForSessions(timelineSessionIds),
     getFocusItems(session.id),
   ]);
   return { session, messages, items };
+}
+
+export async function validateFocusSessionForActor({
+  sessionId,
+  instanceId,
+  actorId,
+}: {
+  sessionId: string;
+  instanceId: string;
+  actorId: string;
+}): Promise<FocusSession> {
+  const { data, error } = await supabase
+    .from("focus_sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .eq("instance_id", instanceId)
+    .eq("actor_id", actorId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Focus session not found");
+  return data as FocusSession;
 }
 
 export async function insertFocusMessage({
@@ -232,6 +295,7 @@ export async function insertFocusMessage({
   role,
   messageKind,
   body,
+  dedupeKey = null,
   metadata = {},
 }: {
   instanceId: string;
@@ -240,19 +304,26 @@ export async function insertFocusMessage({
   role: FocusMessage["role"];
   messageKind: FocusMessage["message_kind"];
   body: string;
+  dedupeKey?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<FocusMessage> {
-  const { data, error } = await supabase
-    .from("focus_messages")
-    .insert({
-      instance_id: instanceId,
-      focus_session_id: sessionId,
-      actor_id: actorId,
-      role,
-      message_kind: messageKind,
-      body: body.trim(),
-      metadata,
-    })
+  const payload = {
+    instance_id: instanceId,
+    focus_session_id: sessionId,
+    actor_id: actorId,
+    role,
+    message_kind: messageKind,
+    dedupe_key: dedupeKey,
+    body: body.trim(),
+    metadata,
+  };
+  const query = dedupeKey
+    ? supabase.from("focus_messages").upsert(payload, {
+        onConflict: "focus_session_id,message_kind,dedupe_key",
+      })
+    : supabase.from("focus_messages").insert(payload);
+
+  const { data, error } = await query
     .select("*")
     .single();
   if (error) throw error;
@@ -269,6 +340,8 @@ export async function insertFocusItem({
   anchorStatus,
   priorityRank,
   threadIds,
+  dedupeKey = null,
+  metadata = {},
 }: {
   instanceId: string;
   sessionId: string;
@@ -279,35 +352,32 @@ export async function insertFocusItem({
   anchorStatus: FocusItemAnchorStatus;
   priorityRank: number;
   threadIds: string[];
+  dedupeKey?: string | null;
+  metadata?: Record<string, unknown>;
 }): Promise<FocusItem> {
-  const { data, error } = await supabase
-    .from("focus_items")
-    .insert({
-      instance_id: instanceId,
-      focus_session_id: sessionId,
-      created_by_message_id: messageId,
-      title,
-      body,
-      item_type: itemType,
-      anchor_status: anchorStatus,
-      priority_rank: priorityRank,
-    })
-    .select("*")
-    .single();
-  if (error) throw error;
-
-  if (threadIds.length > 0) {
-    const { error: anchorError } = await supabase
-      .from("focus_item_threads")
-      .insert(
-        threadIds.map((threadId) => ({
-          focus_item_id: data.id,
-          thread_id: threadId,
-          thread_role: "primary",
-        }))
-      );
-    if (anchorError) throw anchorError;
+  if (anchorStatus === "anchored" && threadIds.length === 0) {
+    throw new Error("Anchored Focus items require at least one thread");
   }
 
-  return data as FocusItem;
+  const { data, error } = await supabase.rpc(
+    "rpc_upsert_focus_item_with_threads",
+    {
+      p_instance_id: instanceId,
+      p_focus_session_id: sessionId,
+      p_created_by_message_id: messageId,
+      p_title: title,
+      p_body: body,
+      p_item_type: itemType,
+      p_anchor_status: anchorStatus,
+      p_priority_rank: priorityRank,
+      p_thread_ids: threadIds,
+      p_dedupe_key: dedupeKey,
+      p_metadata: metadata,
+    }
+  );
+  if (error) throw error;
+
+  const item = Array.isArray(data) ? data[0] : data;
+  if (!item) throw new Error("Focus item was not created");
+  return item as FocusItem;
 }

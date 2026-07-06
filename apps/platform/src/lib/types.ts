@@ -176,6 +176,7 @@ export interface FocusMessage {
   actor_id: string | null;
   role: FocusMessageRole;
   message_kind: FocusMessageKind;
+  dedupe_key: string | null;
   body: string;
   metadata: Record<string, unknown>;
   created_at: string;
@@ -187,6 +188,7 @@ export interface FocusItem {
   instance_id: string;
   focus_session_id: string;
   created_by_message_id: string | null;
+  dedupe_key: string | null;
   title: string;
   body: string | null;
   item_type: FocusItemType;

@@ -10,15 +10,21 @@ interface FocusComposerProps {
 
 export function FocusComposer({ sessionId }: FocusComposerProps) {
   const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const disabled = pending || value.trim().length === 0;
 
   const submit = () => {
     const body = value.trim();
     if (!body) return;
-    setValue("");
+    setError(null);
     startTransition(async () => {
-      await createFocusReply(sessionId, body);
+      try {
+        await createFocusReply(sessionId, body);
+        setValue("");
+      } catch {
+        setError("Could not save that reply. Try again.");
+      }
     });
   };
 
@@ -30,7 +36,10 @@ export function FocusComposer({ sessionId }: FocusComposerProps) {
       <textarea
         id="focus-reply"
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          setValue(event.target.value);
+          if (error) setError(null);
+        }}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
@@ -42,9 +51,7 @@ export function FocusComposer({ sessionId }: FocusComposerProps) {
         className="block w-full resize-none bg-transparent px-2 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none"
       />
       <div className="flex items-center justify-between gap-3 px-1 pt-1">
-        <span className="text-[11px] text-text-tertiary">
-          Cmd+Enter to send
-        </span>
+        <span className="text-[11px] text-red-500">{error}</span>
         <button
           type="button"
           onClick={submit}
