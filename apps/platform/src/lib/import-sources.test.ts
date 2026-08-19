@@ -4,6 +4,7 @@ import {
   stableConversationHash,
   type RawImportFile,
 } from "./import-sources.ts";
+import * as importSourcesModule from "./import-sources.ts";
 
 const claudeFile: RawImportFile = {
   fileName: "claude-conversations.json",
@@ -287,3 +288,87 @@ const invalidTimestampResult = normalizeImportFiles([invalidTimestampFile]);
 assert.equal(invalidTimestampResult.conversations[0].createdAt, null);
 assert.equal(invalidTimestampResult.conversations[0].updatedAt, null);
 assert.equal(invalidTimestampResult.conversations[0].messages[0].createdAt, null);
+
+const inspectImportFiles = Reflect.get(importSourcesModule, "inspectImportFiles");
+const normalizeInspectedConversations = Reflect.get(
+  importSourcesModule,
+  "normalizeInspectedConversations"
+);
+
+assert.equal(
+  typeof inspectImportFiles,
+  "function",
+  "imports should expose a metadata-only inspection pass"
+);
+assert.equal(
+  typeof normalizeInspectedConversations,
+  "function",
+  "inspected conversations should be normalizable after duplicate filtering"
+);
+
+if (
+  typeof inspectImportFiles !== "function" ||
+  typeof normalizeInspectedConversations !== "function"
+) {
+  throw new Error("Import inspection helpers are unavailable.");
+}
+
+const inspectionFile: RawImportFile = {
+  fileName: "claude-conversations.json",
+  text: JSON.stringify([
+    {
+      uuid: "already-imported",
+      name: "Existing chat",
+      created_at: "2026-06-21T10:00:00Z",
+      updated_at: "2026-06-21T10:20:00Z",
+      chat_messages: [
+        {
+          uuid: "existing-message",
+          sender: "human",
+          text: "This chat should be filtered before normalization.",
+        },
+      ],
+    },
+    {
+      uuid: "new-chat",
+      name: "New chat",
+      created_at: "2026-06-22T10:00:00Z",
+      updated_at: "2026-06-22T10:20:00Z",
+      chat_messages: [
+        {
+          uuid: "new-message",
+          sender: "human",
+          text: "Only this chat should be normalized.",
+        },
+      ],
+    },
+  ]),
+};
+
+const inspection = inspectImportFiles([inspectionFile]) as {
+  inventory: Array<{ conversationCount: number }>;
+  conversations: Array<{
+    sourceApp: "claude" | "chatgpt";
+    sourceConversationId: string;
+    title: string;
+    createdAt: string | null;
+    updatedAt: string | null;
+    sourceIndex: number;
+    raw: unknown;
+  }>;
+};
+
+assert.equal(inspection.inventory[0].conversationCount, 2);
+assert.deepEqual(
+  inspection.conversations.map((conversation) => conversation.sourceConversationId),
+  ["already-imported", "new-chat"]
+);
+assert.equal("messages" in inspection.conversations[0], false);
+
+const selectedNormalization = normalizeInspectedConversations([
+  inspection.conversations[1],
+]) as Array<{ sourceConversationId: string; messages: unknown[] }>;
+
+assert.equal(selectedNormalization.length, 1);
+assert.equal(selectedNormalization[0].sourceConversationId, "new-chat");
+assert.equal(selectedNormalization[0].messages.length, 1);

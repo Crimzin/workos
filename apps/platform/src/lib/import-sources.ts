@@ -31,6 +31,16 @@ export interface NormalizedImportedConversation {
   messages: NormalizedImportedMessage[];
 }
 
+export interface InspectedImportedConversation {
+  sourceApp: ImportSourceApp;
+  sourceConversationId: string;
+  title: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  sourceIndex: number;
+  raw: unknown;
+}
+
 export interface ImportInventoryItem {
   fileName: string;
   sourceApp: ImportSourceApp | "unknown";
@@ -43,9 +53,22 @@ export interface NormalizedImportBatch {
   conversations: NormalizedImportedConversation[];
 }
 
+export interface InspectedImportBatch {
+  inventory: ImportInventoryItem[];
+  conversations: InspectedImportedConversation[];
+}
+
 export function normalizeImportFiles(files: RawImportFile[]): NormalizedImportBatch {
+  const inspected = inspectImportFiles(files);
+  return {
+    inventory: inspected.inventory,
+    conversations: normalizeInspectedConversations(inspected.conversations),
+  };
+}
+
+export function inspectImportFiles(files: RawImportFile[]): InspectedImportBatch {
   const inventory: ImportInventoryItem[] = [];
-  const conversations: NormalizedImportedConversation[] = [];
+  const conversations: InspectedImportedConversation[] = [];
 
   for (const file of files) {
     const parsed = parseJson(file.text);
@@ -55,11 +78,11 @@ export function normalizeImportFiles(files: RawImportFile[]): NormalizedImportBa
       continue;
     }
 
-    const normalized =
+    const inspected =
       sourceApp === "claude"
-        ? normalizeClaudeConversations(parsed)
-        : normalizeChatGPTConversations(parsed);
-    if (normalized.length === 0) {
+        ? inspectClaudeConversations(parsed)
+        : inspectChatGPTConversations(parsed);
+    if (inspected.length === 0) {
       inventory.push(rejectedInventoryItem(file.fileName));
       continue;
     }
@@ -67,13 +90,25 @@ export function normalizeImportFiles(files: RawImportFile[]): NormalizedImportBa
     inventory.push({
       fileName: file.fileName,
       sourceApp,
-      conversationCount: normalized.length,
+      conversationCount: inspected.length,
       error: null,
     });
-    conversations.push(...normalized);
+    conversations.push(...inspected);
   }
 
   return { inventory, conversations };
+}
+
+export function normalizeInspectedConversations(
+  conversations: InspectedImportedConversation[]
+): NormalizedImportedConversation[] {
+  return conversations.flatMap((conversation) => {
+    const normalized =
+      conversation.sourceApp === "claude"
+        ? normalizeClaudeConversation(conversation.raw, conversation.sourceIndex)
+        : normalizeChatGPTConversation(conversation.raw, conversation.sourceIndex);
+    return normalized ? [normalized] : [];
+  });
 }
 
 function rejectedInventoryItem(fileName: string): ImportInventoryItem {
@@ -116,15 +151,11 @@ function detectSourceApp(
   return null;
 }
 
-function normalizeClaudeConversations(parsed: unknown): NormalizedImportedConversation[] {
+function inspectClaudeConversations(parsed: unknown): InspectedImportedConversation[] {
   if (!Array.isArray(parsed)) return [];
   return parsed.flatMap((item, index) => {
     if (!isClaudeConversationRow(item)) return [];
-    const messages = item.chat_messages
-      .map((message, sourceIndex) => normalizeClaudeMessage(message, sourceIndex))
-      .filter((message) => message.text.length > 0);
-
-    if (messages.length === 0) return [];
+    if (!hasReadableClaudeMessage(item)) return [];
 
     return [{
       sourceApp: "claude",
@@ -132,8 +163,35 @@ function normalizeClaudeConversations(parsed: unknown): NormalizedImportedConver
       title: stringValue(item.name) || "Untitled Claude chat",
       createdAt: stringValue(item.created_at),
       updatedAt: stringValue(item.updated_at),
-      messages,
+      sourceIndex: index,
+      raw: item,
     }];
+  });
+}
+
+function normalizeClaudeConversation(
+  value: unknown,
+  sourceIndex: number
+): NormalizedImportedConversation | null {
+  if (!isClaudeConversationRow(value)) return null;
+  const messages = value.chat_messages
+    .map((message, messageIndex) => normalizeClaudeMessage(message, messageIndex))
+    .filter((message) => message.text.length > 0);
+  if (messages.length === 0) return null;
+
+  return {
+    sourceApp: "claude",
+    sourceConversationId: stringValue(value.uuid) || `claude:${sourceIndex}`,
+    title: stringValue(value.name) || "Untitled Claude chat",
+    createdAt: stringValue(value.created_at),
+    updatedAt: stringValue(value.updated_at),
+    messages,
+  };
+}
+
+function hasReadableClaudeMessage(conversation: ClaudeConversationRow): boolean {
+  return conversation.chat_messages.some((message) => {
+    return isRecord(message) && stringValue(message.text).length > 0;
   });
 }
 
@@ -153,13 +211,11 @@ function normalizeClaudeMessage(
   };
 }
 
-function normalizeChatGPTConversations(parsed: unknown): NormalizedImportedConversation[] {
+function inspectChatGPTConversations(parsed: unknown): InspectedImportedConversation[] {
   if (!Array.isArray(parsed)) return [];
   return parsed.flatMap((item, index) => {
     if (!isChatGPTConversationRow(item)) return [];
-    const messages = extractChatGPTMessages(item.mapping, stringValue(item.current_node));
-
-    if (messages.length === 0) return [];
+    if (!hasReadableChatGPTMessage(item)) return [];
 
     return [{
       sourceApp: "chatgpt",
@@ -167,8 +223,41 @@ function normalizeChatGPTConversations(parsed: unknown): NormalizedImportedConve
       title: stringValue(item.title) || "Untitled ChatGPT chat",
       createdAt: unixToIso(item.create_time),
       updatedAt: unixToIso(item.update_time),
-      messages,
+      sourceIndex: index,
+      raw: item,
     }];
+  });
+}
+
+function normalizeChatGPTConversation(
+  value: unknown,
+  sourceIndex: number
+): NormalizedImportedConversation | null {
+  if (!isChatGPTConversationRow(value)) return null;
+  const messages = extractChatGPTMessages(
+    value.mapping,
+    stringValue(value.current_node)
+  );
+  if (messages.length === 0) return null;
+
+  return {
+    sourceApp: "chatgpt",
+    sourceConversationId: stringValue(value.id) || `chatgpt:${sourceIndex}`,
+    title: stringValue(value.title) || "Untitled ChatGPT chat",
+    createdAt: unixToIso(value.create_time),
+    updatedAt: unixToIso(value.update_time),
+    messages,
+  };
+}
+
+function hasReadableChatGPTMessage(conversation: ChatGPTConversationRow): boolean {
+  const path = selectChatGPTPath(
+    conversation.mapping,
+    stringValue(conversation.current_node)
+  );
+  return path.some((node) => {
+    const message = isRecord(node.message) ? node.message : null;
+    return message ? chatGptText(message.content).length > 0 : false;
   });
 }
 
