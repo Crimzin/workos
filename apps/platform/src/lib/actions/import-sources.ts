@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getCurrentActor } from "../actor";
+import { getCurrentActor, type CurrentActor } from "../actor";
 import {
   revalidateImportedChats,
   revalidateImportSessions,
@@ -16,29 +16,44 @@ import {
   type ImportPostWriteRow,
 } from "../import-materialize";
 import {
-  normalizeImportFiles,
-  type RawImportFile,
+  MAX_IMPORT_CONVERSATION_BATCH_BYTES,
+  assertValidImportConversationBatch,
+  serializedImportConversationBatchBytes,
+} from "../import-batches";
+import type {
+  ImportInventoryItem,
+  ImportSourceApp,
+  NormalizedImportedConversation,
 } from "../import-sources";
 import { supabase } from "../supabase";
 
-export interface ImportSourcesResult {
-  importSessionId: string;
-  importedCount: number;
-  inventory: ReturnType<typeof normalizeImportFiles>["inventory"];
+export interface ImportPreflightSummary {
+  newCount: number;
+  updatedCount: number;
+  unchangedCount: number;
 }
 
-export async function importAISourceFiles(
-  files: RawImportFile[]
-): Promise<ImportSourcesResult> {
-  const actor = await getCurrentActor();
-  const normalized = normalizeImportFiles(files);
-  assertHasReadableImportedConversations(normalized.conversations);
+export interface StartAISourceImportInput {
+  inventory: ImportInventoryItem[];
+  sourceApps: ImportSourceApp[];
+  summary: ImportPreflightSummary;
+}
 
-  const sourceApps = [
-    ...new Set(
-      normalized.conversations.map((conversation) => conversation.sourceApp)
-    ),
-  ];
+export interface StartAISourceImportResult {
+  importSessionId: string;
+}
+
+export interface ImportAISourceConversationBatchResult {
+  importedCount: number;
+}
+
+export async function startAISourceImport(
+  input: StartAISourceImportInput
+): Promise<StartAISourceImportResult> {
+  const actor = await getCurrentActor();
+  const inventory = validatedInventory(input.inventory);
+  const sourceApps = validatedSourceApps(input.sourceApps);
+  const summary = validatedPreflightSummary(input.summary);
 
   const { data: session, error: sessionError } = await supabase
     .from("import_sessions")
@@ -48,97 +63,130 @@ export async function importAISourceFiles(
       source_apps: sourceApps,
       import_name: "AI chat import",
       status: "processing",
-      source_counts: {},
-      metadata: { inventory: normalized.inventory },
+      source_counts: sourceCounts(inventory),
+      metadata: { inventory, summary },
     })
     .select("id")
     .single();
   if (sessionError) throw sessionError;
-  const sessionId = session.id as string;
+  return { importSessionId: session.id as string };
+}
+
+export async function importAISourceConversationBatch(input: {
+  importSessionId: string;
+  conversations: NormalizedImportedConversation[];
+}): Promise<ImportAISourceConversationBatchResult> {
+  const actor = await getCurrentActor();
+  await assertActiveImportSession(input.importSessionId, actor.instance_id);
 
   try {
-    const firstPosition = await nextRootPosition(actor.instance_id);
-    const plan = buildImportMaterializationPlan({
-      instanceId: actor.instance_id,
-      importSessionId: sessionId,
-      conversations: normalized.conversations,
-      firstPosition,
-    });
-
-    const existingNodes = await getExistingImportedNodes(
-      actor.instance_id,
-      plan.nodes
-    );
-    const nodeWrites = buildImportNodeWritePlan(plan.nodes, existingNodes);
-    const nodeIdByClientKey = new Map(nodeWrites.nodeIdByClientKey);
-
-    for (const update of nodeWrites.updates) {
-      const { error } = await supabase
-        .from("nodes")
-        .update({
-          source_title: update.source_title,
-          source_hash: update.source_hash,
-          source_created_at: update.source_created_at,
-          source_updated_at: update.source_updated_at,
-        })
-        .eq("id", update.id);
-      if (error) throw error;
+    assertValidImportConversationBatch(input.conversations);
+    if (
+      serializedImportConversationBatchBytes(input.conversations) >
+      MAX_IMPORT_CONVERSATION_BATCH_BYTES
+    ) {
+      throw new Error("Imported conversation batch exceeds the safe size limit.");
     }
 
-    for (const node of nodeWrites.inserts) {
-      const { client_key, ...insert } = node;
-      const { data, error } = await supabase
-        .from("nodes")
-        .insert(insert)
-        .select("id")
-        .single();
-      if (error) throw error;
-      nodeIdByClientKey.set(client_key, data.id as string);
-    }
-
-    const existingSourceMessageIdsByNodeId =
-      await getExistingImportedSourceMessageIdsByNodeId(
-        [...new Set(nodeIdByClientKey.values())]
-      );
-    const postRows = buildImportPostWriteRows({
-      posts: plan.posts,
-      nodeIdByClientKey,
-      existingSourceMessageIdsByNodeId,
+    const importedCount = await materializeImportedConversations({
+      actor,
+      importSessionId: input.importSessionId,
+      conversations: input.conversations,
     });
-    await insertPostRows(postRows);
-
-    await updateImportSession(sessionId, {
-      status: "completed",
-      source_counts: sourceCounts(normalized.inventory),
-      metadata: { inventory: normalized.inventory },
-    });
-
-    revalidateImportedChats(actor.instance_id);
-    revalidateImportSessions(actor.instance_id);
-    revalidateRootNodes();
-    revalidatePath("/", "layout");
-
-    return {
-      importSessionId: sessionId,
-      importedCount: plan.nodes.length,
-      inventory: normalized.inventory,
-    };
+    return { importedCount };
   } catch (error) {
     try {
-      await updateImportSession(sessionId, {
-        status: "failed",
-        metadata: {
-          inventory: normalized.inventory,
-          error: errorMetadata(error),
-        },
-      });
-      revalidateImportSessions(actor.instance_id);
-      revalidatePath("/", "layout");
+      await markImportSessionFailed(
+        input.importSessionId,
+        actor.instance_id,
+        error
+      );
+      revalidateAfterImport(actor.instance_id);
     } catch {
       // Preserve the original materialization error for callers.
     }
     throw error;
   }
+}
+
+export async function completeAISourceImport(input: {
+  importSessionId: string;
+}): Promise<void> {
+  const actor = await getCurrentActor();
+  await assertActiveImportSession(input.importSessionId, actor.instance_id);
+  await updateImportSession(input.importSessionId, { status: "completed" });
+  revalidateAfterImport(actor.instance_id);
+}
+
+export async function failAISourceImport(input: {
+  importSessionId: string;
+  message: string;
+}): Promise<void> {
+  const actor = await getCurrentActor();
+  await markImportSessionFailed(
+    input.importSessionId,
+    actor.instance_id,
+    new Error(input.message || "Import failed.")
+  );
+  revalidateAfterImport(actor.instance_id);
+}
+
+async function materializeImportedConversations(input: {
+  actor: CurrentActor;
+  importSessionId: string;
+  conversations: NormalizedImportedConversation[];
+}): Promise<number> {
+  assertHasReadableImportedConversations(input.conversations);
+  const firstPosition = await nextRootPosition(input.actor.instance_id);
+  const plan = buildImportMaterializationPlan({
+    instanceId: input.actor.instance_id,
+    importSessionId: input.importSessionId,
+    conversations: input.conversations,
+    firstPosition,
+  });
+
+  const existingNodes = await getExistingImportedNodes(
+    input.actor.instance_id,
+    plan.nodes
+  );
+  const nodeWrites = buildImportNodeWritePlan(plan.nodes, existingNodes);
+  const nodeIdByClientKey = new Map(nodeWrites.nodeIdByClientKey);
+
+  for (const update of nodeWrites.updates) {
+    const { error } = await supabase
+      .from("nodes")
+      .update({
+        source_title: update.source_title,
+        source_hash: update.source_hash,
+        source_created_at: update.source_created_at,
+        source_updated_at: update.source_updated_at,
+      })
+      .eq("id", update.id);
+    if (error) throw error;
+  }
+
+  for (const node of nodeWrites.inserts) {
+    const { client_key, ...insert } = node;
+    const { data, error } = await supabase
+      .from("nodes")
+      .insert(insert)
+      .select("id")
+      .single();
+    if (error) throw error;
+    nodeIdByClientKey.set(client_key, data.id as string);
+  }
+
+  const existingSourceMessageIdsByNodeId =
+    await getExistingImportedSourceMessageIdsByNodeId(
+      [...new Set(nodeIdByClientKey.values())]
+    );
+  const postRows = buildImportPostWriteRows({
+    posts: plan.posts,
+    nodeIdByClientKey,
+    existingSourceMessageIdsByNodeId,
+  });
+  await insertPostRows(postRows);
+  return plan.nodes.length;
 }
 
 async function nextRootPosition(instanceId: string): Promise<number> {
@@ -213,7 +261,7 @@ async function updateImportSession(
   values: {
     status: "completed" | "failed";
     source_counts?: Record<string, number>;
-    metadata: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
   }
 ): Promise<void> {
   const { error } = await supabase
@@ -223,9 +271,102 @@ async function updateImportSession(
   if (error) throw error;
 }
 
-function sourceCounts(
-  inventory: ReturnType<typeof normalizeImportFiles>["inventory"]
-): Record<string, number> {
+async function assertActiveImportSession(
+  sessionId: string,
+  instanceId: string
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("import_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("instance_id", instanceId)
+    .eq("status", "processing")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Import session is no longer active.");
+}
+
+async function markImportSessionFailed(
+  sessionId: string,
+  instanceId: string,
+  errorValue: unknown
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("import_sessions")
+    .select("metadata")
+    .eq("id", sessionId)
+    .eq("instance_id", instanceId)
+    .eq("status", "processing")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return;
+
+  const metadata = isRecord(data.metadata) ? data.metadata : {};
+  await updateImportSession(sessionId, {
+    status: "failed",
+    metadata: {
+      ...metadata,
+      error: errorMetadata(errorValue),
+    },
+  });
+}
+
+function validatedInventory(inventory: ImportInventoryItem[]): ImportInventoryItem[] {
+  if (!Array.isArray(inventory) || inventory.length === 0) {
+    throw new Error("Import inventory is required.");
+  }
+
+  return inventory.map((item) => {
+    if (
+      !isRecord(item) ||
+      !metadataString(item.fileName) ||
+      !isInventorySourceApp(item.sourceApp) ||
+      !Number.isInteger(item.conversationCount) ||
+      item.conversationCount < 0 ||
+      (item.error !== null && typeof item.error !== "string")
+    ) {
+      throw new Error("Import inventory is invalid.");
+    }
+
+    return {
+      fileName: item.fileName.trim(),
+      sourceApp: item.sourceApp,
+      conversationCount: item.conversationCount,
+      error: item.error,
+    };
+  });
+}
+
+function validatedSourceApps(sourceApps: ImportSourceApp[]): ImportSourceApp[] {
+  if (!Array.isArray(sourceApps)) throw new Error("Import sources are invalid.");
+  const values = [...new Set(sourceApps.filter(isImportSourceApp))];
+  if (values.length === 0 || values.length !== sourceApps.length) {
+    throw new Error("Import sources are invalid.");
+  }
+  return values;
+}
+
+function validatedPreflightSummary(
+  summary: ImportPreflightSummary
+): ImportPreflightSummary {
+  if (
+    !isRecord(summary) ||
+    !isNonNegativeInteger(summary.newCount) ||
+    !isNonNegativeInteger(summary.updatedCount) ||
+    !isNonNegativeInteger(summary.unchangedCount) ||
+    summary.newCount + summary.updatedCount === 0
+  ) {
+    throw new Error("Import summary is invalid.");
+  }
+
+  return {
+    newCount: summary.newCount,
+    updatedCount: summary.updatedCount,
+    unchangedCount: summary.unchangedCount,
+  };
+}
+
+function sourceCounts(inventory: ImportInventoryItem[]): Record<string, number> {
   return inventory.reduce<Record<string, number>>((counts, item) => {
     counts[item.sourceApp] = (counts[item.sourceApp] ?? 0) + item.conversationCount;
     return counts;
@@ -234,6 +375,31 @@ function sourceCounts(
 
 function metadataString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function isImportSourceApp(value: unknown): value is ImportSourceApp {
+  return value === "claude" || value === "chatgpt";
+}
+
+function isInventorySourceApp(
+  value: unknown
+): value is ImportInventoryItem["sourceApp"] {
+  return isImportSourceApp(value) || value === "unknown";
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function revalidateAfterImport(instanceId: string): void {
+  revalidateImportedChats(instanceId);
+  revalidateImportSessions(instanceId);
+  revalidateRootNodes();
+  revalidatePath("/", "layout");
 }
 
 async function insertPostRows(rows: ImportPostWriteRow[]): Promise<void> {

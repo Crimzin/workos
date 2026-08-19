@@ -3,15 +3,35 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { importAISourceFiles } from "@/lib/actions/import-sources";
+import {
+  completeAISourceImport,
+  failAISourceImport,
+  importAISourceConversationBatch,
+  startAISourceImport,
+} from "@/lib/actions/import-sources";
+import {
+  buildImportConversationBatches,
+  classifyImportConversations,
+  type ImportedConversationManifestEntry,
+} from "@/lib/import-batches";
 import { planImportFileSelection } from "@/lib/import-file-selection";
-import { normalizeImportFiles, type RawImportFile } from "@/lib/import-sources";
+import {
+  inspectImportFiles,
+  normalizeInspectedConversations,
+  type RawImportFile,
+} from "@/lib/import-sources";
 
 interface QueuedImportFile extends RawImportFile {
   byteSize: number;
 }
 
-export function ImportSessionWorkspace() {
+export interface ImportSessionWorkspaceProps {
+  existingConversations: ImportedConversationManifestEntry[];
+}
+
+export function ImportSessionWorkspace({
+  existingConversations,
+}: ImportSessionWorkspaceProps) {
   const [files, setFiles] = useState<QueuedImportFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [importStage, setImportStage] = useState<string | null>(null);
@@ -21,16 +41,25 @@ export function ImportSessionWorkspace() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
   const router = useRouter();
-  const preview = useMemo(() => normalizeImportFiles(files), [files]);
+  const inspection = useMemo(() => inspectImportFiles(files), [files]);
+  const classification = useMemo(
+    () =>
+      classifyImportConversations(
+        inspection.conversations,
+        existingConversations
+      ),
+    [existingConversations, inspection.conversations]
+  );
   const queuedByteCount = useMemo(
     () => files.reduce((sum, file) => sum + file.byteSize, 0),
     [files]
   );
   const isSubmitting = submitting || pending;
-  const readableMessageCount = preview.conversations.reduce(
-    (sum, conversation) => sum + conversation.messages.length,
+  const readableCount = inspection.inventory.reduce(
+    (sum, item) => sum + item.conversationCount,
     0
   );
+  const pendingCount = classification.pending.length;
 
   async function readFiles(fileList: FileList | null) {
     if (!fileList || submittingRef.current) return;
@@ -60,22 +89,58 @@ export function ImportSessionWorkspace() {
   }
 
   function runImport() {
-    if (submittingRef.current || readableCount === 0) return;
+    if (submittingRef.current || pendingCount === 0) return;
     submittingRef.current = true;
     setSubmitting(true);
-    setImportStage(
-      `Writing ${readableCount} chats and ${readableMessageCount} transcript messages. Keep this tab open.`
-    );
+    setImportStage(`Preparing ${pendingCount} chats for import.`);
     setError(null);
     startTransition(async () => {
+      let importSessionId: string | null = null;
       try {
-        const importFiles = files.map(({ fileName, text }) => ({ fileName, text }));
-        await importAISourceFiles(importFiles);
+        const conversations = normalizeInspectedConversations(
+          classification.pending
+        );
+        const batches = buildImportConversationBatches(conversations);
+        const sourceApps = [
+          ...new Set(
+            inspection.conversations.map((conversation) => conversation.sourceApp)
+          ),
+        ];
+        const started = await startAISourceImport({
+          inventory: inspection.inventory,
+          sourceApps,
+          summary: {
+            newCount: classification.fresh.length,
+            updatedCount: classification.updated.length,
+            unchangedCount: classification.unchanged.length,
+          },
+        });
+        importSessionId = started.importSessionId;
+
+        for (let index = 0; index < batches.length; index += 1) {
+          setImportStage(
+            `Writing batch ${index + 1} of ${batches.length}. Keep this tab open.`
+          );
+          await importAISourceConversationBatch({
+            importSessionId,
+            conversations: batches[index],
+          });
+        }
+
+        await completeAISourceImport({ importSessionId });
         setImportStage("Import complete. Opening WorkOS...");
         router.push("/");
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Import failed.");
+        const message = err instanceof Error ? err.message : "Import failed.";
+        if (importSessionId) {
+          try {
+            await failAISourceImport({ importSessionId, message });
+          } catch {
+            // Preserve the original import error for the user.
+          }
+        }
+        setError(message);
         setImportStage(null);
       } finally {
         submittingRef.current = false;
@@ -83,11 +148,6 @@ export function ImportSessionWorkspace() {
       }
     });
   }
-
-  const readableCount = preview.inventory.reduce(
-    (sum, item) => sum + item.conversationCount,
-    0
-  );
 
   return (
     <div
@@ -156,7 +216,7 @@ export function ImportSessionWorkspace() {
               Import inventory
             </div>
             <div className="divide-y divide-border">
-              {preview.inventory.map((item, index) => (
+              {inspection.inventory.map((item, index) => (
                 <div
                   key={`${item.fileName}-${index}`}
                   className="flex items-center justify-between gap-3 px-4 py-3"
@@ -185,6 +245,12 @@ export function ImportSessionWorkspace() {
                 </div>
               ))}
             </div>
+            {readableCount > 0 && (
+              <div className="border-t border-border px-4 py-3 text-xs text-text-secondary">
+                {classification.fresh.length} new · {classification.updated.length}{" "}
+                updated · {classification.unchanged.length} already imported
+              </div>
+            )}
           </div>
         )}
 
@@ -198,11 +264,17 @@ export function ImportSessionWorkspace() {
         <div className="mt-5 flex items-center gap-3">
           <button
             type="button"
-            disabled={isSubmitting || readableCount === 0}
+            disabled={isSubmitting || pendingCount === 0}
             onClick={runImport}
             className="inline-flex h-9 items-center justify-center rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {isSubmitting ? "Importing..." : `Import ${readableCount} chats`}
+            {isSubmitting
+              ? "Importing..."
+              : pendingCount > 0
+                ? `Import ${pendingCount} chats`
+                : readableCount > 0
+                  ? "Nothing new to import"
+                  : "Import 0 chats"}
           </button>
         </div>
       </div>
