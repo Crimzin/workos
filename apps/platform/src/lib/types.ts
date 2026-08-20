@@ -10,13 +10,91 @@ export type AgentType =
 
 export type FieldType = "single_select" | "multi_select" | "text" | "date";
 
-export type MemoryPrimitiveType = "rationale" | "assumption" | "decision";
+export type MemoryPrimitiveType =
+  | "goal"
+  | "decision"
+  | "idea"
+  | "assumption"
+  | "constraint"
+  | "question"
+  | "standard"
+  | "signal"
+  | "context_update"
+  | "rationale";
+export type MemoryPrimitiveLifecycle =
+  | "tentative"
+  | "active"
+  | "superseded"
+  | "retracted"
+  | "resolved";
 export type AssumptionStatus = "untested" | "validated" | "invalidated";
 export type DecisionStatus = "active" | "superseded" | "reversed";
 export type MemoryPrimitiveStatus =
-  | "active"
+  | MemoryPrimitiveLifecycle
   | AssumptionStatus
   | DecisionStatus;
+export type MemoryPrimitiveExtractionMode =
+  | "explicit"
+  | "inferred"
+  | "synthesized"
+  | "user_authored";
+export type ConvictionPosture = "assert" | "flag" | "ask";
+export type ConvictionFactorDirection =
+  | "supports"
+  | "weakens"
+  | "contradicts";
+export interface ConvictionFactor {
+  code: string;
+  direction: ConvictionFactorDirection;
+  explanation: string;
+  evidence_refs: string[];
+  contribution?: number;
+}
+export type MemorySensitivityLabel =
+  | "normal"
+  | "private"
+  | "financial"
+  | "medical"
+  | "legal"
+  | "credential_like"
+  | "high_care";
+export type MemoryPrimitiveEvidenceRelation =
+  | "extracted_from"
+  | "supports"
+  | "contradicts"
+  | "qualifies"
+  | "reinforces"
+  | "corrects";
+export type MemoryHumanSignal =
+  | "none"
+  | "explicit_statement"
+  | "explicit_approval"
+  | "explicit_correction"
+  | "observed_action"
+  | "repeated_reference";
+export type MemoryPrimitiveEdgeKind =
+  | "depends_on"
+  | "supports"
+  | "contradicts"
+  | "serves_goal"
+  | "answers"
+  | "derived_from"
+  | "qualifies"
+  | "revises";
+export type MemoryPrimitiveEdgeStatus = "active" | "retracted";
+export type ContextRetrievalOverrideTarget =
+  | "memory_primitive"
+  | "account_memory"
+  | "context_source";
+export type ContextRetrievalOverrideDirective = "exclude" | "demote";
+export type ReasonTraceKind =
+  | "answer"
+  | "priority_recommendation"
+  | "next_move_recommendation"
+  | "schedule_recommendation"
+  | "tool_selection"
+  | "workflow_step";
+export type ReasonTraceStatus = "complete" | "partial" | "failed";
 export type AccountMemoryCategory =
   | "identity"
   | "role"
@@ -338,6 +416,19 @@ export interface MemoryPrimitive {
   body: string | null;
   status: MemoryPrimitiveStatus;
   conviction: number;
+  extraction_mode: MemoryPrimitiveExtractionMode;
+  conviction_posture: ConvictionPosture;
+  conviction_factors: ConvictionFactor[];
+  conviction_version: string;
+  valid_from: string;
+  valid_to: string | null;
+  last_confirmed_at: string | null;
+  sensitivity_label: MemorySensitivityLabel;
+  supersedes_primitive_id: string | null;
+  superseded_by_primitive_id: string | null;
+  external_graph_id: string | null;
+  updated_by_actor_id: string | null;
+  schema_version: number;
   metadata: Record<string, unknown>;
   source_post_id: string | null;
   source_label: string | null;
@@ -346,6 +437,74 @@ export interface MemoryPrimitive {
   created_at: string;
   updated_at: string;
   created_by_actor?: Pick<Actor, "id" | "name" | "kind"> | null;
+}
+
+export interface MemoryPrimitiveEvidence {
+  id: string;
+  instance_id: string;
+  memory_primitive_id: string;
+  relation: MemoryPrimitiveEvidenceRelation;
+  source_kind: string;
+  source_app: SourceApp | null;
+  source_node_id: string | null;
+  source_post_id: string | null;
+  source_message_id: string | null;
+  context_chunk_id: string | null;
+  excerpt: string | null;
+  source_span: Record<string, unknown>;
+  actor_id: string | null;
+  observed_at: string | null;
+  human_signal: MemoryHumanSignal;
+  authority_snapshot: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryPrimitiveEdge {
+  id: string;
+  instance_id: string;
+  from_primitive_id: string;
+  to_primitive_id: string;
+  relationship_kind: MemoryPrimitiveEdgeKind;
+  status: MemoryPrimitiveEdgeStatus;
+  valid_from: string;
+  valid_to: string | null;
+  derivation_metadata: Record<string, unknown>;
+  created_by_actor_id: string | null;
+  updated_by_actor_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContextRetrievalOverride {
+  id: string;
+  instance_id: string;
+  thread_id: string;
+  target_type: ContextRetrievalOverrideTarget;
+  target_id: string;
+  directive: ContextRetrievalOverrideDirective;
+  user_reason: string | null;
+  created_by_actor_id: string | null;
+  cleared_by_actor_id: string | null;
+  cleared_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReasonTraceRecord<TSnapshot = Record<string, unknown>> {
+  id: string;
+  instance_id: string;
+  thread_id: string;
+  trace_kind: ReasonTraceKind;
+  subject_type: string;
+  subject_id: string;
+  agent_run_id: string | null;
+  status: ReasonTraceStatus;
+  schema_version: number;
+  snapshot: TSnapshot;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AccountMemoryRecord {
@@ -463,6 +622,7 @@ export interface AgentRun {
   error: string | null;
   plan_body: string | null;
   confirmation_post_id: string | null;
+  response_post_id: string | null;
   prompt_manifest: Record<string, unknown>;
   metadata: Record<string, unknown>;
   created_at: string;

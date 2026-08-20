@@ -1,0 +1,26 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const sql = readFileSync(
+  new URL(
+    "../../supabase/migrations/0034_working_model_reason_traces.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+
+assert.match(sql, /create table if not exists memory_primitive_evidence/i);
+assert.match(sql, /create table if not exists memory_primitive_edges/i);
+assert.match(sql, /create table if not exists context_retrieval_overrides/i);
+assert.match(sql, /create table if not exists reason_traces/i);
+assert.match(
+  sql,
+  /response_post_id\s+uuid\s+references posts\(id\) on delete set null/i
+);
+assert.match(
+  sql,
+  /create unique index[\s\S]+context_retrieval_overrides[\s\S]+where cleared_at is null/i
+);
+assert.match(sql, /raise exception 'reason traces are immutable'/i);
+assert.match(sql, /raise exception 'memory evidence is append-only'/i);
+assert.match(sql, /alter table reason_traces enable row level security/i);
