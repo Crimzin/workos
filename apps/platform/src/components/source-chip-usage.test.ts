@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const filesExpectedToUseSourceChip = [
   "src/components/sidebar.tsx",
   "src/components/post-item.tsx",
-  "src/components/thread/context-panel.tsx",
+  "src/components/thread/working-model-panel.tsx",
   "src/components/thread/context-event.tsx",
   "src/components/settings/sources-settings.tsx",
   "src/components/post-editor.tsx",
