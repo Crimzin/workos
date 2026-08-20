@@ -202,7 +202,11 @@ export function parsePostTurnAnalysis(
         const humanSignal = sourceSpan
           ? validateGroundedHumanSignal(
               normalizeHumanSignal(value.human_signal),
-              sourceSpan.text,
+              containingSentence(
+                options.userText,
+                sourceSpan.start,
+                sourceSpan.end
+              ),
               statement
             )
           : "none";
@@ -491,6 +495,25 @@ function validateGroundedHumanSignal(
   }
   if (signal === "repeated_reference") return "none";
   return signal;
+}
+
+function containingSentence(
+  userText: string,
+  spanStart: number,
+  spanEnd: number
+): string {
+  const text = cleanStatement(userText);
+  const boundaryBefore = Math.max(
+    text.lastIndexOf(".", Math.max(0, spanStart - 1)),
+    text.lastIndexOf("?", Math.max(0, spanStart - 1)),
+    text.lastIndexOf("!", Math.max(0, spanStart - 1))
+  );
+  const boundariesAfter = [".", "?", "!"]
+    .map((boundary) => text.indexOf(boundary, spanEnd))
+    .filter((index) => index >= 0);
+  const boundaryAfter =
+    boundariesAfter.length > 0 ? Math.min(...boundariesAfter) + 1 : text.length;
+  return text.slice(boundaryBefore + 1, boundaryAfter).trim();
 }
 
 function hasNegation(value: string): boolean {
