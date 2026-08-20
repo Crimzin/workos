@@ -105,6 +105,10 @@ export interface AnswerTraceSummary {
   createdAt: string;
   summary: string;
   hasWarnings: boolean;
+  evidenceSummary: string;
+  snapshot: AnswerReasonTraceSnapshotV1;
+  changedClaims: Array<{ claimId: string; diff: ClaimSnapshotDiff }>;
+  responseEdited: boolean;
 }
 
 export interface ReasonTraceView {
@@ -119,6 +123,43 @@ export interface ReasonTraceView {
 export interface PostTurnClaimInsert {
   claim: Record<string, unknown>;
   evidence: Record<string, unknown>;
+}
+
+export function buildAnswerTraceSummaryView(input: {
+  id: string;
+  status: ReasonTraceRecord["status"];
+  createdAt: string;
+  snapshot: AnswerReasonTraceSnapshotV1;
+  currentResponseBody: string;
+  liveClaims: MemoryPrimitive[];
+}): AnswerTraceSummary {
+  const liveById = new Map(input.liveClaims.map((claim) => [claim.id, claim]));
+  const changedClaims = input.snapshot.working_model.claims.flatMap((claim) => {
+    const live = liveById.get(claim.id);
+    const diff = diffClaimSnapshot(
+      comparableSnapshot(claim),
+      live ? comparableLiveClaim(live) : null
+    );
+    return diff ? [{ claimId: claim.id, diff }] : [];
+  });
+
+  return {
+    id: input.id,
+    postId: input.snapshot.subject.id,
+    status: input.status,
+    createdAt: input.createdAt,
+    summary: input.snapshot.answer.summary,
+    hasWarnings: input.snapshot.warnings.length > 0,
+    evidenceSummary: summarizeEvidenceProvenance(
+      input.snapshot.evidence.map((item) => ({ ...item, accessible: true }))
+    ),
+    snapshot: input.snapshot,
+    changedClaims,
+    responseEdited: hasResponseChangedSinceTrace(
+      input.currentResponseBody,
+      input.snapshot
+    ),
+  };
 }
 
 type WorkingModelGroupDefinition = {
@@ -489,20 +530,45 @@ export async function getThreadAnswerTraces(
         throw error;
       }
 
-      return (data ?? []).flatMap((row): AnswerTraceSummary[] => {
+      const parsedRows = (data ?? []).flatMap((row) => {
         const snapshot = parseAnswerTraceSnapshot(row.snapshot);
         if (!snapshot) return [];
-        return [
-          {
-            id: String(row.id),
-            postId: String(row.subject_id),
-            status: row.status as ReasonTraceRecord["status"],
-            createdAt: String(row.created_at),
-            summary: snapshot.answer.summary,
-            hasWarnings: snapshot.warnings.length > 0,
-          },
-        ];
+        return [{ row, snapshot }];
       });
+      if (parsedRows.length === 0) return [];
+
+      const postIds = parsedRows.map(({ snapshot }) => snapshot.subject.id);
+      const claimIds = unique(
+        parsedRows.flatMap(({ snapshot }) =>
+          snapshot.working_model.claims.map((claim) => claim.id)
+        )
+      );
+      const [postResult, liveResult] = await Promise.all([
+        supabase.from("posts").select("id,body").in("id", postIds),
+        claimIds.length > 0
+          ? supabase.from("memory_primitives").select("*").in("id", claimIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (postResult.error) throw postResult.error;
+      if (liveResult.error) throw liveResult.error;
+
+      const bodyByPostId = new Map(
+        (postResult.data ?? []).map((post) => [
+          String(post.id),
+          typeof post.body === "string" ? post.body : "",
+        ])
+      );
+      const liveClaims = (liveResult.data ?? []) as MemoryPrimitive[];
+      return parsedRows.map(({ row, snapshot }) =>
+        buildAnswerTraceSummaryView({
+          id: String(row.id),
+          status: row.status as ReasonTraceRecord["status"],
+          createdAt: String(row.created_at),
+          snapshot,
+          currentResponseBody: bodyByPostId.get(snapshot.subject.id) ?? "",
+          liveClaims,
+        })
+      );
     },
     ["thread-answer-traces", threadId],
     { tags: [cacheTags.answerTraces(threadId)], revalidate: false }
@@ -546,47 +612,23 @@ export async function getReasonTraceForPost(
       if (liveResult.error) throw liveResult.error;
       if (postResult.error) throw postResult.error;
 
-      const liveById = new Map(
-        ((liveResult.data ?? []) as MemoryPrimitive[]).map((claim) => [
-          claim.id,
-          claim,
-        ])
-      );
-      const changedClaims = snapshot.working_model.claims.flatMap((claim) => {
-        const live = liveById.get(claim.id);
-        const diff = diffClaimSnapshot(
-          {
-            id: claim.id,
-            statement: claim.statement,
-            status: claim.status,
-            posture: claim.posture,
-            superseded_by_primitive_id: claim.superseded_by_primitive_id,
-            updated_at: claim.updated_at,
-          },
-          live
-            ? {
-                id: live.id,
-                statement: live.statement,
-                status: normalizeLifecycle(live.status),
-                posture: normalizePosture(live),
-                superseded_by_primitive_id:
-                  live.superseded_by_primitive_id ?? null,
-                updated_at: live.updated_at,
-              }
-            : null
-        );
-        return diff ? [{ claimId: claim.id, diff }] : [];
-      });
-
       const body =
         typeof postResult.data?.body === "string" ? postResult.data.body : "";
+      const summary = buildAnswerTraceSummaryView({
+        id: record.id,
+        status: record.status,
+        createdAt: record.created_at,
+        snapshot,
+        currentResponseBody: body,
+        liveClaims: (liveResult.data ?? []) as MemoryPrimitive[],
+      });
       return {
         id: record.id,
         status: record.status,
         createdAt: record.created_at,
         snapshot,
-        changedClaims,
-        responseEdited: hasResponseChangedSinceTrace(body, snapshot),
+        changedClaims: summary.changedClaims,
+        responseEdited: summary.responseEdited,
       };
     },
     ["reason-trace-post", postId],
@@ -702,6 +744,34 @@ function normalizeLifecycle(status: string): MemoryPrimitiveLifecycle {
   return "tentative";
 }
 
+function comparableSnapshot(
+  claim: AnswerReasonTraceSnapshotV1["working_model"]["claims"][number]
+) {
+  return {
+    id: claim.id,
+    statement: claim.statement,
+    status: claim.status,
+    posture: claim.posture,
+    superseded_by_primitive_id: claim.superseded_by_primitive_id,
+    updated_at: claim.updated_at,
+  };
+}
+
+function comparableLiveClaim(claim: MemoryPrimitive) {
+  return {
+    id: claim.id,
+    statement: claim.statement,
+    status: normalizeLifecycle(claim.status),
+    posture: normalizePosture(claim),
+    superseded_by_primitive_id: claim.superseded_by_primitive_id ?? null,
+    updated_at: claim.updated_at,
+    change_reason:
+      typeof claim.metadata.correction_reason === "string"
+        ? claim.metadata.correction_reason
+        : null,
+  };
+}
+
 function isLiveLifecycle(status: MemoryPrimitiveLifecycle): boolean {
   return status === "active" || status === "tentative";
 }
@@ -795,6 +865,10 @@ function isMissingWorkingModelRelationError(error: unknown): boolean {
 
 function normalizeStatement(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function convictionFactorCodeForHumanSignal(

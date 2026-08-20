@@ -79,3 +79,7 @@ assert.match(
   /overscroll-contain/,
   "right context panel should not chain scroll into the main chat area"
 );
+
+assert.match(contextPanel, />\s*Working model\s*</);
+assert.match(contextPanel, /<WorkingModelPanel/);
+assert.match(threadSurface, /answerTracePostIds=/);

@@ -75,11 +75,13 @@ assert.deepEqual(
     status: "superseded",
     posture: "flag",
     superseded_by_primitive_id: "claim-2",
+    change_reason: "The earlier wording overstated the decision.",
     updated_at: "2026-08-20T10:00:00.000Z",
   }),
   {
     changed: true,
     changed_at: "2026-08-20T10:00:00.000Z",
+    reason: "The earlier wording overstated the decision.",
     fields: ["statement", "status", "posture", "supersession"],
     previous: unchanged,
     current: {
@@ -88,6 +90,7 @@ assert.deepEqual(
       status: "superseded",
       posture: "flag",
       superseded_by_primitive_id: "claim-2",
+      change_reason: "The earlier wording overstated the decision.",
       updated_at: "2026-08-20T10:00:00.000Z",
     },
   }

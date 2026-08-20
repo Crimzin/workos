@@ -36,6 +36,8 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
     agentProviders,
     activeInlineRuns,
     contextAttachments,
+    workingModel,
+    answerTraces,
   } = data;
   const {
     node,
@@ -82,6 +84,7 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
       inlineClaudeEnabled={inlineClaudeEnabled}
       agentProviders={agentProviders}
       initialActiveInlineRuns={activeInlineRuns}
+      answerTracePostIds={answerTraces.map((trace) => trace.postId)}
     />
   );
 
@@ -138,6 +141,10 @@ export async function ThreadSurface({ nodeId }: { nodeId: string }) {
         />
       </div>
       <ContextPanel
+        threadId={node.id}
+        workspaceId={workspaceId}
+        workingModel={workingModel}
+        answerTraces={answerTraces}
         attachments={contextAttachments}
         fieldsContent={fieldsContent}
         memoryContent={memoryContent}

@@ -24,3 +24,9 @@ assert.match(
 assert.match(sql, /raise exception 'reason traces are immutable'/i);
 assert.match(sql, /raise exception 'memory evidence is append-only'/i);
 assert.match(sql, /alter table reason_traces enable row level security/i);
+assert.match(sql, /create or replace function rpc_correct_memory_primitive/i);
+assert.match(sql, /human_signal[\s\S]+explicit_correction/i);
+assert.match(sql, /relationship_kind[\s\S]+revises/i);
+assert.match(sql, /status = 'superseded'/i);
+assert.match(sql, /status = 'retracted'/i);
+assert.match(sql, /invalid_upstream_assumption/i);

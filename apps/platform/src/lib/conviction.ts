@@ -24,11 +24,13 @@ export interface ComparableClaimSnapshot {
   posture: ConvictionPosture;
   superseded_by_primitive_id: string | null;
   updated_at: string;
+  change_reason?: string | null;
 }
 
 export interface ClaimSnapshotDiff {
   changed: true;
   changed_at: string | null;
+  reason: string | null;
   fields: Array<
     "statement" | "status" | "posture" | "supersession" | "unavailable"
   >;
@@ -74,6 +76,7 @@ export function diffClaimSnapshot(
     return {
       changed: true,
       changed_at: null,
+      reason: null,
       fields: ["unavailable"],
       previous: snapshot,
       current: null,
@@ -94,6 +97,7 @@ export function diffClaimSnapshot(
   return {
     changed: true,
     changed_at: live.updated_at,
+    reason: live.change_reason ?? null,
     fields,
     previous: snapshot,
     current: live,

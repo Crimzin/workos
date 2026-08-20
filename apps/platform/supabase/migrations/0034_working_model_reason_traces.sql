@@ -237,6 +237,220 @@ create index if not exists agent_runs_response_post_idx
   on agent_runs(response_post_id)
   where response_post_id is not null;
 
+create or replace function rpc_correct_memory_primitive(
+  p_claim_id uuid,
+  p_actor_id uuid,
+  p_replacement_statement text default null,
+  p_reason text default null
+)
+returns table (
+  old_claim_id uuid,
+  replacement_claim_id uuid,
+  thread_id uuid,
+  instance_id uuid
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_old memory_primitives%rowtype;
+  v_replacement_id uuid;
+  v_now timestamptz := now();
+  v_reason text := nullif(trim(p_reason), '');
+  v_replacement text := nullif(trim(p_replacement_statement), '');
+  v_correction_factor jsonb;
+begin
+  if v_reason is null then
+    raise exception 'A correction reason is required';
+  end if;
+
+  select mp.*
+    into v_old
+    from memory_primitives mp
+    where mp.id = p_claim_id
+    for update;
+
+  if not found then
+    raise exception 'Working model claim not found';
+  end if;
+
+  if not exists (
+    select 1
+    from actors a
+    where a.id = p_actor_id
+      and a.instance_id = v_old.instance_id
+  ) then
+    raise exception 'Correction actor does not belong to this instance';
+  end if;
+
+  if v_old.status in ('superseded', 'retracted', 'invalidated', 'reversed') then
+    raise exception 'This belief has already changed';
+  end if;
+
+  if v_replacement is not null and v_replacement = trim(v_old.statement) then
+    raise exception 'The replacement must change the belief';
+  end if;
+
+  if v_replacement is not null and v_old.type = 'rationale' then
+    raise exception 'Legacy rationale beliefs can be retracted but not replaced';
+  end if;
+
+  v_correction_factor := jsonb_build_object(
+    'code', 'explicit_human_correction',
+    'direction', 'supports',
+    'explanation', 'A person explicitly corrected the earlier belief.',
+    'evidence_refs', '[]'::jsonb
+  );
+
+  if v_replacement is not null then
+    insert into memory_primitives (
+      instance_id,
+      node_id,
+      type,
+      statement,
+      body,
+      status,
+      conviction,
+      metadata,
+      source_post_id,
+      source_label,
+      created_by_actor_id,
+      extraction_mode,
+      conviction_posture,
+      conviction_factors,
+      conviction_version,
+      valid_from,
+      last_confirmed_at,
+      sensitivity_label,
+      supersedes_primitive_id,
+      updated_by_actor_id,
+      schema_version
+    ) values (
+      v_old.instance_id,
+      v_old.node_id,
+      v_old.type,
+      v_replacement,
+      v_old.body,
+      'active',
+      1.00,
+      coalesce(v_old.metadata, '{}'::jsonb) || jsonb_build_object(
+        'corrected_from_primitive_id', v_old.id,
+        'correction_reason', v_reason
+      ),
+      v_old.source_post_id,
+      'Explicit user correction',
+      p_actor_id,
+      'explicit',
+      'assert',
+      jsonb_build_array(v_correction_factor),
+      'working-model-v1',
+      v_now,
+      v_now,
+      v_old.sensitivity_label,
+      v_old.id,
+      p_actor_id,
+      greatest(v_old.schema_version, 1)
+    )
+    returning id into v_replacement_id;
+
+    update memory_primitives
+      set status = 'superseded',
+          valid_to = v_now,
+          superseded_by_primitive_id = v_replacement_id,
+          updated_by_actor_id = p_actor_id,
+          metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+            'correction_reason', v_reason
+          )
+      where id = v_old.id;
+
+    insert into memory_primitive_edges (
+      instance_id,
+      from_primitive_id,
+      to_primitive_id,
+      relationship_kind,
+      derivation_metadata,
+      created_by_actor_id
+    ) values (
+      v_old.instance_id,
+      v_replacement_id,
+      v_old.id,
+      'revises',
+      jsonb_build_object('reason', v_reason, 'human_signal', 'explicit_correction'),
+      p_actor_id
+    );
+  else
+    update memory_primitives
+      set status = 'retracted',
+          valid_to = v_now,
+          updated_by_actor_id = p_actor_id,
+          metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+            'correction_reason', v_reason
+          )
+      where id = v_old.id;
+  end if;
+
+  insert into memory_primitive_evidence (
+    instance_id,
+    memory_primitive_id,
+    relation,
+    source_kind,
+    source_app,
+    source_node_id,
+    excerpt,
+    actor_id,
+    observed_at,
+    human_signal,
+    authority_snapshot,
+    metadata
+  ) values (
+    v_old.instance_id,
+    coalesce(v_replacement_id, v_old.id),
+    'corrects',
+    'user_correction',
+    'workos',
+    v_old.node_id,
+    left(v_reason, 280),
+    p_actor_id,
+    v_now,
+    'explicit_correction',
+    jsonb_build_object('actor_id', p_actor_id, 'source', 'working_model_correction'),
+    jsonb_build_object('corrected_primitive_id', v_old.id)
+  );
+
+  update memory_primitives dependent
+    set conviction_posture = 'flag',
+        conviction = least(dependent.conviction, 0.59),
+        conviction_factors = coalesce(dependent.conviction_factors, '[]'::jsonb)
+          || jsonb_build_array(jsonb_build_object(
+            'code', 'invalid_upstream_assumption',
+            'direction', 'weakens',
+            'explanation', 'A belief this depended on was corrected.',
+            'evidence_refs', '[]'::jsonb
+          )),
+        updated_by_actor_id = p_actor_id
+    where dependent.id in (
+      select edge.from_primitive_id
+      from memory_primitive_edges edge
+      where edge.to_primitive_id = v_old.id
+        and edge.relationship_kind = 'depends_on'
+        and edge.status = 'active'
+    )
+      and dependent.status in ('active', 'tentative', 'validated', 'untested');
+
+  old_claim_id := v_old.id;
+  replacement_claim_id := v_replacement_id;
+  thread_id := v_old.node_id;
+  instance_id := v_old.instance_id;
+  return next;
+end;
+$$;
+
+revoke all on function rpc_correct_memory_primitive(uuid, uuid, text, text)
+  from public;
+grant execute on function rpc_correct_memory_primitive(uuid, uuid, text, text)
+  to service_role;
+
 create or replace function prevent_memory_evidence_mutation()
 returns trigger as $$
 begin

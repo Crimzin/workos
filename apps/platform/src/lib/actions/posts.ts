@@ -122,6 +122,25 @@ export async function pollActiveInlineAgentRuns(
   return getActiveInlineAgentRuns(nodeId);
 }
 
+export async function pollNodeAnswerTracePostIds(
+  nodeId: string
+): Promise<string[]> {
+  await getCurrentActor();
+  const { data, error } = await supabase
+    .from("reason_traces")
+    .select("subject_id")
+    .eq("thread_id", nodeId)
+    .eq("trace_kind", "answer")
+    .eq("subject_type", "post")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    if (isMissingReasonTracesError(error)) return [];
+    throw error;
+  }
+  return (data ?? []).map((row) => String(row.subject_id));
+}
+
 /** Cadence at which we flush the accumulated streaming text to Supabase
  *  during an agent reply. Balances perceived latency against DB write rate.
  *  At 400ms + the client's 750ms poll cadence the user sees new text every
@@ -1121,6 +1140,18 @@ function isMissingContextRetrievalOverridesError(error: unknown): boolean {
     code === "PGRST205" ||
     code === "42P01" ||
     /context_retrieval_overrides/i.test(message)
+  );
+}
+
+function isMissingReasonTracesError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const code = typeof error.code === "string" ? error.code : "";
+  const message = typeof error.message === "string" ? error.message : "";
+  return (
+    code === "PGRST204" ||
+    code === "PGRST205" ||
+    code === "42P01" ||
+    /reason_traces/i.test(message)
   );
 }
 

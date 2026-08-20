@@ -9,6 +9,7 @@ import type { PostRecord } from "@/lib/posts";
 import {
   createPost,
   pollActiveInlineAgentRuns,
+  pollNodeAnswerTracePostIds,
   pollNodePosts,
 } from "@/lib/actions/posts";
 import { findAgentMentions } from "@/lib/agents/mention-detection";
@@ -25,6 +26,11 @@ import {
   getNextComposerCompactState,
 } from "@/lib/composer-resize";
 import { orderPostsForThread } from "@/lib/post-order";
+import {
+  REASON_TRACE_SELECTION_EVENT,
+  reasonTracePostIdFromEvent,
+  selectReasonTrace,
+} from "@/lib/reason-trace-selection";
 import type { AgentProviderSetting } from "@/lib/types";
 import {
   buildOptimisticUserPost,
@@ -63,6 +69,7 @@ const POLL_INITIAL_DURATION_MS = 90_000;
  */
 const POLL_IDLE_EXTENSION_MS = 15_000;
 const COMPOSER_REVEAL_GRACE_MS = 250;
+const EMPTY_ANSWER_TRACE_POST_IDS: string[] = [];
 
 interface PostsTabContentProps {
   nodeId: string;
@@ -74,6 +81,7 @@ interface PostsTabContentProps {
   actors: ActorForMention[];
   inlineClaudeEnabled: boolean;
   agentProviders: AgentProviderSetting[];
+  answerTracePostIds?: string[];
 }
 
 /** True when the document has only a single empty paragraph (nothing typed). */
@@ -97,12 +105,19 @@ export function PostsTabContent({
   actors,
   inlineClaudeEnabled,
   agentProviders,
+  answerTracePostIds = EMPTY_ANSWER_TRACE_POST_IDS,
 }: PostsTabContentProps) {
   const [posts, setPosts] = useState<PostRecord[]>(initialPosts);
   const [activeInlineRuns, setActiveInlineRuns] = useState<InlineClaudeActiveRun[]>(
     initialActiveInlineRuns
   );
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+  const [selectedReasonTracePostId, setSelectedReasonTracePostId] = useState<
+    string | null
+  >(null);
+  const [availableAnswerTracePostIds, setAvailableAnswerTracePostIds] = useState(
+    answerTracePostIds
+  );
   const [hasContent, setHasContent] = useState(false);
   const [pending, startTransition] = useTransition();
   const [composerHeight, setComposerHeight] = useState<number | null>(null);
@@ -185,6 +200,10 @@ export function PostsTabContent({
     selectedResponder && modelSelection?.providerKey === selectedResponder.providerKey
       ? modelSelection
       : selectedDefaultModel;
+  const answerTracePostIdSet = useMemo(
+    () => new Set(availableAnswerTracePostIds),
+    [availableAnswerTracePostIds]
+  );
 
   // Keep local posts in sync when server passes fresh data (after router.refresh()).
   useEffect(() => {
@@ -196,6 +215,20 @@ export function PostsTabContent({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveInlineRuns(initialActiveInlineRuns);
   }, [initialActiveInlineRuns]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAvailableAnswerTracePostIds(answerTracePostIds);
+  }, [answerTracePostIds]);
+
+  useEffect(() => {
+    const handleSelection = (event: Event) => {
+      setSelectedReasonTracePostId(reasonTracePostIdFromEvent(event));
+    };
+    window.addEventListener(REASON_TRACE_SELECTION_EVENT, handleSelection);
+    return () =>
+      window.removeEventListener(REASON_TRACE_SELECTION_EVENT, handleSelection);
+  }, []);
 
   // 1.11 Inline AI streaming poll loop. Runs while `isPolling` is true.
   // Bypasses `router.refresh()` (which goes through unstable_cache and is
@@ -230,13 +263,25 @@ export function PostsTabContent({
         return;
       }
       try {
-        const [fresh, freshActiveInlineRuns] = await Promise.all([
+        const [fresh, freshActiveInlineRuns, freshTracePostIds] = await Promise.all([
           pollNodePosts(nodeId),
           pollActiveInlineAgentRuns(nodeId),
+          pollNodeAnswerTracePostIds(nodeId),
         ]);
         if (cancelled) return;
         setPosts(fresh);
         setActiveInlineRuns(freshActiveInlineRuns);
+        setAvailableAnswerTracePostIds((previous) => {
+          const next = [...new Set(freshTracePostIds)];
+          const changed =
+            next.length !== previous.length ||
+            next.some((postId, index) => postId !== previous[index]);
+          if (!changed) return previous;
+          if (next.some((postId) => !previous.includes(postId))) {
+            window.setTimeout(() => router.refresh(), 0);
+          }
+          return next;
+        });
 
         // Did any agent post grow since the last poll? If so, extend the
         // deadline so the next chunk has time to land. We only count GROWTH
@@ -269,7 +314,7 @@ export function PostsTabContent({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [isPolling, nodeId]);
+  }, [isPolling, nodeId, router]);
 
   // Safety timeout for the THINKING INDICATOR ONLY. If Claude never replies
   // (network failure, etc.) we hide the indicator after the full timeout.
@@ -536,6 +581,9 @@ export function PostsTabContent({
                   onDelete={handleDelete}
                   onUpdate={handleUpdate}
                   onReactionUpdate={handleReactionUpdate}
+                  hasReasonTrace={answerTracePostIdSet.has(post.id)}
+                  selectedForReasonTrace={selectedReasonTracePostId === post.id}
+                  onOpenReasonTrace={(postId) => selectReasonTrace(postId)}
                 />
                 {idx === orderedVisiblePosts.length - 1 &&
                   inlineClaudeIndicatorRows.length > 0 &&

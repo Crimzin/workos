@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { orderPostsForThread } from "../lib/post-order";
 import type { PostRecord } from "../lib/posts";
 import {
@@ -180,3 +181,27 @@ assert.deepEqual(
   }),
   []
 );
+
+const postsTabSource = readFileSync(
+  new URL("./posts-tab-content.tsx", import.meta.url),
+  "utf8"
+);
+const postItemSource = readFileSync(
+  new URL("./post-item.tsx", import.meta.url),
+  "utf8"
+);
+const postActionsSource = readFileSync(
+  new URL("../lib/actions/posts.ts", import.meta.url),
+  "utf8"
+);
+
+assert.match(postsTabSource, /answerTracePostIds/);
+assert.match(postsTabSource, /pollNodeAnswerTracePostIds/);
+assert.match(postsTabSource, /setAvailableAnswerTracePostIds/);
+assert.match(postActionsSource, /export async function pollNodeAnswerTracePostIds/);
+assert.match(postsTabSource, /selectedForReasonTrace/);
+assert.match(postItemSource, /Why this answer/);
+assert.match(postItemSource, /onDoubleClick/);
+assert.match(postItemSource, /onOpenReasonTrace\?\.\(post\.id\)/);
+assert.match(postItemSource, /group-focus-within:opacity-100/);
+assert.match(postItemSource, /bg-accent\/5/);

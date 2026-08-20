@@ -8,6 +8,7 @@ import {
   Clipboard,
   FileDown,
   FileText,
+  MessageCircleQuestion,
   Pin,
   Pencil,
   SmilePlus,
@@ -55,6 +56,9 @@ interface PostItemProps {
   onDelete?: (postId: string) => void;
   onUpdate?: (postId: string, newBody: string) => void;
   onReactionUpdate?: (postId: string, reactions: PostReactionSummary[]) => void;
+  hasReasonTrace?: boolean;
+  selectedForReasonTrace?: boolean;
+  onOpenReasonTrace?: (postId: string) => void;
 }
 
 export function PostItem({
@@ -66,6 +70,9 @@ export function PostItem({
   onDelete,
   onUpdate,
   onReactionUpdate,
+  hasReasonTrace = false,
+  selectedForReasonTrace = false,
+  onOpenReasonTrace,
 }: PostItemProps) {
   const [localPinned, setLocalPinned] = useState(post.pinned);
   const [editing, setEditing] = useState(false);
@@ -162,6 +169,7 @@ export function PostItem({
     .slice(0, 2)
     .toUpperCase();
   const isAgent = post.actor?.kind === "agent";
+  const canOpenReasonTrace = isAgent && !isActivity && hasReasonTrace;
   const initialContent = parsePostBody(post.body);
   const canExportPdf = canExportPostToPdf(post);
   const absoluteCreatedAt = formatAbsoluteDateTime(post.created_at);
@@ -169,7 +177,23 @@ export function PostItem({
   return (
     <div
       id={messageAnchorId(post.id)}
-      className="group relative scroll-mt-16 px-5 py-3 hover:bg-bg-hover/40 transition-colors"
+      tabIndex={canOpenReasonTrace ? 0 : undefined}
+      aria-label={canOpenReasonTrace ? `${actorName} response` : undefined}
+      data-reason-trace-selected={selectedForReasonTrace || undefined}
+      onDoubleClick={(event) => {
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest("button, a, input, textarea, [contenteditable='true']")
+        ) {
+          return;
+        }
+        if (canOpenReasonTrace) onOpenReasonTrace?.(post.id);
+      }}
+      className={[
+        "group relative scroll-mt-16 px-5 py-3 transition-colors hover:bg-bg-hover/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+        selectedForReasonTrace ? "bg-accent/5 ring-1 ring-inset ring-accent/20" : "",
+      ].join(" ")}
     >
       {/* Pin decoration */}
       {localPinned && (
@@ -235,12 +259,24 @@ export function PostItem({
       {!editing && !confirmDelete && (
         <div
           className={[
-            "absolute right-4 bottom-2.5 flex items-center gap-0.5 transition-opacity",
+            "absolute right-4 bottom-2.5 flex items-center gap-0.5 transition-opacity group-focus-within:opacity-100",
             !isActivity && post.reactions.length > 0
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100",
           ].join(" ")}
         >
+          {canOpenReasonTrace && (
+            <button
+              type="button"
+              aria-pressed={selectedForReasonTrace}
+              onClick={() => onOpenReasonTrace?.(post.id)}
+              title="Why this answer"
+              className="mr-1 inline-flex h-6 items-center gap-1 rounded-md border border-border bg-bg-card px-2 text-[11px] font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <MessageCircleQuestion size={12} />
+              Why this answer
+            </button>
+          )}
           {!isActivity &&
             post.reactions.map((reaction) => (
               <button

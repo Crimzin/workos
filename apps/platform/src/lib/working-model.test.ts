@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildAnswerTraceSummaryView,
   buildThreadWorkingModelView,
   buildPostTurnClaimInsert,
   workingModelClaimsForManifest,
@@ -11,6 +12,7 @@ import type {
   MemoryPrimitiveEdge,
   MemoryPrimitiveType,
 } from "./types.ts";
+import type { AnswerReasonTraceSnapshotV1 } from "./reason-traces.ts";
 
 function primitive(
   id: string,
@@ -254,3 +256,85 @@ assert.deepEqual(
   ["goal-1", "decision-1", "constraint-1", "signal-1"],
   "thread-local exclusions must not be rendered into the prompt manifest"
 );
+
+const historicalSnapshot: AnswerReasonTraceSnapshotV1 = {
+  schema_version: 1,
+  trace_kind: "answer",
+  generated_at: "2026-08-19T12:00:00.000Z",
+  subject: {
+    type: "post",
+    id: "response-1",
+    thread_id: "thread-1",
+    content_hash:
+      "sha256:5ce1f2f0e164a3cfb2f975fdbb4633887e8e9a9d2d19a15fb0ab6f2a9f4b1026",
+  },
+  request: {
+    trigger_post_id: "trigger-1",
+    resolved_query: "What should we ship?",
+    task_type: "inline thread response",
+    turn_resolution: {
+      should_retrieve: true,
+      confidence: 0.93,
+      reason: "The request depends on prior decisions.",
+    },
+  },
+  answer: {
+    summary: "Ship the read-only panel first.",
+    anchors: [],
+  },
+  working_model: {
+    thread_sheet_id: null,
+    thread_sheet_updated_at: null,
+    thread_sheet_hash: null,
+    claims: [
+      {
+        id: "decision-1",
+        kind: "decision",
+        statement: "Ship the read-only panel first.",
+        body: null,
+        status: "active",
+        posture: "assert",
+        cached_score: 0.9,
+        factors: [],
+        evidence_refs: ["evidence-1"],
+        superseded_by_primitive_id: null,
+        updated_at: "2026-08-19T10:00:00.000Z",
+      },
+    ],
+  },
+  retrieval: {
+    budget_chars: 4000,
+    estimated_prompt_chars: 2600,
+    included: [{ id: "thread-source-1", reason: "Directly relevant." }],
+    omitted: [],
+    overrides_applied: [],
+    warnings: [],
+  },
+  evidence: [],
+  runtime: {
+    agent_run_id: "run-1",
+    provider_key: "inline_claude",
+    model_key: "claude-sonnet-4-5",
+    request_id: null,
+    router_version: "context-router-v2",
+    extractor_version: "thread-context-v2",
+  },
+  warnings: [],
+};
+
+const preparedTrace = buildAnswerTraceSummaryView({
+  id: "trace-1",
+  status: "complete",
+  createdAt: "2026-08-19T12:00:00.000Z",
+  snapshot: historicalSnapshot,
+  currentResponseBody: "The answer was edited.",
+  liveClaims: [
+    primitive("decision-1", "decision", "Ship trace inspection first.", {
+      updated_at: "2026-08-19T13:00:00.000Z",
+    }),
+  ],
+});
+assert.equal(preparedTrace.postId, "response-1");
+assert.equal(preparedTrace.responseEdited, true);
+assert.deepEqual(preparedTrace.changedClaims[0]?.diff.fields, ["statement"]);
+assert.equal(preparedTrace.snapshot, historicalSnapshot);
