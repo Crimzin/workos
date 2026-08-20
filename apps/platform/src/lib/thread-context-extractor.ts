@@ -464,7 +464,7 @@ function validateGroundedHumanSignal(
 ): MemoryHumanSignal {
   if (signal === "none") return "none";
   if (hasNegation(quote) !== hasNegation(claimStatement)) return "none";
-  if (/\?|\b(maybe|might|perhaps|considering|wonder|unsure|uncertain)\b/i.test(quote)) {
+  if (hasUncertaintyOrCondition(quote)) {
     return "none";
   }
 
@@ -494,7 +494,11 @@ function validateGroundedHumanSignal(
 }
 
 function hasNegation(value: string): boolean {
-  return /\b(no|not|never|cannot|can(?:'|’)t|do(?:es|id)?n(?:'|’)t|won(?:'|’)t|shouldn(?:'|’)t|isn(?:'|’)t|wasn(?:'|’)t|without)\b/i.test(
+  return /\b(no|not|never|cannot|without|neither|nor|can(?:'|’)t|won(?:'|’)t|wouldn(?:'|’)t|shouldn(?:'|’)t|couldn(?:'|’)t|don(?:'|’)t|doesn(?:'|’)t|didn(?:'|’)t|isn(?:'|’)t|aren(?:'|’)t|wasn(?:'|’)t|weren(?:'|’)t|haven(?:'|’)t|hasn(?:'|’)t|hadn(?:'|’)t|mustn(?:'|’)t|needn(?:'|’)t)\b/i.test(value);
+}
+
+function hasUncertaintyOrCondition(value: string): boolean {
+  return /\?|\b(maybe|may|might|could|can|would|should|perhaps|possibly|probably|likely|unlikely|tentatively|consider|considering|explore|exploring|wonder|wondering|unsure|uncertain|doubt|doubtful|guess|hope|expect|seem|seems|appear|appears|think|believe|if|unless|depending|assuming|provided|whether)\b/i.test(
     value
   );
 }

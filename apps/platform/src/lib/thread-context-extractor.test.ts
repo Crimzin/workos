@@ -230,6 +230,42 @@ assert.equal(negatedApproval.proposedClaims[0]?.origin, "assistant");
 assert.equal(negatedApproval.proposedClaims[0]?.human_signal, "none");
 assert.equal(negatedApproval.proposedClaims[0]?.status, "tentative");
 
+for (const ambiguousText of [
+  "We could launch Friday.",
+  "We may launch Friday.",
+  "I doubt we launch Friday.",
+  "I haven't approved launching Friday.",
+]) {
+  const ambiguousAuthority = parsePostTurnAnalysis(
+    JSON.stringify({
+      answer_anchors: [{ statement: "The launch remains tentative." }],
+      proposed_claims: [
+        {
+          kind: "decision",
+          statement: ambiguousText.includes("approved")
+            ? "I approved launching Friday."
+            : "We launch Friday.",
+          origin: "human",
+          human_signal: "explicit_statement",
+          source_quote: ambiguousText,
+        },
+      ],
+    }),
+    {
+      existingSheet,
+      allowedClaimIds: new Set(),
+      allowedEvidenceIds: new Set(),
+      userText: ambiguousText,
+    }
+  );
+  assert.equal(
+    ambiguousAuthority.proposedClaims[0]?.status,
+    "tentative",
+    `ambiguous human text must not become authoritative: ${ambiguousText}`
+  );
+  assert.equal(ambiguousAuthority.proposedClaims[0]?.human_signal, "none");
+}
+
 async function main() {
   const extracted = await extractThreadContextSheetPostTurnUpdate(
     {
