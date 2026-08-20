@@ -47,3 +47,6 @@ venv/
 
 # AiDex local code index (binary, not for version control)
 .aidex/
+
+# Local git worktrees
+.worktrees/
