@@ -309,4 +309,3 @@ Confirm all immediate acceptance criteria, user-facing naming, append-only histo
 - [ ] **Step 5: Inspect the final diff and working tree**
 
 Run: `git diff --check && git status --short && git diff --stat`
-
