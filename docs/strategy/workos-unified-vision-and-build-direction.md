@@ -4,6 +4,13 @@ Status: canonical strategic direction for the next build phase
 Date: June 2026
 Audience: Codex, Claude Code, and human collaborators building WorkOS
 
+> **August 2026 doctrine update:** Read
+> `docs/strategy/workos-opinionated-operating-partner-doctrine.md` first. It
+> supersedes this document's context/import-first product promise, chat-first
+> framing, and sequencing of Focus as a later layer. This document remains the
+> canonical inventory of the existing substrate and the unified one-product
+> architecture where it does not conflict with the newer doctrine.
+
 ## 0. Read This First
 
 We are no longer building four user-facing products.
@@ -17,7 +24,7 @@ We are building one product - WorkOS - with several internal capability layers:
 
 The user should not need to learn those internal names. They should experience one calm, powerful AI productivity tool that understands their work, keeps context flowing, helps them choose models, focuses their attention, and turns repeatable work into reusable workflows.
 
-This document revises the earlier June 2026 vision with the context of what is already built in the repo. It should be treated as the source of truth for near-term direction. Older roadmap and context docs still contain valuable detail, but where they imply separate products, board-first WorkOS, BrainShare as a standalone product, or Swarm/Finiti as separate brands, this document supersedes them.
+This document revises the earlier June 2026 vision with the context of what is already built in the repo. Within the scope retained by the August 2026 doctrine note above, it remains the source of truth for the existing substrate and unified architecture. Older roadmap and context docs still contain valuable detail, but where they imply separate products, board-first WorkOS, BrainShare as a standalone product, or Swarm/Finiti as separate brands, this document supersedes them.
 
 ## 1. What Is Already True In The Codebase
 
