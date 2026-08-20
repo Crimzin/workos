@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
   buildThreadWorkingModelView,
+  buildPostTurnClaimInsert,
+  workingModelClaimsForManifest,
   type WorkingModelEvidenceRow,
 } from "./working-model.ts";
 import type {
@@ -171,6 +173,58 @@ assert.deepEqual(
   ["aim", "decisions", "assumptions_constraints", "signals_standards"],
   "retracted/resolved claims and empty groups must not occupy the live panel"
 );
+
+const humanProposal = buildPostTurnClaimInsert({
+  instanceId: "instance-1",
+  threadId: "thread-1",
+  triggerPostId: "user-post-1",
+  responsePostId: "response-post-1",
+  requesterActorId: "human-1",
+  agentActorId: "agent-1",
+  now: "2026-08-19T14:00:00.000Z",
+  claim: {
+    kind: "decision",
+    statement: "Ship read-only inspection first.",
+    body: null,
+    origin: "human",
+    human_signal: "explicit_approval",
+    extraction_mode: "explicit",
+    status: "active",
+    posture: "assert",
+  },
+});
+assert.equal(humanProposal.claim.source_post_id, "user-post-1");
+assert.equal(humanProposal.claim.created_by_actor_id, "human-1");
+assert.equal(humanProposal.evidence.human_signal, "explicit_approval");
+assert.equal(humanProposal.claim.conviction_posture, "assert");
+assert.equal(
+  (humanProposal.claim.conviction_factors as Array<{ code: string }>)[0]?.code,
+  "explicit_human_confirmation"
+);
+
+const assistantProposal = buildPostTurnClaimInsert({
+  instanceId: "instance-1",
+  threadId: "thread-1",
+  triggerPostId: "user-post-1",
+  responsePostId: "response-post-1",
+  requesterActorId: "human-1",
+  agentActorId: "agent-1",
+  now: "2026-08-19T14:00:00.000Z",
+  claim: {
+    kind: "idea",
+    statement: "Try a graph visualization.",
+    body: null,
+    origin: "assistant",
+    human_signal: "none",
+    extraction_mode: "synthesized",
+    status: "tentative",
+    posture: "ask",
+  },
+});
+assert.equal(assistantProposal.claim.source_post_id, "response-post-1");
+assert.equal(assistantProposal.claim.created_by_actor_id, "agent-1");
+assert.equal(assistantProposal.evidence.human_signal, "none");
+assert.equal(assistantProposal.claim.conviction_posture, "ask");
 assert.deepEqual(view.groups[0].claims.map((claim) => claim.id), ["goal-1"]);
 assert.equal(view.groups[1].claims[0].postureLabel, "Strong");
 assert.equal(
@@ -194,3 +248,9 @@ const assumption = view.groups
 assert.equal(assumption?.status, "tentative");
 assert.equal(assumption?.postureLabel, "Needs a check");
 assert.equal(assumption?.excludedHere?.id, "override-1");
+
+assert.deepEqual(
+  workingModelClaimsForManifest(view).map((claim) => claim.id),
+  ["goal-1", "decision-1", "constraint-1", "signal-1"],
+  "thread-local exclusions must not be rendered into the prompt manifest"
+);

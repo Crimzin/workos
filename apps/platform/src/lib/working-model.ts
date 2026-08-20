@@ -17,6 +17,8 @@ import type {
   ReasonTraceRecord,
   SourceApp,
 } from "./types";
+import type { ContextPromptManifestClaim } from "./context-router/types";
+import type { PostTurnProposedClaim } from "./thread-context-extractor";
 
 export interface WorkingModelEvidenceRow extends MemoryPrimitiveEvidence {
   source_node: {
@@ -64,7 +66,9 @@ export interface WorkingModelClaimView {
   status: MemoryPrimitiveLifecycle;
   posture: ConvictionPosture;
   postureLabel: string;
+  cachedScore: number;
   factors: ConvictionFactor[];
+  evidenceRefs: string[];
   evidenceSummary: string;
   evidenceGroups: WorkingModelEvidenceGroup[];
   relationships: WorkingModelRelationshipView[];
@@ -110,6 +114,11 @@ export interface ReasonTraceView {
   snapshot: AnswerReasonTraceSnapshotV1;
   changedClaims: Array<{ claimId: string; diff: ClaimSnapshotDiff }>;
   responseEdited: boolean;
+}
+
+export interface PostTurnClaimInsert {
+  claim: Record<string, unknown>;
+  evidence: Record<string, unknown>;
 }
 
 type WorkingModelGroupDefinition = {
@@ -196,7 +205,9 @@ export function buildThreadWorkingModelView(input: {
         status: normalizeLifecycle(primitive.status),
         posture,
         postureLabel: postureLabel(posture),
+        cachedScore: primitive.conviction,
         factors: primitive.conviction_factors ?? [],
+        evidenceRefs: claimEvidence.map((item) => item.id),
         evidenceSummary: summarizeWorkingModelEvidence(claimEvidence),
         evidenceGroups: buildEvidenceGroups(claimEvidence),
         relationships: buildRelationships(
@@ -226,6 +237,163 @@ export function buildThreadWorkingModelView(input: {
     claimCount: claims.length,
     excludedCount: claims.filter((claim) => claim.excludedHere).length,
   };
+}
+
+export function buildPostTurnClaimInsert(input: {
+  instanceId: string;
+  threadId: string;
+  triggerPostId: string;
+  responsePostId: string;
+  requesterActorId: string;
+  agentActorId: string;
+  now: string;
+  claim: PostTurnProposedClaim;
+}): PostTurnClaimInsert {
+  const fromHuman = input.claim.origin === "human";
+  const sourcePostId = fromHuman
+    ? input.triggerPostId
+    : input.responsePostId;
+  const actorId = fromHuman ? input.requesterActorId : input.agentActorId;
+  const factor: ConvictionFactor = fromHuman
+    ? {
+        code: convictionFactorCodeForHumanSignal(input.claim.human_signal),
+        direction: "supports",
+        explanation: "This claim traces to an explicit human signal.",
+        evidence_refs: [],
+      }
+    : {
+        code: "ai_generated_synthesis",
+        direction: "supports",
+        explanation:
+          "This was proposed by the assistant and has not been adopted by the user.",
+        evidence_refs: [],
+      };
+
+  return {
+    claim: {
+      instance_id: input.instanceId,
+      node_id: input.threadId,
+      type: input.claim.kind,
+      statement: input.claim.statement,
+      body: input.claim.body,
+      status: input.claim.status,
+      conviction: fromHuman ? 0.9 : 0.35,
+      extraction_mode: input.claim.extraction_mode,
+      conviction_posture: input.claim.posture,
+      conviction_factors: [factor],
+      conviction_version: "working-model-v1",
+      valid_from: input.now,
+      last_confirmed_at: fromHuman ? input.now : null,
+      sensitivity_label: "normal",
+      source_post_id: sourcePostId,
+      source_label: "Current WorkOS thread",
+      created_by_actor_id: actorId,
+      updated_by_actor_id: actorId,
+      metadata: {
+        extraction_origin: input.claim.origin,
+        post_turn_extraction: true,
+      },
+    },
+    evidence: {
+      instance_id: input.instanceId,
+      relation: "extracted_from",
+      source_kind: fromHuman ? "user_post" : "assistant_post",
+      source_app: "workos",
+      source_node_id: input.threadId,
+      source_post_id: sourcePostId,
+      actor_id: actorId,
+      observed_at: input.now,
+      human_signal: input.claim.human_signal,
+      authority_snapshot: fromHuman
+        ? { actor_id: input.requesterActorId, source: "current_user_turn" }
+        : {},
+      metadata: { post_turn_extraction: true },
+    },
+  };
+}
+
+export async function persistPostTurnClaimProposals(input: {
+  instanceId: string;
+  threadId: string;
+  triggerPostId: string;
+  responsePostId: string;
+  requesterActorId: string;
+  agentActorId: string;
+  claims: PostTurnProposedClaim[];
+  now?: string;
+}): Promise<string[]> {
+  if (input.claims.length === 0) return [];
+  const [{ supabase }, cache] = await Promise.all([
+    import("./supabase"),
+    import("./cache"),
+  ]);
+  const { data: existingRows, error: existingError } = await supabase
+    .from("memory_primitives")
+    .select("type,statement")
+    .eq("node_id", input.threadId);
+  if (existingError) throw existingError;
+
+  const existingKeys = new Set(
+    (existingRows ?? []).map(
+      (row) => `${row.type}:${normalizeStatement(String(row.statement))}`
+    )
+  );
+  const createdIds: string[] = [];
+  const now = input.now ?? new Date().toISOString();
+
+  for (const proposal of input.claims) {
+    const key = `${proposal.kind}:${normalizeStatement(proposal.statement)}`;
+    if (existingKeys.has(key)) continue;
+    const payload = buildPostTurnClaimInsert({ ...input, claim: proposal, now });
+    const { data: claimRow, error: claimError } = await supabase
+      .from("memory_primitives")
+      .insert(payload.claim)
+      .select("id")
+      .single();
+    if (claimError) throw claimError;
+
+    const claimId = String(claimRow.id);
+    const { error: evidenceError } = await supabase
+      .from("memory_primitive_evidence")
+      .insert({ ...payload.evidence, memory_primitive_id: claimId });
+    if (evidenceError) {
+      await supabase.from("memory_primitives").delete().eq("id", claimId);
+      throw evidenceError;
+    }
+    existingKeys.add(key);
+    createdIds.push(claimId);
+  }
+
+  if (createdIds.length > 0) {
+    cache.revalidateNodeMemoryPrimitives(input.threadId);
+    cache.revalidateWorkingModel(input.threadId);
+  }
+  return createdIds;
+}
+
+export function workingModelClaimsForManifest(
+  model: ThreadWorkingModelView
+): ContextPromptManifestClaim[] {
+  return model.groups.flatMap((group) =>
+    group.claims.flatMap((claim): ContextPromptManifestClaim[] =>
+      claim.excludedHere
+        ? []
+        : [
+            {
+              id: claim.id,
+              kind: claim.kind,
+              statement: claim.statement,
+              status: claim.status,
+              posture: claim.posture,
+              cached_score: claim.cachedScore,
+              factors: claim.factors,
+              evidence_refs: claim.evidenceRefs,
+              superseded_by_primitive_id: claim.supersededByPrimitiveId,
+              updated_at: claim.updatedAt,
+            },
+          ]
+    )
+  );
 }
 
 export async function getThreadWorkingModel(
@@ -623,4 +791,17 @@ function isMissingWorkingModelRelationError(error: unknown): boolean {
       message
     )
   );
+}
+
+function normalizeStatement(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function convictionFactorCodeForHumanSignal(
+  signal: PostTurnProposedClaim["human_signal"]
+): string {
+  if (signal === "explicit_statement") return "explicit_human_statement";
+  if (signal === "observed_action") return "human_observed_action";
+  if (signal === "repeated_reference") return "human_adoption";
+  return "explicit_human_confirmation";
 }

@@ -35,7 +35,10 @@ import { contextSourceProvenanceForNode } from "../context-router/provenance";
 import type { PostRecord } from "../posts";
 import type {
   Actor,
+  ConvictionPosture,
   MemoryPrimitive,
+  MemoryPrimitiveLifecycle,
+  MemoryPrimitiveType,
   SourceApp,
   ThreadContextSheet,
   WorkNode,
@@ -87,6 +90,14 @@ export interface NodeContextMemory {
   rationale: string | null; // plain-text body of the rationale primitive (BlockNote→text)
   assumptions: Array<{ statement: string; status: string }>;
   decisions: Array<{ statement: string; body: string | null; status: string }>;
+  claims?: Array<{
+    id: string;
+    kind: MemoryPrimitiveType;
+    statement: string;
+    status: MemoryPrimitiveLifecycle;
+    posture: ConvictionPosture;
+    evidenceRefs: string[];
+  }>;
 }
 
 export interface MentionedNodeContext {
@@ -167,12 +178,14 @@ export async function gatherNodeContext(
     { getNodeLinks },
     { getNodeMemoryPrimitives },
     { getChildren },
+    { getThreadWorkingModel },
   ] = await Promise.all([
     import("../node-detail"),
     import("../posts"),
     import("../links"),
     import("../memory-primitives"),
     import("../nodes"),
+    import("../working-model"),
   ]);
   const detail = await getNodeDetail(nodeId);
   if (!detail) return null;
@@ -249,6 +262,7 @@ export async function gatherNodeContext(
     links,
     memory,
     threadContextSheet,
+    workingModel,
   ] = await Promise.all([
     getNodePosts(nodeId),
     parentIsStack && parentId
@@ -260,6 +274,7 @@ export async function gatherNodeContext(
     getNodeLinks(nodeId),
     getNodeMemoryPrimitives(nodeId),
     getThreadContextSheet(nodeId),
+    getThreadWorkingModel(nodeId),
   ]);
 
   // -------------------------------------------------------------------------
@@ -308,20 +323,37 @@ export async function gatherNodeContext(
   // -------------------------------------------------------------------------
   // Memory primitives (collapsed to display strings)
   // -------------------------------------------------------------------------
+  const visibleClaims = workingModel.groups.flatMap((group) =>
+    group.claims.filter((claim) => !claim.excludedHere)
+  );
+  const visibleClaimIds = new Set(visibleClaims.map((claim) => claim.id));
   const memoryShape: NodeContextMemory = {
-    rationale: memory.rationale
+    rationale:
+      memory.rationale && visibleClaimIds.has(memory.rationale.id)
       ? plainTextFromBody(
           memory.rationale.body ?? memory.rationale.statement
         )
       : null,
-    assumptions: memory.assumptions.map((a: MemoryPrimitive) => ({
-      statement: a.statement,
-      status: a.status,
-    })),
-    decisions: memory.decisions.map((d: MemoryPrimitive) => ({
-      statement: d.statement,
-      body: d.body ? plainTextFromBody(d.body) : null,
-      status: d.status,
+    assumptions: memory.assumptions
+      .filter((item) => visibleClaimIds.has(item.id))
+      .map((a: MemoryPrimitive) => ({
+        statement: a.statement,
+        status: a.status,
+      })),
+    decisions: memory.decisions
+      .filter((item) => visibleClaimIds.has(item.id))
+      .map((d: MemoryPrimitive) => ({
+        statement: d.statement,
+        body: d.body ? plainTextFromBody(d.body) : null,
+        status: d.status,
+      })),
+    claims: visibleClaims.map((claim) => ({
+      id: claim.id,
+      kind: claim.kind,
+      statement: claim.statement,
+      status: claim.status,
+      posture: claim.posture,
+      evidenceRefs: claim.evidenceRefs,
     })),
   };
 

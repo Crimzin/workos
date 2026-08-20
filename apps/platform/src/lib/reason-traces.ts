@@ -111,6 +111,7 @@ export interface BuildAnswerReasonTraceInput {
   responsePostId: string;
   threadId: string;
   responseBody: string;
+  responseContentForHash?: string;
   triggerPostId: string;
   request: {
     resolved_query: string;
@@ -138,6 +139,88 @@ export interface BuildAnswerReasonTraceInput {
 export interface BuiltAnswerReasonTrace {
   status: ReasonTraceStatus;
   snapshot: AnswerReasonTraceSnapshotV1;
+}
+
+export async function loadReasonTraceEvidence(
+  claimIds: string[]
+): Promise<ReasonTraceEvidence[]> {
+  if (claimIds.length === 0) return [];
+  const { supabase } = await import("./supabase");
+  const { data, error } = await supabase
+    .from("memory_primitive_evidence")
+    .select(
+      "*,source_node:nodes!memory_primitive_evidence_source_node_id_fkey(id,title,source_app)"
+    )
+    .in("memory_primitive_id", claimIds)
+    .order("created_at", { ascending: true });
+  if (error) {
+    if (isMissingTraceRelationError(error)) return [];
+    throw error;
+  }
+
+  return (data ?? []).map((row): ReasonTraceEvidence => {
+    const rawNode = Array.isArray(row.source_node)
+      ? row.source_node[0]
+      : row.source_node;
+    const sourceNode = isRecord(rawNode) ? rawNode : null;
+    return {
+      id: String(row.id),
+      relation: typeof row.relation === "string" ? row.relation : "supports",
+      source_app: normalizeSourceApp(row.source_app ?? sourceNode?.source_app),
+      source_kind:
+        typeof row.source_kind === "string" ? row.source_kind : "source",
+      source_node_id:
+        typeof row.source_node_id === "string" ? row.source_node_id : null,
+      source_post_id:
+        typeof row.source_post_id === "string" ? row.source_post_id : null,
+      source_message_id:
+        typeof row.source_message_id === "string"
+          ? row.source_message_id
+          : null,
+      source_label:
+        sourceNode && typeof sourceNode.title === "string"
+          ? sourceNode.title
+          : "Source no longer available",
+      excerpt: typeof row.excerpt === "string" ? row.excerpt : null,
+      observed_at:
+        typeof row.observed_at === "string" ? row.observed_at : null,
+      actor_id: typeof row.actor_id === "string" ? row.actor_id : null,
+      human_signal: normalizeHumanSignal(row.human_signal),
+      accessible: true,
+    };
+  });
+}
+
+export async function persistAnswerReasonTrace(input: {
+  instanceId: string;
+  threadId: string;
+  agentRunId: string;
+  built: BuiltAnswerReasonTrace;
+}): Promise<string> {
+  const [{ supabase }, cache] = await Promise.all([
+    import("./supabase"),
+    import("./cache"),
+  ]);
+  const { data, error } = await supabase
+    .from("reason_traces")
+    .insert({
+      instance_id: input.instanceId,
+      thread_id: input.threadId,
+      trace_kind: "answer",
+      subject_type: "post",
+      subject_id: input.built.snapshot.subject.id,
+      agent_run_id: input.agentRunId,
+      status: input.built.status,
+      schema_version: input.built.snapshot.schema_version,
+      snapshot: input.built.snapshot,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  cache.revalidateReasonTrace(input.built.snapshot.subject.id);
+  cache.revalidateAnswerTraces(input.threadId);
+  return String(data.id);
 }
 
 const TRACE_EXCERPT_MAX_CHARS = 280;
@@ -235,7 +318,9 @@ export function buildAnswerReasonTraceSnapshot(
         type: "post",
         id: input.responsePostId,
         thread_id: input.threadId,
-        content_hash: hashTraceContent(input.responseBody),
+        content_hash: hashTraceContent(
+          input.responseContentForHash ?? input.responseBody
+        ),
       },
       request: {
         trigger_post_id: input.triggerPostId,
@@ -360,4 +445,45 @@ function joinList(items: string[]): string {
   if (items.length <= 1) return items[0] ?? "";
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
   return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
+function normalizeSourceApp(value: unknown): SourceApp {
+  if (
+    value === "workos" ||
+    value === "claude" ||
+    value === "chatgpt" ||
+    value === "unknown"
+  ) {
+    return value;
+  }
+  return "unknown";
+}
+
+function normalizeHumanSignal(value: unknown): MemoryHumanSignal {
+  if (
+    value === "explicit_statement" ||
+    value === "explicit_approval" ||
+    value === "explicit_correction" ||
+    value === "observed_action" ||
+    value === "repeated_reference"
+  ) {
+    return value;
+  }
+  return "none";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isMissingTraceRelationError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const code = typeof error.code === "string" ? error.code : "";
+  const message = typeof error.message === "string" ? error.message : "";
+  return (
+    code === "PGRST204" ||
+    code === "PGRST205" ||
+    code === "42P01" ||
+    /memory_primitive_evidence|reason_traces/i.test(message)
+  );
 }

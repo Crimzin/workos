@@ -1,4 +1,10 @@
-import type { SourceApp } from "../types";
+import type {
+  ConvictionFactor,
+  ConvictionPosture,
+  MemoryPrimitiveStatus,
+  MemoryPrimitiveType,
+  SourceApp,
+} from "../types";
 import type { ContextSourceOrigin } from "./provenance";
 
 export type ContextCandidateSourceKind =
@@ -85,10 +91,45 @@ export interface ContextPromptManifestAccountMemory {
   suppressed: string[];
 }
 
-export interface ContextPromptManifest {
+export interface ContextPromptManifestClaim {
+  id: string;
+  kind: MemoryPrimitiveType;
+  statement: string;
+  status: MemoryPrimitiveStatus;
+  posture: ConvictionPosture;
+  cached_score: number;
+  factors: ConvictionFactor[];
+  evidence_refs: string[];
+  superseded_by_primitive_id: string | null;
+  updated_at: string;
+}
+
+export interface ContextPromptManifestOverride {
+  id: string;
+  target_type: "memory_primitive" | "account_memory" | "context_source";
+  target_id: string;
+  directive: "exclude" | "demote";
+  reason: string | null;
+}
+
+export interface ContextPromptManifestThreadSheet {
+  id: string;
+  updated_at: string;
+  content_hash: string;
+  bands_used: string[];
+}
+
+export interface ContextPromptManifestModelSelection {
+  provider_key: string;
+  model_id: string;
+  label: string;
+}
+
+export interface ContextPromptManifest extends Record<string, unknown> {
   router_version: "context-router-v2";
   resolved_query: string;
   task_type: string;
+  turn_resolution: ContextTurnResolution;
   current_stage_label: string;
   context_budget_chars: number;
   estimated_prompt_chars: number;
@@ -96,6 +137,15 @@ export interface ContextPromptManifest {
   omitted_sources: Array<Record<string, unknown>>;
   account_memory: ContextPromptManifestAccountMemory;
   thread_context_sheet_bands_used: string[];
+  thread_context_sheet: ContextPromptManifestThreadSheet | null;
+  selected_claims: ContextPromptManifestClaim[];
+  applied_overrides: ContextPromptManifestOverride[];
   warnings: string[];
   timings_ms: Record<string, number>;
+  provider_key?: "inline_claude";
+  model_selection?: ContextPromptManifestModelSelection | null;
+  system_prompt_chars?: number;
+  user_message_chars?: number;
+  attachment_count?: number;
+  attachment_source_post_ids?: string[];
 }

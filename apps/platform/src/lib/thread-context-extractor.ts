@@ -1,7 +1,16 @@
 import { invokeClaude } from "./agents/claude";
 import { parseLlmJsonObject } from "./context-router/json";
 import { normalizeSearchText } from "./context-search";
-import type { ThreadContextSheet, ThreadContextSheetItem } from "./types";
+import type { ReasonTraceAnswerAnchor } from "./reason-traces";
+import type {
+  ConvictionPosture,
+  MemoryHumanSignal,
+  MemoryPrimitiveExtractionMode,
+  MemoryPrimitiveLifecycle,
+  MemoryPrimitiveType,
+  ThreadContextSheet,
+  ThreadContextSheetItem,
+} from "./types";
 import type { ThreadContextSheetUpdate } from "./thread-context-sheet";
 
 const POST_TURN_EXTRACTOR_MODEL = "claude-haiku-4-5";
@@ -25,6 +34,12 @@ export interface PostTurnMemoryExtractionInput {
   assistantText: string;
   existingSheet: ThreadContextSheet | null;
   attachedContextFacts: ThreadContextPostTurnSourceFact[];
+  workingModelClaims?: Array<{
+    id: string;
+    kind: MemoryPrimitiveType;
+    statement: string;
+    evidenceRefs: string[];
+  }>;
   now?: Date;
 }
 
@@ -36,6 +51,23 @@ export interface PostTurnMemoryExtractionPrompt {
 export type PostTurnMemoryExtractionCaller = (
   prompt: PostTurnMemoryExtractionPrompt
 ) => Promise<string>;
+
+export interface PostTurnProposedClaim {
+  kind: MemoryPrimitiveType;
+  statement: string;
+  body: string | null;
+  origin: "human" | "assistant";
+  human_signal: MemoryHumanSignal;
+  extraction_mode: MemoryPrimitiveExtractionMode;
+  status: MemoryPrimitiveLifecycle;
+  posture: ConvictionPosture;
+}
+
+export interface PostTurnAnalysisResult {
+  sheetUpdate: ThreadContextSheetUpdate;
+  answerAnchors: ReasonTraceAnswerAnchor[];
+  proposedClaims: PostTurnProposedClaim[];
+}
 
 export function buildPostTurnMemoryExtractionPrompt(
   input: PostTurnMemoryExtractionInput
@@ -58,6 +90,12 @@ export function buildPostTurnMemoryExtractionPrompt(
           }))
         )
         .slice(0, MAX_SOURCE_FACTS),
+      working_model_claims: (input.workingModelClaims ?? []).map((claim) => ({
+        id: claim.id,
+        kind: claim.kind,
+        statement: claim.statement,
+        evidence_refs: claim.evidenceRefs,
+      })),
       required_json_shape: {
         active_working: [
           "1-4 concise statements about current focus, open questions, and next step",
@@ -71,9 +109,115 @@ export function buildPostTurnMemoryExtractionPrompt(
         superseded_long_term_ids: [
           "ids from existing_thread_sheet.long_term that are now stale or contradicted",
         ],
+        answer_anchors: [
+          {
+            statement: "one concise stance or answer claim",
+            belief_refs: ["ids from working_model_claims"],
+            evidence_refs: ["evidence ids already attached to those claims"],
+          },
+        ],
+        proposed_claims: [
+          {
+            kind: "goal | decision | idea | assumption | constraint | question | standard | signal | context_update",
+            statement: "one concise claim",
+            origin: "human | assistant",
+            human_signal: "none | explicit_statement | explicit_approval | explicit_correction | observed_action | repeated_reference",
+          },
+        ],
       },
     }),
   };
+}
+
+export function parsePostTurnAnalysis(
+  text: string,
+  options: {
+    existingSheet: ThreadContextSheet | null;
+    allowedClaimIds: Set<string>;
+    now?: Date;
+  }
+): PostTurnAnalysisResult {
+  let data: Record<string, unknown>;
+  try {
+    data = parseLlmJsonObject(text);
+  } catch {
+    return { sheetUpdate: {}, answerAnchors: [], proposedClaims: [] };
+  }
+
+  const answerAnchors = Array.isArray(data.answer_anchors)
+    ? data.answer_anchors.flatMap((value, index): ReasonTraceAnswerAnchor[] => {
+        if (!isRecord(value)) return [];
+        const statement =
+          typeof value.statement === "string" ? cleanStatement(value.statement) : "";
+        if (!statement) return [];
+        return [
+          {
+            id: `post-turn-anchor-${index + 1}`,
+            statement,
+            belief_refs: stringArray(value.belief_refs).filter((id) =>
+              options.allowedClaimIds.has(id)
+            ),
+            evidence_refs: stringArray(value.evidence_refs),
+            mapping_kind: "structured_post_turn_association",
+          },
+        ];
+      })
+    : [];
+
+  const proposedClaims = Array.isArray(data.proposed_claims)
+    ? data.proposed_claims.flatMap((value): PostTurnProposedClaim[] => {
+        if (!isRecord(value) || !isMemoryPrimitiveType(value.kind)) return [];
+        const statement =
+          typeof value.statement === "string" ? cleanStatement(value.statement) : "";
+        if (!statement || value.kind === "rationale") return [];
+        const origin = value.origin === "human" ? "human" : "assistant";
+        const humanSignal =
+          origin === "human" ? normalizeHumanSignal(value.human_signal) : "none";
+        const hasHumanSignal = humanSignal !== "none";
+        return [
+          {
+            kind: value.kind,
+            statement,
+            body:
+              typeof value.body === "string" && cleanStatement(value.body)
+                ? cleanStatement(value.body)
+                : null,
+            origin,
+            human_signal: humanSignal,
+            extraction_mode: origin === "human" ? "explicit" : "synthesized",
+            status: hasHumanSignal ? "active" : "tentative",
+            posture: hasHumanSignal ? "assert" : "ask",
+          },
+        ];
+      })
+    : [];
+
+  return {
+    sheetUpdate: parsePostTurnMemoryExtraction(text, options),
+    answerAnchors,
+    proposedClaims,
+  };
+}
+
+export async function extractThreadPostTurnAnalysis(
+  input: PostTurnMemoryExtractionInput,
+  caller: PostTurnMemoryExtractionCaller = async (prompt) =>
+    invokeClaude({
+      systemPrompt: prompt.system,
+      userMessage: prompt.user,
+      model: POST_TURN_EXTRACTOR_MODEL,
+      maxTokens: 1_300,
+    })
+): Promise<PostTurnAnalysisResult> {
+  const prompt = buildPostTurnMemoryExtractionPrompt(input);
+  const response = await caller(prompt);
+  return parsePostTurnAnalysis(response, {
+    existingSheet: input.existingSheet,
+    allowedClaimIds: new Set(
+      (input.workingModelClaims ?? []).map((claim) => claim.id)
+    ),
+    now: input.now,
+  });
 }
 
 export function parsePostTurnMemoryExtraction(
@@ -134,12 +278,7 @@ export async function extractThreadContextSheetPostTurnUpdate(
       maxTokens: 900,
     })
 ): Promise<ThreadContextSheetUpdate> {
-  const prompt = buildPostTurnMemoryExtractionPrompt(input);
-  const response = await caller(prompt);
-  return parsePostTurnMemoryExtraction(response, {
-    existingSheet: input.existingSheet,
-    now: input.now,
-  });
+  return (await extractThreadPostTurnAnalysis(input, caller)).sheetUpdate;
 }
 
 function renderExistingSheet(
@@ -204,6 +343,38 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isMemoryPrimitiveType(value: unknown): value is MemoryPrimitiveType {
+  return (
+    value === "goal" ||
+    value === "decision" ||
+    value === "idea" ||
+    value === "assumption" ||
+    value === "constraint" ||
+    value === "question" ||
+    value === "standard" ||
+    value === "signal" ||
+    value === "context_update" ||
+    value === "rationale"
+  );
+}
+
+function normalizeHumanSignal(value: unknown): MemoryHumanSignal {
+  if (
+    value === "explicit_statement" ||
+    value === "explicit_approval" ||
+    value === "explicit_correction" ||
+    value === "observed_action" ||
+    value === "repeated_reference"
+  ) {
+    return value;
+  }
+  return "none";
 }
 
 function cleanStatement(value: string): string {

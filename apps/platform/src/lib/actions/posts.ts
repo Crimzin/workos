@@ -52,6 +52,7 @@ import {
   createInlineAgentRun,
   failInlineAgentRun,
   getActiveInlineAgentRuns,
+  linkInlineAgentRunResponse,
   queueAwaitingRunsForConfirmation,
   updateInlineAgentRunStage,
 } from "../agents/runs";
@@ -64,7 +65,15 @@ import {
   routeAutomaticContextV2,
 } from "../context-router/router";
 import { resolveContextTurnWithFallback } from "../context-router/turn-resolver";
-import type { ContextRouterCandidate } from "../context-router/types";
+import {
+  createContextPromptManifest,
+  mergeInlineRuntimeIntoManifest,
+} from "../context-router/manifest";
+import type {
+  ContextPromptManifest,
+  ContextPromptManifestOverride,
+  ContextRouterCandidate,
+} from "../context-router/types";
 import {
   isContextEventMetadata,
   scoreAutomaticContextTextMatch,
@@ -74,13 +83,27 @@ import {
   getThreadContextSheet,
   shouldUseThreadContextSheetForTurn,
   upsertThreadContextSheetRecord,
+  type ThreadContextSheetUpdate,
   type ThreadContextSheetSeedDecision,
 } from "../thread-context-sheet";
 import {
-  extractThreadContextSheetPostTurnUpdate,
+  extractThreadPostTurnAnalysis,
+  type PostTurnAnalysisResult,
   type ThreadContextPostTurnSourceFact,
 } from "../thread-context-extractor";
-import type { NodeType } from "../types";
+import type { NodeType, ThreadContextSheet } from "../types";
+import {
+  getThreadWorkingModel,
+  persistPostTurnClaimProposals,
+  workingModelClaimsForManifest,
+} from "../working-model";
+import {
+  buildAnswerReasonTraceSnapshot,
+  hashTraceContent,
+  loadReasonTraceEvidence,
+  persistAnswerReasonTrace,
+  type ReasonTraceClaimSnapshot,
+} from "../reason-traces";
 
 /**
  * Server action used by the 1.11 streaming-agent polling effect. Returns the
@@ -115,6 +138,19 @@ async function getNodeInstanceId(nodeId: string): Promise<string> {
     .single();
   if (error) throw error;
   return data.instance_id as string;
+}
+
+async function getPostBodyForTrace(
+  postId: string,
+  fallback: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("body")
+    .eq("id", postId)
+    .maybeSingle();
+  if (error) throw error;
+  return typeof data?.body === "string" ? data.body : fallback;
 }
 
 export async function createPost(
@@ -284,8 +320,15 @@ async function processAgentMentionsForPost(input: {
   modelSelection: AgentModelSelection | null;
   precreatedInlineRunIds: Map<string, string>;
 }): Promise<void> {
+  let activeThreadTitle = "Active thread";
+  let contextManifest = createContextPromptManifest({
+    resolvedQuery: input.plainText,
+    taskType: "inline thread response",
+    budgetChars: 0,
+    warnings: ["Automatic context routing did not complete."],
+  });
   try {
-    const [previousUserTexts, recentThreadTexts, activeThreadTitle] =
+    const [previousUserTexts, recentThreadTexts, resolvedThreadTitle] =
       await Promise.all([
         getPreviousUserPostTexts({
           nodeId: input.nodeId,
@@ -298,11 +341,12 @@ async function processAgentMentionsForPost(input: {
         }),
         getActiveThreadTitle(input.nodeId),
       ]);
+    activeThreadTitle = resolvedThreadTitle;
     await updatePrecreatedInlineRunsStage(
       input.precreatedInlineRunIds,
       "Searching relevant chats..."
     );
-    await attachAutomaticContextForPost({
+    contextManifest = await attachAutomaticContextForPost({
       nodeId: input.nodeId,
       actorInstanceId: input.actor.instance_id,
       currentText: input.plainText,
@@ -317,6 +361,45 @@ async function processAgentMentionsForPost(input: {
   } catch (err) {
     console.error("[thread-context] automatic attach failed:", err);
   }
+
+  const [workingModel, threadSheet] = await Promise.all([
+    getThreadWorkingModel(input.nodeId),
+    getThreadContextSheet(input.nodeId),
+  ]);
+  const selectedClaims = workingModelClaimsForManifest(workingModel);
+  const claimOverrides: ContextPromptManifestOverride[] = workingModel.groups
+    .flatMap((group) => group.claims)
+    .flatMap((claim) =>
+      claim.excludedHere
+        ? [
+            {
+              id: claim.excludedHere.id,
+              target_type: claim.excludedHere.target_type,
+              target_id: claim.excludedHere.target_id,
+              directive: claim.excludedHere.directive,
+              reason: claim.excludedHere.user_reason,
+            },
+          ]
+        : []
+    );
+  const sheetBands = threadSheet ? usedThreadSheetBands(threadSheet) : [];
+  contextManifest = {
+    ...contextManifest,
+    selected_claims: selectedClaims,
+    applied_overrides: dedupeManifestOverrides([
+      ...contextManifest.applied_overrides,
+      ...claimOverrides,
+    ]),
+    thread_context_sheet_bands_used: sheetBands,
+    thread_context_sheet: threadSheet
+      ? {
+          id: threadSheet.id,
+          updated_at: threadSheet.updated_at,
+          content_hash: hashTraceContent(threadSheet.markdown),
+          bands_used: sheetBands,
+        }
+      : null,
+  };
 
   const standards = await getEffectiveAIStandards(input.actor.instance_id).catch(
     (err) => {
@@ -358,7 +441,18 @@ async function processAgentMentionsForPost(input: {
           ctxPrompt,
           modelSelection: selectedModel,
           runId,
+          triggerPostId: input.targetPost.id,
+          requesterActorId: input.actor.id,
           latestUserText: input.plainText,
+          promptManifest: mergeInlineRuntimeIntoManifest(contextManifest, {
+            systemPrompt: ctxPrompt.systemPrompt,
+            userMessage: ctxPrompt.userMessage,
+            attachmentSourcePostIds: ctxPrompt.attachments.map(
+              (attachment) => attachment.source.postId
+            ),
+            modelSelection: selectedModel,
+          }),
+          threadSheet,
         });
       },
     });
@@ -479,33 +573,78 @@ async function attachAutomaticContextForPost(input: {
   previousUserTexts: string[];
   recentThreadTexts: string[];
   activeThreadTitle: string;
-}): Promise<void> {
+}): Promise<ContextPromptManifest> {
   const turnResolution = await resolveContextTurnWithFallback({
     currentText: input.currentText,
     previousUserTexts: input.previousUserTexts,
     recentThreadTexts: input.recentThreadTexts,
     activeThreadTitle: input.activeThreadTitle || "Active thread",
   });
+  const [
+    { data: existingRows, error: existingError },
+    existingThreadSheet,
+    overrideResult,
+  ] = await Promise.all([
+    supabase
+      .from("thread_context_attachments")
+      .select("context_source_node_id,status,reason")
+      .eq("thread_id", input.nodeId)
+      .in("status", ["active", "removed", "ignored_for_suggestions"]),
+    getThreadContextSheet(input.nodeId),
+    supabase
+      .from("context_retrieval_overrides")
+      .select("id,target_type,target_id,directive,user_reason")
+      .eq("thread_id", input.nodeId)
+      .eq("target_type", "context_source")
+      .is("cleared_at", null),
+  ]);
+  if (existingError) throw existingError;
+  if (
+    overrideResult.error &&
+    !isMissingContextRetrievalOverridesError(overrideResult.error)
+  ) {
+    throw overrideResult.error;
+  }
+
+  const appliedOverrides: ContextPromptManifestOverride[] = (
+    overrideResult.data ?? []
+  ).map((override) => ({
+    id: String(override.id),
+    target_type: "context_source",
+    target_id: String(override.target_id),
+    directive: override.directive === "demote" ? "demote" : "exclude",
+    reason:
+      typeof override.user_reason === "string" ? override.user_reason : null,
+  }));
+  const activeAttachedSources = (existingRows ?? [])
+    .filter((row) => row.status === "active")
+    .map((row) => ({
+      id: row.context_source_node_id,
+      source_kind: "attached",
+      reason:
+        typeof row.reason === "string" && row.reason.trim()
+          ? row.reason
+          : "Already active for this thread.",
+    }));
+  const baseManifest = createContextPromptManifest({
+    resolvedQuery: turnResolution.resolvedQuery,
+    taskType: "inline thread response",
+    budgetChars: 0,
+    turnResolution,
+    includedSources: activeAttachedSources,
+    appliedOverrides,
+    threadContextSheetBandsUsed: existingThreadSheet
+      ? usedThreadSheetBands(existingThreadSheet)
+      : [],
+  });
   if (
     !turnResolution.shouldRetrieve ||
     turnResolution.confidence < MIN_TURN_RESOLUTION_CONFIDENCE
   ) {
-    return;
+    return baseManifest;
   }
 
   const contextQueryText = turnResolution.resolvedQuery;
-  const [
-    { data: existingRows, error: existingError },
-    existingThreadSheet,
-  ] = await Promise.all([
-    supabase
-      .from("thread_context_attachments")
-      .select("context_source_node_id,status")
-      .eq("thread_id", input.nodeId)
-      .in("status", ["active", "removed", "ignored_for_suggestions"]),
-    getThreadContextSheet(input.nodeId),
-  ]);
-  if (existingError) throw existingError;
 
   const activeAttachmentCount = (existingRows ?? []).filter(
     (row) => row.status === "active"
@@ -530,7 +669,7 @@ async function attachAutomaticContextForPost(input: {
       activeAttachmentCount,
       resolvedQuery: contextQueryText,
     });
-    return;
+    return baseManifest;
   }
 
   const { data: candidateNodeRows, error: candidateNodeError } = await supabase
@@ -545,7 +684,14 @@ async function attachAutomaticContextForPost(input: {
   if (candidateNodeError) throw candidateNodeError;
 
   const excludedSourceIds = new Set(
-    (existingRows ?? []).map((row) => row.context_source_node_id as string)
+    [
+      ...(existingRows ?? []).map(
+        (row) => row.context_source_node_id as string
+      ),
+      ...appliedOverrides
+        .filter((override) => override.directive === "exclude")
+        .map((override) => override.target_id),
+    ]
   );
   const rowsById = new Map<
     string,
@@ -556,7 +702,7 @@ async function attachAutomaticContextForPost(input: {
   const candidateRows = [...rowsById.values()].filter(
     (row) => !excludedSourceIds.has(row.id as string) && isNodeType(row.type)
   );
-  if (candidateRows.length === 0) return;
+  if (candidateRows.length === 0) return baseManifest;
 
   const previewsByNodeId = await getBestPostPreviewsByNodeId(
     candidateRows.map((row) => row.id as string),
@@ -598,9 +744,20 @@ async function attachAutomaticContextForPost(input: {
     turnResolution,
   });
   const decisions = routed.decisions;
+  const routedManifest: ContextPromptManifest = {
+    ...routed.manifest,
+    included_sources: [
+      ...activeAttachedSources,
+      ...routed.manifest.included_sources,
+    ],
+    applied_overrides: appliedOverrides,
+    thread_context_sheet_bands_used: existingThreadSheet
+      ? usedThreadSheetBands(existingThreadSheet)
+      : [],
+  };
   console.log("[context-router] manifest", routed.manifest);
 
-  if (decisions.length === 0) return;
+  if (decisions.length === 0) return routedManifest;
 
   await attachThreadContexts({
     threadId: input.nodeId,
@@ -629,6 +786,7 @@ async function attachAutomaticContextForPost(input: {
       usefulFacts: decision.pack.useful_facts,
     })),
   });
+  return routedManifest;
 }
 
 async function upsertAutomaticThreadContextSheet(input: {
@@ -658,29 +816,39 @@ async function updateThreadContextSheetAfterReply(input: {
   userText: string;
   assistantText: string;
   runId: string;
-}): Promise<void> {
-  if (!input.assistantText.trim()) return;
+  workingModelClaims: ContextPromptManifest["selected_claims"];
+}): Promise<PostTurnAnalysisResult> {
+  if (!input.assistantText.trim()) {
+    return { sheetUpdate: {}, answerAnchors: [], proposedClaims: [] };
+  }
 
   const [existingSheet, attachedContextFacts] = await Promise.all([
     getThreadContextSheet(input.threadId),
     getAttachedContextFactsForThread(input.threadId),
   ]);
 
-  const update = await extractThreadContextSheetPostTurnUpdate({
+  const analysis = await extractThreadPostTurnAnalysis({
     threadTitle: input.threadTitle,
     userText: input.userText,
     assistantText: input.assistantText,
     existingSheet,
     attachedContextFacts,
+    workingModelClaims: input.workingModelClaims.map((claim) => ({
+      id: claim.id,
+      kind: claim.kind,
+      statement: claim.statement,
+      evidenceRefs: claim.evidence_refs,
+    })),
   });
-  if (isThreadContextSheetUpdateEmpty(update)) return;
+  const update = analysis.sheetUpdate;
+  if (isThreadContextSheetUpdateEmpty(update)) return analysis;
 
   const didUpsert = await upsertThreadContextSheetRecord({
     instanceId: input.instanceId,
     threadId: input.threadId,
     update,
   });
-  if (!didUpsert) return;
+  if (!didUpsert) return analysis;
 
   revalidateThreadContextSheet(input.threadId);
   await appendAgentRunEvent(input.runId, "memory_updated", "Thread memory updated.", {
@@ -690,6 +858,7 @@ async function updateThreadContextSheetAfterReply(input: {
   }).catch((eventError) => {
     console.error("[thread-context] failed to append memory event:", eventError);
   });
+  return analysis;
 }
 
 async function getAttachedContextFactsForThread(
@@ -752,7 +921,7 @@ function contextPackSourceRole(
 }
 
 function isThreadContextSheetUpdateEmpty(
-  update: Awaited<ReturnType<typeof extractThreadContextSheetPostTurnUpdate>>
+  update: ThreadContextSheetUpdate
 ): boolean {
   return (
     (update.activeWorking?.length ?? 0) === 0 &&
@@ -927,6 +1096,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function usedThreadSheetBands(sheet: ThreadContextSheet): string[] {
+  return [
+    sheet.active_working.length > 0 ? "active_working" : null,
+    sheet.short_term.length > 0 ? "short_term" : null,
+    sheet.long_term.length > 0 ? "long_term" : null,
+  ].filter((band): band is string => Boolean(band));
+}
+
+function dedupeManifestOverrides(
+  overrides: ContextPromptManifestOverride[]
+): ContextPromptManifestOverride[] {
+  return [
+    ...new Map(overrides.map((override) => [override.id, override])).values(),
+  ];
+}
+
+function isMissingContextRetrievalOverridesError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const code = typeof error.code === "string" ? error.code : "";
+  const message = typeof error.message === "string" ? error.message : "";
+  return (
+    code === "PGRST204" ||
+    code === "PGRST205" ||
+    code === "42P01" ||
+    /context_retrieval_overrides/i.test(message)
+  );
+}
+
 function isNodeType(value: unknown): value is NodeType {
   return value === "workspace" || value === "stack" || value === "card";
 }
@@ -938,14 +1135,15 @@ async function streamInlineClaudeReply(input: {
   ctxPrompt: ReturnType<typeof renderClaudePrompt>;
   modelSelection: AgentModelSelection | null;
   runId: string;
+  triggerPostId: string;
+  requesterActorId: string;
   latestUserText: string;
-  promptManifest?: Record<string, unknown>;
+  promptManifest: ContextPromptManifest;
+  threadSheet: ThreadContextSheet | null;
 }): Promise<void> {
   const t0 = Date.now();
   console.log(`[1.11] after(): START for ${input.agent.name}`);
-  const promptManifest =
-    input.promptManifest ??
-    buildInlineClaudePromptManifest(input.ctxPrompt, input.modelSelection);
+  const promptManifest = input.promptManifest;
 
   // Streaming flow:
   //   1. Wait for Claude's first chunk → insert the reply post seeded
@@ -989,6 +1187,7 @@ async function streamInlineClaudeReply(input: {
             input.agent.id,
             accumulated
           );
+          await linkInlineAgentRunResponse(input.runId, handle.postId);
           lastFlush = Date.now();
           console.log(
             `[1.11] after(): first delta + post created (id=${handle.postId.slice(0, 8)}, ${Date.now() - t0}ms)`
@@ -1029,6 +1228,7 @@ async function streamInlineClaudeReply(input: {
         input.agent.id,
         accumulated || "(Claude returned an empty response.)"
       );
+      await linkInlineAgentRunResponse(input.runId, handle.postId);
     } else {
       // Final flush — ensures the last buffered tokens are visible.
       await updateStreamingAgentReply(
@@ -1087,17 +1287,146 @@ async function streamInlineClaudeReply(input: {
       }
     }
 
+    const resolvedInstanceId =
+      instanceId ?? (await getNodeInstanceId(input.nodeId));
+    let postTurnAnalysis: PostTurnAnalysisResult | null = null;
+    let postTurnWarning: string | null = null;
     try {
-      await updateThreadContextSheetAfterReply({
-        instanceId: instanceId ?? (await getNodeInstanceId(input.nodeId)),
+      postTurnAnalysis = await updateThreadContextSheetAfterReply({
+        instanceId: resolvedInstanceId,
         threadId: input.nodeId,
         threadTitle: await getActiveThreadTitle(input.nodeId),
         userText: input.latestUserText,
         assistantText: accumulated,
         runId: input.runId,
+        workingModelClaims: promptManifest.selected_claims,
       });
     } catch (memoryError) {
+      postTurnWarning = "Structured answer association was unavailable.";
       console.error("[thread-context] post-turn memory extraction failed:", memoryError);
+    }
+
+    if (handle) {
+      if (postTurnAnalysis && postTurnAnalysis.proposedClaims.length > 0) {
+        await persistPostTurnClaimProposals({
+          instanceId: resolvedInstanceId,
+          threadId: input.nodeId,
+          triggerPostId: input.triggerPostId,
+          responsePostId: handle.postId,
+          requesterActorId: input.requesterActorId,
+          agentActorId: input.agent.id,
+          claims: postTurnAnalysis.proposedClaims,
+        }).catch((claimError) => {
+          console.error(
+            "[working-model] failed to persist post-turn claims:",
+            claimError
+          );
+        });
+      }
+      try {
+        const [evidence, storedResponseBody] = await Promise.all([
+          loadReasonTraceEvidence(
+            promptManifest.selected_claims.map((claim) => claim.id)
+          ),
+          getPostBodyForTrace(handle.postId, accumulated),
+        ]);
+        const claimSnapshots: ReasonTraceClaimSnapshot[] =
+          promptManifest.selected_claims.map((claim) => ({
+            id: claim.id,
+            kind: claim.kind,
+            statement: claim.statement,
+            body: null,
+            status: claim.status,
+            posture: claim.posture,
+            cached_score: claim.cached_score,
+            factors: claim.factors,
+            evidence_refs: claim.evidence_refs,
+            superseded_by_primitive_id: claim.superseded_by_primitive_id,
+            updated_at: claim.updated_at,
+          }));
+        const hasStructuredAnchors =
+          (postTurnAnalysis?.answerAnchors.length ?? 0) > 0;
+        const built = buildAnswerReasonTraceSnapshot({
+          generatedAt: new Date().toISOString(),
+          responsePostId: handle.postId,
+          threadId: input.nodeId,
+          responseBody: accumulated,
+          responseContentForHash: storedResponseBody,
+          triggerPostId: input.triggerPostId,
+          request: {
+            resolved_query: promptManifest.resolved_query,
+            task_type: promptManifest.task_type,
+            turn_resolution: {
+              should_retrieve:
+                promptManifest.turn_resolution.shouldRetrieve,
+              confidence: promptManifest.turn_resolution.confidence,
+              reason: promptManifest.turn_resolution.reason,
+            },
+          },
+          threadSheet: input.threadSheet,
+          claims: claimSnapshots,
+          retrieval: {
+            budget_chars: promptManifest.context_budget_chars,
+            estimated_prompt_chars: promptManifest.estimated_prompt_chars,
+            included: promptManifest.included_sources,
+            omitted: promptManifest.omitted_sources,
+            overrides_applied: promptManifest.applied_overrides.map(
+              (override) => override.id
+            ),
+            warnings: promptManifest.warnings,
+          },
+          evidence,
+          runtime: {
+            agent_run_id: input.runId,
+            provider_key: "inline_claude",
+            model_key:
+              usageReport?.model ??
+              promptManifest.model_selection?.model_id ??
+              null,
+            request_id: usageReport?.request_id ?? null,
+            router_version: promptManifest.router_version,
+            extractor_version: postTurnAnalysis
+              ? "thread-context-v2"
+              : null,
+          },
+          associationStatus: hasStructuredAnchors
+            ? "structured"
+            : postTurnAnalysis
+              ? "unavailable"
+              : "failed",
+          structuredAnchors: postTurnAnalysis?.answerAnchors,
+          warnings: [
+            ...promptManifest.warnings,
+            ...(postTurnWarning ? [postTurnWarning] : []),
+          ],
+        });
+        const traceId = await persistAnswerReasonTrace({
+          instanceId: resolvedInstanceId,
+          threadId: input.nodeId,
+          agentRunId: input.runId,
+          built,
+        });
+        await appendAgentRunEvent(
+          input.runId,
+          "trace_created",
+          "Answer trace created.",
+          { trace_id: traceId, response_post_id: handle.postId, status: built.status }
+        );
+      } catch (traceError) {
+        console.error("[reason-trace] failed to finalize answer trace:", traceError);
+        await appendAgentRunEvent(
+          input.runId,
+          "trace_failed",
+          "Answer trace unavailable.",
+          {
+            response_post_id: handle.postId,
+            error:
+              traceError instanceof Error
+                ? traceError.message
+                : String(traceError),
+          }
+        ).catch(() => undefined);
+      }
     }
 
     console.log(
@@ -1138,6 +1467,9 @@ async function streamInlineClaudeReply(input: {
       /* ignore — we already logged the original error */
     }
     if (handle) {
+      await linkInlineAgentRunResponse(input.runId, handle.postId).catch(
+        () => undefined
+      );
       const instanceId = await getNodeInstanceId(input.nodeId);
       await recordWorkOSEvent({
         instanceId,
@@ -1152,28 +1484,6 @@ async function streamInlineClaudeReply(input: {
       });
     }
   }
-}
-
-function buildInlineClaudePromptManifest(
-  prompt: ReturnType<typeof renderClaudePrompt>,
-  modelSelection: AgentModelSelection | null
-): Record<string, unknown> {
-  return {
-    provider_key: "inline_claude",
-    model_selection: modelSelection
-      ? {
-          provider_key: modelSelection.providerKey,
-          model_id: modelSelection.modelId,
-          label: modelSelection.label,
-        }
-      : null,
-    system_prompt_chars: prompt.systemPrompt.length,
-    user_message_chars: prompt.userMessage.length,
-    attachment_count: prompt.attachments.length,
-    attachment_source_post_ids: prompt.attachments.map(
-      (attachment) => attachment.source.postId
-    ),
-  };
 }
 
 function ensureTargetPostInOwnThread(

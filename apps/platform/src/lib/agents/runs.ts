@@ -100,6 +100,14 @@ export function buildInlineAgentRunInsert(
   };
 }
 
+export function buildInlineRunResponseLinkUpdate(
+  responsePostId: string
+): { response_post_id: string } {
+  const normalized = responsePostId.trim();
+  if (!normalized) throw new Error("Response post id is required");
+  return { response_post_id: normalized };
+}
+
 export function isInlineRunActive(
   run: Pick<AgentRun, "provider_key" | "status">
 ): boolean {
@@ -130,7 +138,8 @@ export function isMissingInlineAgentRunColumnError(error: unknown): boolean {
   return (
     (code === "PGRST204" || code === "PGRST205" || code === "42703") &&
     (compactMessage.includes("currentstage") ||
-      compactMessage.includes("promptmanifest"))
+      compactMessage.includes("promptmanifest") ||
+      compactMessage.includes("responsepostid"))
   );
 }
 
@@ -260,6 +269,28 @@ export async function updateInlineAgentRunStage(
   if (error) throw error;
 
   await appendAgentRunEvent(runId, "stage", stage, { stage });
+  revalidateAgentRuns(String(data.target_node_id));
+}
+
+export async function linkInlineAgentRunResponse(
+  runId: string,
+  responsePostId: string
+): Promise<void> {
+  const { revalidateAgentRuns, supabase } = await loadAgentRunRuntime();
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .update(buildInlineRunResponseLinkUpdate(responsePostId))
+    .eq("id", runId)
+    .select("target_node_id")
+    .single();
+  if (error && isMissingInlineAgentRunColumnError(error)) {
+    const targetNodeId = await updateInlineRunMetadataFallback(supabase, runId, {
+      response_post_id: responsePostId,
+    });
+    revalidateAgentRuns(targetNodeId);
+    return;
+  }
+  if (error) throw error;
   revalidateAgentRuns(String(data.target_node_id));
 }
 

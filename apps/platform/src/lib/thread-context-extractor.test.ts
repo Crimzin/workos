@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildPostTurnMemoryExtractionPrompt,
   extractThreadContextSheetPostTurnUpdate,
+  parsePostTurnAnalysis,
   parsePostTurnMemoryExtraction,
 } from "./thread-context-extractor.ts";
 import type { ThreadContextSheet } from "./types.ts";
@@ -98,6 +99,56 @@ const invalid = parsePostTurnMemoryExtraction("not json", {
   now: new Date("2026-07-02T12:40:00.000Z"),
 });
 assert.deepEqual(invalid, {});
+
+const analysis = parsePostTurnAnalysis(
+  JSON.stringify({
+    active_working: ["Current focus: ship the read-only trace panel."],
+    short_term: [],
+    long_term: [],
+    superseded_long_term_ids: [],
+    answer_anchors: [
+      {
+        statement: "Ship read-only inspection first.",
+        belief_refs: ["claim-1", "unknown-claim"],
+        evidence_refs: ["evidence-1"],
+      },
+    ],
+    proposed_claims: [
+      {
+        kind: "decision",
+        statement: "Ship read-only inspection first.",
+        origin: "human",
+        human_signal: "explicit_approval",
+      },
+      {
+        kind: "decision",
+        statement: "The assistant invented this decision.",
+        origin: "assistant",
+        human_signal: "explicit_approval",
+      },
+    ],
+  }),
+  {
+    existingSheet,
+    allowedClaimIds: new Set(["claim-1"]),
+    now: new Date("2026-07-02T12:40:00.000Z"),
+  }
+);
+
+assert.deepEqual(analysis.answerAnchors, [
+  {
+    id: "post-turn-anchor-1",
+    statement: "Ship read-only inspection first.",
+    belief_refs: ["claim-1"],
+    evidence_refs: ["evidence-1"],
+    mapping_kind: "structured_post_turn_association",
+  },
+]);
+assert.equal(analysis.proposedClaims[0].status, "active");
+assert.equal(analysis.proposedClaims[0].posture, "assert");
+assert.equal(analysis.proposedClaims[1].status, "tentative");
+assert.equal(analysis.proposedClaims[1].posture, "ask");
+assert.equal(analysis.proposedClaims[1].human_signal, "none");
 
 async function main() {
   const extracted = await extractThreadContextSheetPostTurnUpdate(

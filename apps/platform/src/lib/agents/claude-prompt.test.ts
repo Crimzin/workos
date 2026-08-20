@@ -540,3 +540,38 @@ assert.match(
   promptWithStandards.systemPrompt,
   /Only respond to the post explicitly marked/
 );
+
+const promptWithWorkingModel = renderClaudePrompt({
+  ...ctx,
+  memory: {
+    ...ctx.memory,
+    claims: [
+      {
+        id: "goal-1",
+        kind: "goal",
+        statement: "Make answer rationale inspectable.",
+        status: "active",
+        posture: "assert",
+        evidenceRefs: ["evidence-1"],
+      },
+      {
+        id: "question-1",
+        kind: "question",
+        statement: "Which correction flow should ship next?",
+        status: "tentative",
+        posture: "ask",
+        evidenceRefs: [],
+      },
+    ],
+  },
+});
+
+assert.match(promptWithWorkingModel.systemPrompt, /# Working Model/);
+assert.match(
+  promptWithWorkingModel.systemPrompt,
+  /Goal \(Strong\): Make answer rationale inspectable\./
+);
+assert.match(
+  promptWithWorkingModel.systemPrompt,
+  /Open question \(Uncertain\): Which correction flow should ship next\?/
+);

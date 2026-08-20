@@ -28,6 +28,7 @@ import {
   getElapsedGapLabel,
 } from "../time";
 import type { AIStandard } from "../types";
+import { postureLabel } from "../conviction";
 
 export interface ClaudePrompt {
   systemPrompt: string;
@@ -116,6 +117,14 @@ function buildSystemPrompt(
     ctx.fields.length > 0
       ? `# Field values\n${ctx.fields.map((f) => `- ${f.name}: ${f.rendered}`).join("\n")}\n`
       : null,
+    ctx.memory.claims && ctx.memory.claims.length > 0
+      ? `# Working Model\n${ctx.memory.claims
+          .map(
+            (claim) =>
+              `- ${workingModelKindLabel(claim.kind)} (${postureLabel(claim.posture)}): ${claim.statement}`
+          )
+          .join("\n")}\n`
+      : null,
     ctx.memory.rationale ? `# Rationale (why this exists)\n${ctx.memory.rationale}\n` : null,
     ctx.memory.assumptions.length > 0
       ? `# Assumptions\n${ctx.memory.assumptions.map((a) => `- ${a.statement} (${a.status})`).join("\n")}\n`
@@ -136,6 +145,19 @@ function buildSystemPrompt(
   ];
 
   return lines.filter((l): l is string => l !== null).join("\n");
+}
+
+function workingModelKindLabel(kind: NonNullable<NodeContext["memory"]["claims"]>[number]["kind"]): string {
+  if (kind === "goal") return "Goal";
+  if (kind === "decision") return "Decision";
+  if (kind === "idea") return "Idea";
+  if (kind === "assumption") return "Assumption";
+  if (kind === "constraint") return "Constraint";
+  if (kind === "question") return "Open question";
+  if (kind === "standard") return "Standard";
+  if (kind === "signal") return "Signal";
+  if (kind === "context_update") return "Update";
+  return "Rationale";
 }
 
 // ---------------------------------------------------------------------------

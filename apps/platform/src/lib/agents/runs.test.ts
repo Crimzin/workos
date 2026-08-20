@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildAgentRunInsert,
   buildInlineAgentRunInsert,
+  buildInlineRunResponseLinkUpdate,
   inlineRunStageFromRecord,
   isInlineRunActive,
   isMissingInlineAgentRunColumnError,
@@ -65,6 +66,10 @@ assert.deepEqual(buildInlineAgentRunInsert(inlineInput), {
   metadata: { current_stage: "Understanding the request..." },
 });
 
+assert.deepEqual(buildInlineRunResponseLinkUpdate("response-post-1"), {
+  response_post_id: "response-post-1",
+});
+
 assert.equal(
   buildInlineAgentRunInsert({ ...inlineInput, metadata: { route: "inline" } })
     .metadata.route,
@@ -95,6 +100,14 @@ assert.equal(
     code: "PGRST204",
     message:
       "Could not find the 'currentstage' column of 'agentruns' in the schema cache",
+  }),
+  true
+);
+assert.equal(
+  isMissingInlineAgentRunColumnError({
+    code: "PGRST204",
+    message:
+      "Could not find the 'response_post_id' column of 'agent_runs' in the schema cache",
   }),
   true
 );

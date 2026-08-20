@@ -82,6 +82,7 @@ export async function routeAutomaticContextV2(
     resolvedQuery: resolution.resolvedQuery,
     taskType: "blank-thread context discovery",
     budgetChars: budget.targetChars,
+    turnResolution: resolution,
   });
 
   if (
