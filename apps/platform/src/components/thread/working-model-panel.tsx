@@ -49,6 +49,9 @@ export function WorkingModelPanel({
 }: WorkingModelPanelProps) {
   const [activeTab, setActiveTab] = useState<WorkingModelTab>("model");
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set()
+  );
   const selectedTrace = answerTraces.find(
     (trace) => trace.postId === selectedPostId
   );
@@ -125,14 +128,19 @@ export function WorkingModelPanel({
 
       {activeTab === "model" && (
         <div className="space-y-5 px-4 py-4">
-          {model.groups.map((group) => (
+          {model.groups.map((group) => {
+            const expanded = expandedGroups.has(group.key);
+            const visibleClaims = expanded
+              ? group.claims
+              : group.claims.slice(0, 5);
+            return (
             <section key={group.key} className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-xs font-semibold text-text-primary">{group.label}</h3>
                 <span className="text-[10px] text-text-tertiary">{group.claims.length}</span>
               </div>
               <div className="space-y-2">
-                {group.claims.slice(0, 5).map((claim) => (
+                {visibleClaims.map((claim) => (
                   <WorkingModelClaimCard
                     key={claim.id}
                     claim={claim}
@@ -141,8 +149,28 @@ export function WorkingModelPanel({
                   />
                 ))}
               </div>
+              {group.claims.length > 5 && (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() =>
+                    setExpandedGroups((current) => {
+                      const next = new Set(current);
+                      if (next.has(group.key)) next.delete(group.key);
+                      else next.add(group.key);
+                      return next;
+                    })
+                  }
+                  className="rounded-md px-2 py-1 text-xs font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {expanded
+                    ? "Show fewer"
+                    : `Show ${group.claims.length - 5} more`}
+                </button>
+              )}
             </section>
-          ))}
+            );
+          })}
           {model.claimCount === 0 && (
             <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
               <Layers3 size={18} className="mx-auto text-text-tertiary" />

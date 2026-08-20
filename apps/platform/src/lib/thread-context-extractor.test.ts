@@ -109,7 +109,7 @@ const analysis = parsePostTurnAnalysis(
     answer_anchors: [
       {
         statement: "Ship read-only inspection first.",
-        belief_refs: ["claim-1", "unknown-claim"],
+        belief_refs: ["claim-1"],
         evidence_refs: ["evidence-1"],
       },
     ],
@@ -119,18 +119,22 @@ const analysis = parsePostTurnAnalysis(
         statement: "Ship read-only inspection first.",
         origin: "human",
         human_signal: "explicit_approval",
+        source_quote: "I approve shipping read-only inspection first.",
       },
       {
         kind: "decision",
         statement: "The assistant invented this decision.",
-        origin: "assistant",
+        origin: "human",
         human_signal: "explicit_approval",
+        source_quote: "This sentence is not in the user message.",
       },
     ],
   }),
   {
     existingSheet,
     allowedClaimIds: new Set(["claim-1"]),
+    allowedEvidenceIds: new Set(["evidence-1"]),
+    userText: "I approve shipping read-only inspection first.",
     now: new Date("2026-07-02T12:40:00.000Z"),
   }
 );
@@ -146,9 +150,61 @@ assert.deepEqual(analysis.answerAnchors, [
 ]);
 assert.equal(analysis.proposedClaims[0].status, "active");
 assert.equal(analysis.proposedClaims[0].posture, "assert");
+assert.deepEqual(analysis.proposedClaims[0].source_span, {
+  start: 0,
+  end: 46,
+  text: "I approve shipping read-only inspection first.",
+});
 assert.equal(analysis.proposedClaims[1].status, "tentative");
 assert.equal(analysis.proposedClaims[1].posture, "ask");
 assert.equal(analysis.proposedClaims[1].human_signal, "none");
+assert.equal(analysis.proposedClaims[1].origin, "assistant");
+assert.equal(analysis.associationStatus, "structured");
+assert.deepEqual(analysis.associationWarnings, []);
+
+const invalidAssociations = parsePostTurnAnalysis(
+  JSON.stringify({
+    answer_anchors: [
+      {
+        statement: "Invented references must be rejected.",
+        belief_refs: ["not-selected"],
+        evidence_refs: ["not-selected-evidence"],
+      },
+    ],
+  }),
+  {
+    existingSheet,
+    allowedClaimIds: new Set(["claim-1"]),
+    allowedEvidenceIds: new Set(["evidence-1"]),
+    userText: "No new durable fact here.",
+  }
+);
+assert.equal(invalidAssociations.associationStatus, "invalid");
+assert.match(invalidAssociations.associationWarnings.join(" "), /not selected/i);
+
+const ungroundedAuthority = parsePostTurnAnalysis(
+  JSON.stringify({
+    answer_anchors: [{ statement: "No durable claim was used." }],
+    proposed_claims: [
+      {
+        kind: "decision",
+        statement: "Launch directly to production.",
+        origin: "human",
+        human_signal: "explicit_approval",
+        source_quote: "I can review the draft tomorrow.",
+      },
+    ],
+  }),
+  {
+    existingSheet,
+    allowedClaimIds: new Set(),
+    allowedEvidenceIds: new Set(),
+    userText: "I can review the draft tomorrow.",
+  }
+);
+assert.equal(ungroundedAuthority.proposedClaims[0]?.origin, "assistant");
+assert.equal(ungroundedAuthority.proposedClaims[0]?.human_signal, "none");
+assert.equal(ungroundedAuthority.proposedClaims[0]?.posture, "ask");
 
 async function main() {
   const extracted = await extractThreadContextSheetPostTurnUpdate(

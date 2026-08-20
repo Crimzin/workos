@@ -12,6 +12,7 @@ const manifest = createContextPromptManifest({
 });
 
 assert.equal(manifest.router_version, "context-router-v2");
+assert.equal(manifest.routing_status, "complete");
 assert.equal(manifest.task_type, "blank-thread context discovery");
 assert.equal(manifest.current_stage_label, "Understanding the request...");
 assert.equal(manifest.estimated_prompt_chars, 0);

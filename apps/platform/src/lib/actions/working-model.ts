@@ -30,6 +30,7 @@ export async function correctWorkingModelClaim(input: {
   threadId: string;
   workspaceId: string;
   replacementStatement?: string | null;
+  replacementBody?: string | null;
   reason: string;
 }): Promise<{ replacementClaimId: string | null }> {
   const actor = await getCurrentActor();
@@ -41,7 +42,9 @@ export async function correctWorkingModelClaim(input: {
   const args = buildCorrectWorkingModelClaimRpcArgs({
     claimId: input.claimId,
     actorId: actor.id,
+    workspaceId: input.workspaceId,
     replacementStatement: input.replacementStatement,
+    replacementBody: input.replacementBody,
     reason: input.reason,
   });
   const { data, error } = await supabase.rpc(
@@ -56,7 +59,7 @@ export async function correctWorkingModelClaim(input: {
       ? result.replacement_claim_id
       : null;
   const now = new Date().toISOString();
-  const dossierSynced = await syncThreadSheetCorrection({
+  await syncThreadSheetCorrection({
     instanceId: actor.instance_id,
     threadId: input.threadId,
     claimId: input.claimId,
@@ -64,23 +67,6 @@ export async function correctWorkingModelClaim(input: {
     previousStatement: claim.statement,
     replacementStatement: args.p_replacement_statement,
     now,
-  });
-
-  await recordWorkOSEvent({
-    instanceId: actor.instance_id,
-    workspaceId: input.workspaceId,
-    nodeId: input.threadId,
-    actorId: actor.id,
-    eventType: "memory.corrected",
-    subjectType: "working_model_claim",
-    subjectId: replacementClaimId ?? input.claimId,
-    summary: `${actor.name} corrected a working belief.`,
-    metadata: {
-      corrected_claim_id: input.claimId,
-      replacement_claim_id: replacementClaimId,
-      reason: args.p_reason,
-      dossier_synced: dossierSynced,
-    },
   });
 
   await revalidateHistoricalTraceDiffs(input.threadId);

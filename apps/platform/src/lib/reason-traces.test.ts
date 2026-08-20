@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  answerTraceClaimAttribution,
   buildAnswerReasonTraceSnapshot,
   buildAnswerAnchors,
   hasResponseChangedSinceTrace,
   hashTraceContent,
+  redactAnswerReasonTraceSnapshotForRead,
   summarizeEvidenceProvenance,
   type ReasonTraceClaimSnapshot,
   type ReasonTraceEvidence,
@@ -135,6 +137,7 @@ const built = buildAnswerReasonTraceSnapshot({
     extractor_version: "thread-context-v1",
   },
   associationStatus: "failed",
+  routingStatus: "complete",
   warnings: ["Structured answer association was unavailable."],
 });
 
@@ -147,3 +150,71 @@ assert.equal(built.snapshot.evidence.at(-1)?.excerpt, null);
 assert.ok(built.snapshot.warnings.includes("Structured answer association was unavailable."));
 assert.equal(hasResponseChangedSinceTrace(answer, built.snapshot), false);
 assert.equal(hasResponseChangedSinceTrace(`${answer} Edited.`, built.snapshot), true);
+
+const structured = buildAnswerReasonTraceSnapshot({
+  generatedAt: "2026-08-19T14:00:00.000Z",
+  responsePostId: "response-2",
+  threadId: "thread-1",
+  responseBody: answer,
+  triggerPostId: "trigger-1",
+  request: built.snapshot.request,
+  threadSheet: null,
+  claims,
+  retrieval: built.snapshot.retrieval,
+  evidence,
+  runtime: built.snapshot.runtime,
+  associationStatus: "structured",
+  routingStatus: "complete",
+  structuredAnchors: [
+    {
+      id: "anchor-1",
+      statement: "Ship the read-only Working Model first.",
+      belief_refs: ["claim-1"],
+      evidence_refs: ["evidence-1"],
+      mapping_kind: "structured_post_turn_association",
+    },
+  ],
+});
+assert.equal(structured.status, "complete");
+
+const invalidAssociation = buildAnswerReasonTraceSnapshot({
+  generatedAt: "2026-08-19T14:00:00.000Z",
+  responsePostId: "response-3",
+  threadId: "thread-1",
+  responseBody: answer,
+  triggerPostId: "trigger-1",
+  request: built.snapshot.request,
+  threadSheet: null,
+  claims,
+  retrieval: built.snapshot.retrieval,
+  evidence,
+  runtime: built.snapshot.runtime,
+  associationStatus: "structured",
+  routingStatus: "partial",
+  structuredAnchors: [
+    {
+      id: "anchor-invalid",
+      statement: "An invented association must not look complete.",
+      belief_refs: ["invented-claim"],
+      evidence_refs: ["invented-evidence"],
+      mapping_kind: "structured_post_turn_association",
+    },
+  ],
+});
+assert.equal(invalidAssociation.status, "partial");
+assert.deepEqual(invalidAssociation.snapshot.answer.anchors[0]?.belief_refs, []);
+assert.deepEqual(invalidAssociation.snapshot.answer.anchors[0]?.evidence_refs, []);
+assert.match(invalidAssociation.snapshot.warnings.join(" "), /invalid association/i);
+
+const attribution = answerTraceClaimAttribution(structured.snapshot);
+assert.deepEqual(attribution.restedOn.map((claim) => claim.id), ["claim-1"]);
+assert.deepEqual(attribution.alsoAvailable, []);
+
+const redacted = redactAnswerReasonTraceSnapshotForRead(structured.snapshot, {
+  accessibleNodeIds: new Set(["thread-1", "thread-2", "thread-3"]),
+  accessiblePostIds: new Set(["post-1", "post-2", "post-3"]),
+});
+assert.equal(redacted.evidence[0]?.excerpt?.length, 280);
+assert.equal(redacted.evidence.at(-1)?.excerpt, null);
+assert.equal(redacted.evidence.at(-1)?.source_label, "Restricted source");
+assert.notEqual(redacted, structured.snapshot, "read-time redaction must not mutate the stored snapshot");

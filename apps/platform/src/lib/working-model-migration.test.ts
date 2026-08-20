@@ -30,3 +30,13 @@ assert.match(sql, /relationship_kind[\s\S]+revises/i);
 assert.match(sql, /status = 'superseded'/i);
 assert.match(sql, /status = 'retracted'/i);
 assert.match(sql, /invalid_upstream_assumption/i);
+assert.match(
+  sql,
+  /insert into workos_events[\s\S]+memory\.corrected/i,
+  "the correction event must commit in the same transaction as the claim change"
+);
+assert.match(
+  sql,
+  /if tg_op = 'DELETE'[\s\S]+not exists[\s\S]+from instances/i,
+  "account deletion cascades must bypass ordinary immutability guards"
+);

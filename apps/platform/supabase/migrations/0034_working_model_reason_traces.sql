@@ -21,7 +21,7 @@ alter table memory_primitives
   ),
   add column if not exists extraction_mode text not null default 'user_authored'
     check (extraction_mode in ('explicit', 'inferred', 'synthesized', 'user_authored')),
-  add column if not exists conviction_posture text not null default 'assert'
+  add column if not exists conviction_posture text not null default 'ask'
     check (conviction_posture in ('assert', 'flag', 'ask')),
   add column if not exists conviction_factors jsonb not null default '[]'::jsonb,
   add column if not exists conviction_version text not null default 'working-model-v1',
@@ -117,7 +117,7 @@ create table if not exists memory_primitive_evidence (
   constraint memory_primitive_evidence_claim_instance_fk
     foreign key (memory_primitive_id, instance_id)
     references memory_primitives(id, instance_id)
-    on delete restrict
+    on delete cascade
 );
 
 create index if not exists memory_primitive_evidence_claim_idx
@@ -240,7 +240,10 @@ create index if not exists agent_runs_response_post_idx
 create or replace function rpc_correct_memory_primitive(
   p_claim_id uuid,
   p_actor_id uuid,
+  p_workspace_id uuid,
   p_replacement_statement text default null,
+  p_replacement_body text default null,
+  p_replace_body boolean default false,
   p_reason text default null
 )
 returns table (
@@ -259,6 +262,7 @@ declare
   v_now timestamptz := now();
   v_reason text := nullif(trim(p_reason), '');
   v_replacement text := nullif(trim(p_replacement_statement), '');
+  v_replacement_body text;
   v_correction_factor jsonb;
 begin
   if v_reason is null then
@@ -284,12 +288,37 @@ begin
     raise exception 'Correction actor does not belong to this instance';
   end if;
 
+  if not exists (
+    with recursive ancestors as (
+      select node.id, node.parent_id, node.instance_id
+      from nodes node
+      where node.id = v_old.node_id
+      union all
+      select parent.id, parent.parent_id, parent.instance_id
+      from nodes parent
+      join ancestors child on child.parent_id = parent.id
+    )
+    select 1
+    from ancestors workspace
+    where workspace.id = p_workspace_id
+      and workspace.instance_id = v_old.instance_id
+  ) then
+    raise exception 'Correction workspace does not belong to this instance';
+  end if;
+
   if v_old.status in ('superseded', 'retracted', 'invalidated', 'reversed') then
     raise exception 'This belief has already changed';
   end if;
 
-  if v_replacement is not null and v_replacement = trim(v_old.statement) then
-    raise exception 'The replacement must change the belief';
+  v_replacement_body := case
+    when p_replace_body then nullif(trim(p_replacement_body), '')
+    else v_old.body
+  end;
+
+  if v_replacement is not null
+     and v_replacement = trim(v_old.statement)
+     and v_replacement_body is not distinct from v_old.body then
+    raise exception 'The replacement must change the belief or explanation';
   end if;
 
   if v_replacement is not null and v_old.type = 'rationale' then
@@ -331,7 +360,7 @@ begin
       v_old.node_id,
       v_old.type,
       v_replacement,
-      v_old.body,
+      v_replacement_body,
       'active',
       1.00,
       coalesce(v_old.metadata, '{}'::jsonb) || jsonb_build_object(
@@ -438,6 +467,34 @@ begin
     )
       and dependent.status in ('active', 'tentative', 'validated', 'untested');
 
+  insert into workos_events (
+    instance_id,
+    workspace_id,
+    node_id,
+    actor_id,
+    event_type,
+    subject_type,
+    subject_id,
+    summary,
+    metadata,
+    occurred_at
+  ) values (
+    v_old.instance_id,
+    p_workspace_id,
+    v_old.node_id,
+    p_actor_id,
+    'memory.corrected',
+    'working_model_claim',
+    coalesce(v_replacement_id, v_old.id),
+    'A person corrected a working belief.',
+    jsonb_build_object(
+      'corrected_claim_id', v_old.id,
+      'replacement_claim_id', v_replacement_id,
+      'reason', v_reason
+    ),
+    v_now
+  );
+
   old_claim_id := v_old.id;
   replacement_claim_id := v_replacement_id;
   thread_id := v_old.node_id;
@@ -446,14 +503,19 @@ begin
 end;
 $$;
 
-revoke all on function rpc_correct_memory_primitive(uuid, uuid, text, text)
+revoke all on function rpc_correct_memory_primitive(uuid, uuid, uuid, text, text, boolean, text)
   from public;
-grant execute on function rpc_correct_memory_primitive(uuid, uuid, text, text)
+grant execute on function rpc_correct_memory_primitive(uuid, uuid, uuid, text, text, boolean, text)
   to service_role;
 
 create or replace function prevent_memory_evidence_mutation()
 returns trigger as $$
 begin
+  if tg_op = 'DELETE' and not exists (
+    select 1 from instances where id = old.instance_id
+  ) then
+    return old;
+  end if;
   raise exception 'memory evidence is append-only';
 end;
 $$ language plpgsql;
@@ -466,6 +528,11 @@ create trigger memory_primitive_evidence_immutable
 create or replace function prevent_reason_trace_mutation()
 returns trigger as $$
 begin
+  if tg_op = 'DELETE' and not exists (
+    select 1 from instances where id = old.instance_id
+  ) then
+    return old;
+  end if;
   raise exception 'reason traces are immutable';
 end;
 $$ language plpgsql;

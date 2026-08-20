@@ -1,6 +1,9 @@
 import { diffClaimSnapshot, postureLabel, type ClaimSnapshotDiff } from "./conviction";
 import {
+  answerTraceClaimAttribution,
   hasResponseChangedSinceTrace,
+  loadEvidenceAccessSnapshot,
+  redactAnswerReasonTraceSnapshotForRead,
   summarizeEvidenceProvenance,
   type AnswerReasonTraceSnapshotV1,
   type ReasonTraceEvidence,
@@ -21,6 +24,7 @@ import type { ContextPromptManifestClaim } from "./context-router/types";
 import type { PostTurnProposedClaim } from "./thread-context-extractor";
 
 export interface WorkingModelEvidenceRow extends MemoryPrimitiveEvidence {
+  accessible: boolean;
   source_node: {
     id: string;
     title: string;
@@ -143,6 +147,12 @@ export function buildAnswerTraceSummaryView(input: {
     return diff ? [{ claimId: claim.id, diff }] : [];
   });
 
+  const attribution = answerTraceClaimAttribution(input.snapshot);
+  const relevantEvidenceIds = new Set([
+    ...input.snapshot.answer.anchors.flatMap((anchor) => anchor.evidence_refs),
+    ...attribution.restedOn.flatMap((claim) => claim.evidence_refs),
+  ]);
+
   return {
     id: input.id,
     postId: input.snapshot.subject.id,
@@ -151,7 +161,9 @@ export function buildAnswerTraceSummaryView(input: {
     summary: input.snapshot.answer.summary,
     hasWarnings: input.snapshot.warnings.length > 0,
     evidenceSummary: summarizeEvidenceProvenance(
-      input.snapshot.evidence.map((item) => ({ ...item, accessible: true }))
+      input.snapshot.evidence
+        .filter((item) => relevantEvidenceIds.has(item.id))
+        .map((item) => ({ ...item, accessible: item.excerpt !== null }))
     ),
     snapshot: input.snapshot,
     changedClaims,
@@ -344,6 +356,8 @@ export function buildPostTurnClaimInsert(input: {
       source_post_id: sourcePostId,
       actor_id: actorId,
       observed_at: input.now,
+      excerpt: input.claim.source_span?.text ?? null,
+      source_span: input.claim.source_span ?? {},
       human_signal: input.claim.human_signal,
       authority_snapshot: fromHuman
         ? { actor_id: input.requesterActorId, source: "current_user_turn" }
@@ -438,7 +452,8 @@ export function workingModelClaimsForManifest(
 }
 
 export async function getThreadWorkingModel(
-  threadId: string
+  threadId: string,
+  viewerInstanceId: string
 ): Promise<ThreadWorkingModelView> {
   const [{ unstable_cache }, { cacheTags }, { supabase }] = await Promise.all([
     import("next/cache"),
@@ -452,6 +467,7 @@ export async function getThreadWorkingModel(
         .from("memory_primitives")
         .select("*")
         .eq("node_id", threadId)
+        .eq("instance_id", viewerInstanceId)
         .order("updated_at", { ascending: false });
       if (primitiveError) throw primitiveError;
 
@@ -494,21 +510,30 @@ export async function getThreadWorkingModel(
         }
       }
 
+      const normalizedEvidence = normalizeEvidenceRows(evidenceResult.data ?? []);
+      const evidenceAccess = await loadEvidenceAccessSnapshot(
+        normalizedEvidence,
+        viewerInstanceId
+      );
       return buildThreadWorkingModelView({
         threadId,
         primitives,
-        evidence: normalizeEvidenceRows(evidenceResult.data ?? []),
+        evidence: redactWorkingModelEvidenceForRead(
+          normalizedEvidence,
+          evidenceAccess
+        ),
         edges: (edgeResult.data ?? []) as MemoryPrimitiveEdge[],
         overrides: (overrideResult.data ?? []) as ContextRetrievalOverride[],
       });
     },
-    ["thread-working-model", threadId],
+    ["thread-working-model", viewerInstanceId, threadId],
     { tags: [cacheTags.workingModel(threadId)], revalidate: false }
   )();
 }
 
 export async function getThreadAnswerTraces(
-  threadId: string
+  threadId: string,
+  viewerInstanceId: string
 ): Promise<AnswerTraceSummary[]> {
   const [{ unstable_cache }, { cacheTags }, { supabase }] = await Promise.all([
     import("next/cache"),
@@ -522,6 +547,7 @@ export async function getThreadAnswerTraces(
         .from("reason_traces")
         .select("id,subject_id,status,snapshot,created_at")
         .eq("thread_id", threadId)
+        .eq("instance_id", viewerInstanceId)
         .eq("trace_kind", "answer")
         .order("created_at", { ascending: false })
         .limit(50);
@@ -530,11 +556,22 @@ export async function getThreadAnswerTraces(
         throw error;
       }
 
-      const parsedRows = (data ?? []).flatMap((row) => {
+      const rawParsedRows = (data ?? []).flatMap((row) => {
         const snapshot = parseAnswerTraceSnapshot(row.snapshot);
         if (!snapshot) return [];
         return [{ row, snapshot }];
       });
+      const evidenceAccess = await loadEvidenceAccessSnapshot(
+        rawParsedRows.flatMap(({ snapshot }) => snapshot.evidence),
+        viewerInstanceId
+      );
+      const parsedRows = rawParsedRows.map(({ row, snapshot }) => ({
+        row,
+        snapshot: redactAnswerReasonTraceSnapshotForRead(
+          snapshot,
+          evidenceAccess
+        ),
+      }));
       if (parsedRows.length === 0) return [];
 
       const postIds = parsedRows.map(({ snapshot }) => snapshot.subject.id);
@@ -546,7 +583,11 @@ export async function getThreadAnswerTraces(
       const [postResult, liveResult] = await Promise.all([
         supabase.from("posts").select("id,body").in("id", postIds),
         claimIds.length > 0
-          ? supabase.from("memory_primitives").select("*").in("id", claimIds)
+          ? supabase
+              .from("memory_primitives")
+              .select("*")
+              .eq("instance_id", viewerInstanceId)
+              .in("id", claimIds)
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (postResult.error) throw postResult.error;
@@ -570,13 +611,14 @@ export async function getThreadAnswerTraces(
         })
       );
     },
-    ["thread-answer-traces", threadId],
+    ["thread-answer-traces", viewerInstanceId, threadId],
     { tags: [cacheTags.answerTraces(threadId)], revalidate: false }
   )();
 }
 
 export async function getReasonTraceForPost(
-  postId: string
+  postId: string,
+  viewerInstanceId: string
 ): Promise<ReasonTraceView | null> {
   const [{ unstable_cache }, { cacheTags }, { supabase }] = await Promise.all([
     import("next/cache"),
@@ -592,6 +634,7 @@ export async function getReasonTraceForPost(
         .eq("trace_kind", "answer")
         .eq("subject_type", "post")
         .eq("subject_id", postId)
+        .eq("instance_id", viewerInstanceId)
         .maybeSingle();
       if (error) {
         if (isMissingWorkingModelRelationError(error)) return null;
@@ -600,12 +643,24 @@ export async function getReasonTraceForPost(
       if (!data) return null;
 
       const record = data as ReasonTraceRecord;
-      const snapshot = parseAnswerTraceSnapshot(record.snapshot);
-      if (!snapshot) return null;
+      const storedSnapshot = parseAnswerTraceSnapshot(record.snapshot);
+      if (!storedSnapshot) return null;
+      const evidenceAccess = await loadEvidenceAccessSnapshot(
+        storedSnapshot.evidence,
+        viewerInstanceId
+      );
+      const snapshot = redactAnswerReasonTraceSnapshotForRead(
+        storedSnapshot,
+        evidenceAccess
+      );
       const claimIds = snapshot.working_model.claims.map((claim) => claim.id);
       const [liveResult, postResult] = await Promise.all([
         claimIds.length > 0
-          ? supabase.from("memory_primitives").select("*").in("id", claimIds)
+          ? supabase
+              .from("memory_primitives")
+              .select("*")
+              .eq("instance_id", viewerInstanceId)
+              .in("id", claimIds)
           : Promise.resolve({ data: [], error: null }),
         supabase.from("posts").select("body").eq("id", postId).maybeSingle(),
       ]);
@@ -631,7 +686,7 @@ export async function getReasonTraceForPost(
         responseEdited: summary.responseEdited,
       };
     },
-    ["reason-trace-post", postId],
+    ["reason-trace-post", viewerInstanceId, postId],
     { tags: [cacheTags.reasonTrace(postId)], revalidate: false }
   )();
 }
@@ -652,7 +707,9 @@ function buildEvidenceGroups(
   const groups = new Map<string, WorkingModelEvidenceItem[]>();
   for (const item of evidence) {
     const sourceApp = normalizeSourceApp(item.source_app ?? item.source_node?.source_app);
-    const sourceLabel = item.source_node?.title ?? sourceAppLabel(sourceApp);
+    const sourceLabel = item.accessible
+      ? item.source_node?.title ?? sourceAppLabel(sourceApp)
+      : "Restricted source";
     const key = `${sourceApp}:${item.source_node_id ?? sourceLabel}`;
     appendToGroup(groups, key, {
       id: item.id,
@@ -662,7 +719,7 @@ function buildEvidenceGroups(
       sourceNodeId: item.source_node_id,
       sourcePostId: item.source_post_id,
       sourceMessageId: item.source_message_id,
-      excerpt: item.excerpt,
+      excerpt: item.accessible ? item.excerpt : null,
       observedAt: item.observed_at,
       humanSignal: item.human_signal,
     });
@@ -695,12 +752,14 @@ function summarizeWorkingModelEvidence(
     source_node_id: item.source_node_id,
     source_post_id: item.source_post_id,
     source_message_id: item.source_message_id,
-    source_label: item.source_node?.title ?? "Source",
-    excerpt: item.excerpt,
+    source_label: item.accessible
+      ? item.source_node?.title ?? "Source"
+      : "Restricted source",
+    excerpt: item.accessible ? item.excerpt : null,
     observed_at: item.observed_at,
     actor_id: item.actor_id,
     human_signal: item.human_signal,
-    accessible: true,
+    accessible: item.accessible,
   }));
   return summarizeEvidenceProvenance(traceEvidence);
 }
@@ -807,9 +866,32 @@ function normalizeEvidenceRows(rows: unknown[]): WorkingModelEvidenceRow[] {
     };
     return {
       ...evidence,
+      accessible: false,
       source_node: Array.isArray(evidence.source_node)
         ? evidence.source_node[0] ?? null
         : evidence.source_node ?? null,
+    };
+  });
+}
+
+function redactWorkingModelEvidenceForRead(
+  evidence: WorkingModelEvidenceRow[],
+  access: {
+    accessibleNodeIds: Set<string>;
+    accessiblePostIds: Set<string>;
+  }
+): WorkingModelEvidenceRow[] {
+  return evidence.map((item) => {
+    const hasReference = Boolean(item.source_node_id || item.source_post_id);
+    const accessible =
+      hasReference &&
+      (!item.source_node_id || access.accessibleNodeIds.has(item.source_node_id)) &&
+      (!item.source_post_id || access.accessiblePostIds.has(item.source_post_id));
+    return {
+      ...item,
+      accessible,
+      excerpt: accessible ? item.excerpt : null,
+      source_node: accessible ? item.source_node : null,
     };
   });
 }

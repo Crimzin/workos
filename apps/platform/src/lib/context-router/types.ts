@@ -127,6 +127,7 @@ export interface ContextPromptManifestModelSelection {
 
 export interface ContextPromptManifest extends Record<string, unknown> {
   router_version: "context-router-v2";
+  routing_status: "complete" | "partial";
   resolved_query: string;
   task_type: string;
   turn_resolution: ContextTurnResolution;

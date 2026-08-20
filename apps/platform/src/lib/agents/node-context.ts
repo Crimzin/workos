@@ -274,7 +274,7 @@ export async function gatherNodeContext(
     getNodeLinks(nodeId),
     getNodeMemoryPrimitives(nodeId),
     getThreadContextSheet(nodeId),
-    getThreadWorkingModel(nodeId),
+    getThreadWorkingModel(nodeId, node.instance_id),
   ]);
 
   // -------------------------------------------------------------------------

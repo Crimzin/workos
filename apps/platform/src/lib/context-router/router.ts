@@ -135,6 +135,9 @@ export async function routeAutomaticContextV2(
     decisions: packs,
     manifest: {
       ...manifest,
+      routing_status: warnings.some((warning) => /failed/i.test(warning))
+        ? "partial"
+        : "complete",
       estimated_prompt_chars: packs.reduce(
         (sum, item) =>
           sum + (item.candidate.estimatedChars ?? item.pack.snippet.length),

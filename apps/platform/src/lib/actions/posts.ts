@@ -343,6 +343,7 @@ async function processAgentMentionsForPost(input: {
   let contextManifest = createContextPromptManifest({
     resolvedQuery: input.plainText,
     taskType: "inline thread response",
+    routingStatus: "partial",
     budgetChars: 0,
     warnings: ["Automatic context routing did not complete."],
   });
@@ -382,7 +383,7 @@ async function processAgentMentionsForPost(input: {
   }
 
   const [workingModel, threadSheet] = await Promise.all([
-    getThreadWorkingModel(input.nodeId),
+    getThreadWorkingModel(input.nodeId, input.actor.instance_id),
     getThreadContextSheet(input.nodeId),
   ]);
   const selectedClaims = workingModelClaimsForManifest(workingModel);
@@ -838,7 +839,13 @@ async function updateThreadContextSheetAfterReply(input: {
   workingModelClaims: ContextPromptManifest["selected_claims"];
 }): Promise<PostTurnAnalysisResult> {
   if (!input.assistantText.trim()) {
-    return { sheetUpdate: {}, answerAnchors: [], proposedClaims: [] };
+    return {
+      sheetUpdate: {},
+      answerAnchors: [],
+      proposedClaims: [],
+      associationStatus: "unavailable",
+      associationWarnings: ["The response did not contain text to associate."],
+    };
   }
 
   const [existingSheet, attachedContextFacts] = await Promise.all([
@@ -867,7 +874,19 @@ async function updateThreadContextSheetAfterReply(input: {
     threadId: input.threadId,
     update,
   });
-  if (!didUpsert) return analysis;
+  if (!didUpsert) {
+    await appendAgentRunEvent(
+      input.runId,
+      "working_model_sync_pending",
+      "Thread dossier update needs reconciliation.",
+      {
+        projection: "thread_context_sheet",
+        sheet_update: update,
+        proposed_claims: analysis.proposedClaims,
+      }
+    );
+    throw new Error("Thread dossier update was not persisted.");
+  }
 
   revalidateThreadContextSheet(input.threadId);
   await appendAgentRunEvent(input.runId, "memory_updated", "Thread memory updated.", {
@@ -1347,17 +1366,32 @@ async function streamInlineClaudeReply(input: {
           requesterActorId: input.requesterActorId,
           agentActorId: input.agent.id,
           claims: postTurnAnalysis.proposedClaims,
-        }).catch((claimError) => {
+        }).catch(async (claimError) => {
           console.error(
             "[working-model] failed to persist post-turn claims:",
             claimError
           );
+          await appendAgentRunEvent(
+            input.runId,
+            "working_model_sync_pending",
+            "Typed Working Model updates need reconciliation.",
+            {
+              response_post_id: handle?.postId ?? null,
+              trigger_post_id: input.triggerPostId,
+              proposed_claims: postTurnAnalysis?.proposedClaims ?? [],
+              error:
+                claimError instanceof Error
+                  ? claimError.message
+                  : String(claimError),
+            }
+          ).catch(() => undefined);
         });
       }
       try {
         const [evidence, storedResponseBody] = await Promise.all([
           loadReasonTraceEvidence(
-            promptManifest.selected_claims.map((claim) => claim.id)
+            promptManifest.selected_claims.map((claim) => claim.id),
+            resolvedInstanceId
           ),
           getPostBodyForTrace(handle.postId, accumulated),
         ]);
@@ -1375,8 +1409,6 @@ async function streamInlineClaudeReply(input: {
             superseded_by_primitive_id: claim.superseded_by_primitive_id,
             updated_at: claim.updated_at,
           }));
-        const hasStructuredAnchors =
-          (postTurnAnalysis?.answerAnchors.length ?? 0) > 0;
         const built = buildAnswerReasonTraceSnapshot({
           generatedAt: new Date().toISOString(),
           responsePostId: handle.postId,
@@ -1420,14 +1452,14 @@ async function streamInlineClaudeReply(input: {
               ? "thread-context-v2"
               : null,
           },
-          associationStatus: hasStructuredAnchors
-            ? "structured"
-            : postTurnAnalysis
-              ? "unavailable"
-              : "failed",
+          associationStatus: postTurnAnalysis
+            ? postTurnAnalysis.associationStatus
+            : "failed",
+          routingStatus: promptManifest.routing_status,
           structuredAnchors: postTurnAnalysis?.answerAnchors,
           warnings: [
             ...promptManifest.warnings,
+            ...(postTurnAnalysis?.associationWarnings ?? []),
             ...(postTurnWarning ? [postTurnWarning] : []),
           ],
         });

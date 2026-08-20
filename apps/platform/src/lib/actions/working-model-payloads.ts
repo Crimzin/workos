@@ -7,7 +7,9 @@ import type { ThreadContextSheetUpdate } from "../thread-context-sheet";
 export function buildCorrectWorkingModelClaimRpcArgs(input: {
   claimId: string;
   actorId: string;
+  workspaceId: string;
   replacementStatement?: string | null;
+  replacementBody?: string | null;
   reason: string;
 }) {
   const reason = cleanRequiredText(input.reason, "A correction reason", 500);
@@ -15,10 +17,17 @@ export function buildCorrectWorkingModelClaimRpcArgs(input: {
     input.replacementStatement,
     1000
   );
+  const replaceBody = input.replacementBody !== undefined;
+  const replacementBody = replaceBody
+    ? cleanOptionalBody(input.replacementBody, 100_000)
+    : null;
   return {
     p_claim_id: input.claimId,
     p_actor_id: input.actorId,
+    p_workspace_id: input.workspaceId,
     p_replacement_statement: replacementStatement,
+    p_replacement_body: replacementBody,
+    p_replace_body: replaceBody,
     p_reason: reason,
   };
 }
@@ -144,6 +153,19 @@ function cleanOptionalText(
   if (!cleaned) return null;
   if (cleaned.length > maxLength) {
     throw new Error(`The replacement must be ${maxLength} characters or fewer.`);
+  }
+  return cleaned;
+}
+
+function cleanOptionalBody(
+  value: string | null | undefined,
+  maxLength: number
+): string | null {
+  if (value === null || value === undefined) return null;
+  const cleaned = value.trim();
+  if (!cleaned) return null;
+  if (cleaned.length > maxLength) {
+    throw new Error(`The replacement body must be ${maxLength} characters or fewer.`);
   }
   return cleaned;
 }

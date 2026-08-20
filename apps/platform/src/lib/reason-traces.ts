@@ -53,6 +53,7 @@ export interface ReasonTraceEvidence {
 }
 
 export interface ReasonTraceRetrievalSnapshot {
+  routing_status: "complete" | "partial";
   budget_chars: number;
   estimated_prompt_chars: number;
   included: Array<Record<string, unknown>>;
@@ -128,10 +129,11 @@ export interface BuildAnswerReasonTraceInput {
     markdown: string;
   } | null;
   claims: ReasonTraceClaimSnapshot[];
-  retrieval: ReasonTraceRetrievalSnapshot;
+  retrieval: Omit<ReasonTraceRetrievalSnapshot, "routing_status">;
   evidence: ReasonTraceEvidence[];
   runtime: ReasonTraceRuntimeSnapshot;
-  associationStatus: "structured" | "failed" | "unavailable";
+  associationStatus: "structured" | "invalid" | "failed" | "unavailable";
+  routingStatus: "complete" | "partial";
   structuredAnchors?: ReasonTraceAnswerAnchor[];
   warnings?: string[];
 }
@@ -141,8 +143,14 @@ export interface BuiltAnswerReasonTrace {
   snapshot: AnswerReasonTraceSnapshotV1;
 }
 
+export interface EvidenceAccessSnapshot {
+  accessibleNodeIds: Set<string>;
+  accessiblePostIds: Set<string>;
+}
+
 export async function loadReasonTraceEvidence(
-  claimIds: string[]
+  claimIds: string[],
+  viewerInstanceId: string
 ): Promise<ReasonTraceEvidence[]> {
   if (claimIds.length === 0) return [];
   const { supabase } = await import("./supabase");
@@ -158,7 +166,7 @@ export async function loadReasonTraceEvidence(
     throw error;
   }
 
-  return (data ?? []).map((row): ReasonTraceEvidence => {
+  const evidence = (data ?? []).map((row): ReasonTraceEvidence => {
     const rawNode = Array.isArray(row.source_node)
       ? row.source_node[0]
       : row.source_node;
@@ -186,9 +194,58 @@ export async function loadReasonTraceEvidence(
         typeof row.observed_at === "string" ? row.observed_at : null,
       actor_id: typeof row.actor_id === "string" ? row.actor_id : null,
       human_signal: normalizeHumanSignal(row.human_signal),
-      accessible: true,
+      accessible: false,
     };
   });
+  const access = await loadEvidenceAccessSnapshot(evidence, viewerInstanceId);
+  return evidence.map((item) => reasonTraceEvidenceForViewer(item, access));
+}
+
+export async function loadEvidenceAccessSnapshot(
+  evidence: Array<Pick<ReasonTraceEvidence, "source_node_id" | "source_post_id">>,
+  viewerInstanceId: string
+): Promise<EvidenceAccessSnapshot> {
+  const { supabase } = await import("./supabase");
+  const directNodeIds = unique(
+    evidence.flatMap((item) => (item.source_node_id ? [item.source_node_id] : []))
+  );
+  const sourcePostIds = unique(
+    evidence.flatMap((item) => (item.source_post_id ? [item.source_post_id] : []))
+  );
+  const { data: postRows, error: postError } = sourcePostIds.length
+    ? await supabase.from("posts").select("id,node_id").in("id", sourcePostIds)
+    : { data: [], error: null };
+  if (postError) throw postError;
+
+  const postNodeIds = (postRows ?? []).flatMap((row) =>
+    typeof row.node_id === "string" ? [row.node_id] : []
+  );
+  const nodeIds = unique([...directNodeIds, ...postNodeIds]);
+  const { data: nodeRows, error: nodeError } = nodeIds.length
+    ? await supabase
+        .from("nodes")
+        .select("id,instance_id,archived_at,imported_visibility")
+        .in("id", nodeIds)
+    : { data: [], error: null };
+  if (nodeError) throw nodeError;
+
+  const accessibleNodeIds = new Set(
+    (nodeRows ?? []).flatMap((row) =>
+      row.instance_id === viewerInstanceId &&
+      !row.archived_at &&
+      row.imported_visibility !== "hidden_from_imported_chats"
+        ? [String(row.id)]
+        : []
+    )
+  );
+  const accessiblePostIds = new Set(
+    (postRows ?? []).flatMap((row) =>
+      typeof row.node_id === "string" && accessibleNodeIds.has(row.node_id)
+        ? [String(row.id)]
+        : []
+    )
+  );
+  return { accessibleNodeIds, accessiblePostIds };
 }
 
 export async function persistAnswerReasonTrace(input: {
@@ -291,11 +348,23 @@ export function buildAnswerReasonTraceSnapshot(
   input: BuildAnswerReasonTraceInput
 ): BuiltAnswerReasonTrace {
   const fallbackAnchors = buildAnswerAnchors(input.responseBody, input.claims);
-  const anchors =
-    input.associationStatus === "structured" && input.structuredAnchors
-      ? input.structuredAnchors
-      : fallbackAnchors;
+  const structured = validateStructuredAnchors(
+    input.structuredAnchors ?? [],
+    new Set(input.claims.map((claim) => claim.id)),
+    new Set(input.evidence.map((item) => item.id))
+  );
+  const shouldUseStructured =
+    (input.associationStatus === "structured" ||
+      input.associationStatus === "invalid") &&
+    input.structuredAnchors !== undefined;
+  const anchors = shouldUseStructured ? structured.anchors : fallbackAnchors;
   const warnings = [...(input.warnings ?? [])];
+
+  if (structured.invalidReferenceCount > 0) {
+    warnings.push(
+      "Invalid association references were removed because they were not selected for this answer."
+    );
+  }
 
   if (anchors.length === 0) {
     warnings.push("Answer mapping is unavailable for this response.");
@@ -308,8 +377,17 @@ export function buildAnswerReasonTraceSnapshot(
     );
   }
 
+  const associationsComplete =
+    input.associationStatus === "structured" &&
+    input.structuredAnchors !== undefined &&
+    anchors.length > 0 &&
+    structured.invalidReferenceCount === 0;
+
   return {
-    status: input.associationStatus === "structured" ? "complete" : "partial",
+    status:
+      input.routingStatus === "complete" && associationsComplete
+        ? "complete"
+        : "partial",
     snapshot: {
       schema_version: 1,
       trace_kind: "answer",
@@ -338,11 +416,54 @@ export function buildAnswerReasonTraceSnapshot(
           : null,
         claims: input.claims,
       },
-      retrieval: input.retrieval,
+      retrieval: {
+        routing_status: input.routingStatus,
+        ...input.retrieval,
+      },
       evidence: input.evidence.map(sanitizeTraceEvidence),
       runtime: input.runtime,
       warnings,
     },
+  };
+}
+
+export function answerTraceClaimAttribution(
+  snapshot: AnswerReasonTraceSnapshotV1
+): {
+  restedOn: ReasonTraceClaimSnapshot[];
+  alsoAvailable: ReasonTraceClaimSnapshot[];
+} {
+  const claimById = new Map(
+    snapshot.working_model.claims.map((claim) => [claim.id, claim])
+  );
+  const referencedIds = unique(
+    snapshot.answer.anchors.flatMap((anchor) => anchor.belief_refs)
+  );
+  const referencedSet = new Set(referencedIds);
+  return {
+    restedOn: referencedIds.flatMap((id) => {
+      const claim = claimById.get(id);
+      return claim ? [claim] : [];
+    }),
+    alsoAvailable: snapshot.working_model.claims.filter(
+      (claim) => !referencedSet.has(claim.id)
+    ),
+  };
+}
+
+export function redactAnswerReasonTraceSnapshotForRead(
+  snapshot: AnswerReasonTraceSnapshotV1,
+  access: EvidenceAccessSnapshot
+): AnswerReasonTraceSnapshotV1 {
+  return {
+    ...snapshot,
+    evidence: snapshot.evidence.map((item) => {
+      const viewed = reasonTraceEvidenceForViewer(
+        { ...item, accessible: false },
+        access
+      );
+      return sanitizeTraceEvidence(viewed);
+    }),
   };
 }
 
@@ -401,6 +522,54 @@ function sanitizeTraceEvidence(
         ? safe.excerpt.replace(/\s+/g, " ").trim().slice(0, TRACE_EXCERPT_MAX_CHARS)
         : null,
   };
+}
+
+function reasonTraceEvidenceForViewer(
+  evidence: ReasonTraceEvidence,
+  access: EvidenceAccessSnapshot
+): ReasonTraceEvidence {
+  const hasSourceReference = Boolean(
+    evidence.source_node_id || evidence.source_post_id
+  );
+  const nodeAccessible =
+    !evidence.source_node_id ||
+    access.accessibleNodeIds.has(evidence.source_node_id);
+  const postAccessible =
+    !evidence.source_post_id ||
+    access.accessiblePostIds.has(evidence.source_post_id);
+  const accessible = hasSourceReference && nodeAccessible && postAccessible;
+  return {
+    ...evidence,
+    accessible,
+    source_label: accessible ? evidence.source_label : "Restricted source",
+    excerpt: accessible ? evidence.excerpt : null,
+  };
+}
+
+function validateStructuredAnchors(
+  anchors: ReasonTraceAnswerAnchor[],
+  allowedClaimIds: Set<string>,
+  allowedEvidenceIds: Set<string>
+): { anchors: ReasonTraceAnswerAnchor[]; invalidReferenceCount: number } {
+  let invalidReferenceCount = 0;
+  const validatedAnchors = anchors.map((anchor) => {
+      const beliefRefs = anchor.belief_refs.filter((id) => {
+        const allowed = allowedClaimIds.has(id);
+        if (!allowed) invalidReferenceCount += 1;
+        return allowed;
+      });
+      const evidenceRefs = anchor.evidence_refs.filter((id) => {
+        const allowed = allowedEvidenceIds.has(id);
+        if (!allowed) invalidReferenceCount += 1;
+        return allowed;
+      });
+      return {
+        ...anchor,
+        belief_refs: unique(beliefRefs),
+        evidence_refs: unique(evidenceRefs),
+      };
+    });
+  return { anchors: validatedAnchors, invalidReferenceCount };
 }
 
 function summarizeAnswer(answer: string): string {

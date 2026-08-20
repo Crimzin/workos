@@ -22,6 +22,20 @@ export function ReasonTraceView({
   const changedClaimIds = new Set(
     trace.changedClaims.map(({ claimId }) => claimId)
   );
+  const claimById = new Map(
+    snapshot.working_model.claims.map((claim) => [claim.id, claim])
+  );
+  const restedOnClaimIds = [
+    ...new Set(snapshot.answer.anchors.flatMap((anchor) => anchor.belief_refs)),
+  ];
+  const restedOnClaims = restedOnClaimIds.flatMap((claimId) => {
+    const claim = claimById.get(claimId);
+    return claim ? [claim] : [];
+  });
+  const restedOnClaimIdSet = new Set(restedOnClaimIds);
+  const alsoAvailableClaims = snapshot.working_model.claims.filter(
+    (claim) => !restedOnClaimIdSet.has(claim.id)
+  );
 
   return (
     <div className="space-y-4 px-4 py-4">
@@ -85,9 +99,9 @@ export function ReasonTraceView({
           </h3>
           <p className="mt-1 text-xs text-text-tertiary">{trace.evidenceSummary}</p>
         </div>
-        {snapshot.working_model.claims.length > 0 ? (
+        {restedOnClaims.length > 0 ? (
           <div className="space-y-2">
-            {snapshot.working_model.claims.map((claim) => {
+            {restedOnClaims.map((claim) => {
               const claimEvidence = snapshot.evidence.filter((evidence) =>
                 claim.evidence_refs.includes(evidence.id)
               );
@@ -191,6 +205,16 @@ export function ReasonTraceView({
           <p>Context budget: {snapshot.retrieval.budget_chars.toLocaleString()} characters</p>
           <p>Estimated prompt: {snapshot.retrieval.estimated_prompt_chars.toLocaleString()} characters</p>
           <p>Omitted context: {snapshot.retrieval.omitted.length}</p>
+          {alsoAvailableClaims.length > 0 && (
+            <div className="space-y-1">
+              <p className="font-medium text-text-secondary">
+                Also available in context
+              </p>
+              {alsoAvailableClaims.map((claim) => (
+                <p key={claim.id}>{claim.statement}</p>
+              ))}
+            </div>
+          )}
           {snapshot.warnings.map((warning, index) => (
             <p key={`${warning}-${index}`} className="text-status-review">{warning}</p>
           ))}

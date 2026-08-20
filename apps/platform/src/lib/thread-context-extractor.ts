@@ -61,12 +61,15 @@ export interface PostTurnProposedClaim {
   extraction_mode: MemoryPrimitiveExtractionMode;
   status: MemoryPrimitiveLifecycle;
   posture: ConvictionPosture;
+  source_span: { start: number; end: number; text: string } | null;
 }
 
 export interface PostTurnAnalysisResult {
   sheetUpdate: ThreadContextSheetUpdate;
   answerAnchors: ReasonTraceAnswerAnchor[];
   proposedClaims: PostTurnProposedClaim[];
+  associationStatus: "structured" | "invalid" | "unavailable";
+  associationWarnings: string[];
 }
 
 export function buildPostTurnMemoryExtractionPrompt(
@@ -122,6 +125,7 @@ export function buildPostTurnMemoryExtractionPrompt(
             statement: "one concise claim",
             origin: "human | assistant",
             human_signal: "none | explicit_statement | explicit_approval | explicit_correction | observed_action | repeated_reference",
+            source_quote: "required exact quote from latest_user_message when origin is human; otherwise null",
           },
         ],
       },
@@ -134,6 +138,8 @@ export function parsePostTurnAnalysis(
   options: {
     existingSheet: ThreadContextSheet | null;
     allowedClaimIds: Set<string>;
+    allowedEvidenceIds: Set<string>;
+    userText: string;
     now?: Date;
   }
 ): PostTurnAnalysisResult {
@@ -141,23 +147,38 @@ export function parsePostTurnAnalysis(
   try {
     data = parseLlmJsonObject(text);
   } catch {
-    return { sheetUpdate: {}, answerAnchors: [], proposedClaims: [] };
+    return {
+      sheetUpdate: {},
+      answerAnchors: [],
+      proposedClaims: [],
+      associationStatus: "unavailable",
+      associationWarnings: ["Structured post-turn analysis was unavailable."],
+    };
   }
 
+  let invalidAssociationReferences = 0;
   const answerAnchors = Array.isArray(data.answer_anchors)
     ? data.answer_anchors.flatMap((value, index): ReasonTraceAnswerAnchor[] => {
         if (!isRecord(value)) return [];
         const statement =
           typeof value.statement === "string" ? cleanStatement(value.statement) : "";
         if (!statement) return [];
+        const beliefRefs = stringArray(value.belief_refs).filter((id) => {
+          const allowed = options.allowedClaimIds.has(id);
+          if (!allowed) invalidAssociationReferences += 1;
+          return allowed;
+        });
+        const evidenceRefs = stringArray(value.evidence_refs).filter((id) => {
+          const allowed = options.allowedEvidenceIds.has(id);
+          if (!allowed) invalidAssociationReferences += 1;
+          return allowed;
+        });
         return [
           {
             id: `post-turn-anchor-${index + 1}`,
             statement,
-            belief_refs: stringArray(value.belief_refs).filter((id) =>
-              options.allowedClaimIds.has(id)
-            ),
-            evidence_refs: stringArray(value.evidence_refs),
+            belief_refs: beliefRefs,
+            evidence_refs: evidenceRefs,
             mapping_kind: "structured_post_turn_association",
           },
         ];
@@ -170,9 +191,18 @@ export function parsePostTurnAnalysis(
         const statement =
           typeof value.statement === "string" ? cleanStatement(value.statement) : "";
         if (!statement || value.kind === "rationale") return [];
-        const origin = value.origin === "human" ? "human" : "assistant";
-        const humanSignal =
-          origin === "human" ? normalizeHumanSignal(value.human_signal) : "none";
+        const requestedHumanOrigin = value.origin === "human";
+        const sourceSpan = requestedHumanOrigin
+          ? groundHumanSourceSpan(
+              options.userText,
+              value.source_quote,
+              statement
+            )
+          : null;
+        const origin = sourceSpan ? "human" : "assistant";
+        const humanSignal = origin === "human"
+          ? normalizeHumanSignal(value.human_signal)
+          : "none";
         const hasHumanSignal = humanSignal !== "none";
         return [
           {
@@ -187,6 +217,7 @@ export function parsePostTurnAnalysis(
             extraction_mode: origin === "human" ? "explicit" : "synthesized",
             status: hasHumanSignal ? "active" : "tentative",
             posture: hasHumanSignal ? "assert" : "ask",
+            source_span: sourceSpan,
           },
         ];
       })
@@ -196,6 +227,20 @@ export function parsePostTurnAnalysis(
     sheetUpdate: parsePostTurnMemoryExtraction(text, options),
     answerAnchors,
     proposedClaims,
+    associationStatus:
+      invalidAssociationReferences > 0
+        ? "invalid"
+        : answerAnchors.length > 0
+          ? "structured"
+          : "unavailable",
+    associationWarnings:
+      invalidAssociationReferences > 0
+        ? [
+            `${invalidAssociationReferences} answer association reference${
+              invalidAssociationReferences === 1 ? " was" : "s were"
+            } not selected for this response and were removed.`,
+          ]
+        : [],
   };
 }
 
@@ -216,6 +261,10 @@ export async function extractThreadPostTurnAnalysis(
     allowedClaimIds: new Set(
       (input.workingModelClaims ?? []).map((claim) => claim.id)
     ),
+    allowedEvidenceIds: new Set(
+      (input.workingModelClaims ?? []).flatMap((claim) => claim.evidenceRefs)
+    ),
+    userText: input.userText,
     now: input.now,
   });
 }
@@ -375,6 +424,43 @@ function normalizeHumanSignal(value: unknown): MemoryHumanSignal {
     return value;
   }
   return "none";
+}
+
+function groundHumanSourceSpan(
+  userText: string,
+  sourceQuote: unknown,
+  claimStatement: string
+): { start: number; end: number; text: string } | null {
+  if (typeof sourceQuote !== "string") return null;
+  const normalizedUserText = cleanStatement(userText);
+  const quote = cleanStatement(sourceQuote);
+  if (!quote) return null;
+  const start = normalizedUserText.toLocaleLowerCase().indexOf(
+    quote.toLocaleLowerCase()
+  );
+  if (start < 0) return null;
+  const claimTerms = meaningfulTerms(claimStatement);
+  const quoteTerms = meaningfulTerms(quote);
+  const overlap = [...claimTerms].filter((term) => quoteTerms.has(term)).length;
+  const minimumOverlap = Math.min(2, claimTerms.size);
+  if (
+    claimTerms.size === 0 ||
+    overlap < minimumOverlap ||
+    overlap / claimTerms.size < 0.5
+  ) {
+    return null;
+  }
+  return { start, end: start + quote.length, text: quote };
+}
+
+function meaningfulTerms(value: string): Set<string> {
+  return new Set(
+    cleanStatement(value)
+      .toLocaleLowerCase()
+      .replace(/[^a-z0-9-]+/g, " ")
+      .split(/\s+/)
+      .filter((term) => term.length >= 4)
+  );
 }
 
 function cleanStatement(value: string): string {

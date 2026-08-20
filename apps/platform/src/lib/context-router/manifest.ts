@@ -10,6 +10,7 @@ import type {
 export interface CreateContextPromptManifestInput {
   resolvedQuery: string;
   taskType: string;
+  routingStatus?: "complete" | "partial";
   turnResolution?: ContextTurnResolution;
   budgetChars: number;
   estimatedPromptChars?: number;
@@ -31,6 +32,7 @@ export function createContextPromptManifest(
 ): ContextPromptManifest {
   return {
     router_version: "context-router-v2",
+    routing_status: input.routingStatus ?? "complete",
     resolved_query: input.resolvedQuery,
     task_type: input.taskType,
     turn_resolution: input.turnResolution ?? {

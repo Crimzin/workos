@@ -33,6 +33,11 @@ export function ChangedStateNotice({
             <p className="text-text-tertiary">
               Changed: {diff.fields.join(", ").replace(/_/g, " ")}
             </p>
+            {diff.changed_at && (
+              <p className="text-text-tertiary">
+                When: {formatChangeDate(diff.changed_at)}
+              </p>
+            )}
             {diff.reason && (
               <p className="text-text-secondary">
                 <span className="font-medium text-text-primary">Why:</span>{" "}
@@ -44,4 +49,14 @@ export function ChangedStateNotice({
       </div>
     </details>
   );
+}
+
+function formatChangeDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

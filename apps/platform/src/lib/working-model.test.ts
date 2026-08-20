@@ -93,6 +93,7 @@ const evidence: WorkingModelEvidenceRow[] = [
     metadata: {},
     created_at: "2026-08-19T09:00:00.000Z",
     updated_at: "2026-08-19T09:00:00.000Z",
+    accessible: true,
     source_node: {
       id: "thread-source-1",
       title: "Architecture thread",
@@ -119,6 +120,7 @@ const evidence: WorkingModelEvidenceRow[] = [
     metadata: {},
     created_at: "2026-08-19T09:05:00.000Z",
     updated_at: "2026-08-19T09:05:00.000Z",
+    accessible: true,
     source_node: {
       id: "claude-source-1",
       title: "Trace design",
@@ -193,6 +195,7 @@ const humanProposal = buildPostTurnClaimInsert({
     extraction_mode: "explicit",
     status: "active",
     posture: "assert",
+    source_span: { start: 0, end: 32, text: "Ship read-only inspection first." },
   },
 });
 assert.equal(humanProposal.claim.source_post_id, "user-post-1");
@@ -221,6 +224,7 @@ const assistantProposal = buildPostTurnClaimInsert({
     extraction_mode: "synthesized",
     status: "tentative",
     posture: "ask",
+    source_span: null,
   },
 });
 assert.equal(assistantProposal.claim.source_post_id, "response-post-1");
@@ -234,6 +238,32 @@ assert.equal(
   "2 evidence references across 1 WorkOS thread and 1 Claude conversation"
 );
 assert.equal(view.groups[1].claims[0].evidenceGroups.length, 2);
+
+const restrictedView = buildThreadWorkingModelView({
+  threadId: "thread-1",
+  primitives,
+  evidence: [
+    {
+      ...evidence[0],
+      id: "evidence-restricted",
+      accessible: false,
+      excerpt: "Private excerpt must not render.",
+      source_node: {
+        id: "private-source",
+        title: "Private source title",
+        source_app: "workos",
+      },
+    },
+  ],
+  edges: [],
+  overrides: [],
+});
+const restrictedEvidence = restrictedView.groups
+  .flatMap((group) => group.claims)
+  .find((claim) => claim.id === "decision-1")
+  ?.evidenceGroups[0];
+assert.equal(restrictedEvidence?.sourceLabel, "Restricted source");
+assert.equal(restrictedEvidence?.items[0]?.excerpt, null);
 assert.deepEqual(view.groups[1].claims[0].relationships, [
   {
     id: "edge-1",
@@ -303,6 +333,7 @@ const historicalSnapshot: AnswerReasonTraceSnapshotV1 = {
     ],
   },
   retrieval: {
+    routing_status: "complete",
     budget_chars: 4000,
     estimated_prompt_chars: 2600,
     included: [{ id: "thread-source-1", reason: "Directly relevant." }],

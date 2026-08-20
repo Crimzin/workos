@@ -92,8 +92,8 @@ export async function getThreadSurface(
     actorsPromise,
     getActiveInlineAgentRuns(nodeId),
     getThreadContextAttachments(nodeId),
-    getThreadWorkingModel(nodeId),
-    getThreadAnswerTraces(nodeId),
+    getThreadWorkingModel(nodeId, actor.instance_id),
+    getThreadAnswerTraces(nodeId, actor.instance_id),
   ]);
 
   return {
