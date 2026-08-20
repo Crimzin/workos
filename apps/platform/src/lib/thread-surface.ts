@@ -7,6 +7,10 @@ import { getMirrorTargets, getNodeDetail } from "./node-detail";
 import { getNodePath, type NodePathItem } from "./node-path";
 import { getNodePosts, type PostRecord } from "./posts";
 import { supabase } from "./supabase";
+import {
+  getThreadAnswerTraces,
+  getThreadWorkingModel,
+} from "./working-model";
 import type {
   AgentProviderSetting,
   SourceApp,
@@ -47,6 +51,8 @@ export interface ThreadSurfaceData {
   agentProviders: AgentProviderSetting[];
   activeInlineRuns: Awaited<ReturnType<typeof getActiveInlineAgentRuns>>;
   contextAttachments: ThreadContextAttachmentWithSource[];
+  workingModel: Awaited<ReturnType<typeof getThreadWorkingModel>>;
+  answerTraces: Awaited<ReturnType<typeof getThreadAnswerTraces>>;
 }
 
 export async function getThreadSurface(
@@ -75,6 +81,8 @@ export async function getThreadSurface(
     actors,
     activeInlineRuns,
     contextAttachments,
+    workingModel,
+    answerTraces,
   ] = await Promise.all([
     mirrorTargetsPromise,
     getNodePosts(nodeId, actor.id),
@@ -84,6 +92,8 @@ export async function getThreadSurface(
     actorsPromise,
     getActiveInlineAgentRuns(nodeId),
     getThreadContextAttachments(nodeId),
+    getThreadWorkingModel(nodeId),
+    getThreadAnswerTraces(nodeId),
   ]);
 
   return {
@@ -102,6 +112,8 @@ export async function getThreadSurface(
     agentProviders: agentSettings.providers,
     activeInlineRuns,
     contextAttachments,
+    workingModel,
+    answerTraces,
   };
 }
 

@@ -53,7 +53,12 @@ export async function DetailPanel({
       : Promise.resolve({ related: [], blocks: [], blockedBy: [] } as NodeLinks),
     detail
       ? getNodeMemoryPrimitives(nodeId)
-      : Promise.resolve({ rationale: null, assumptions: [], decisions: [] }),
+      : Promise.resolve({
+          rationale: null,
+          assumptions: [],
+          decisions: [],
+          all: [],
+        }),
     getAgentSettings(actor.instance_id),
     getActors(actor.instance_id),
     detail ? getActiveInlineAgentRuns(nodeId) : Promise.resolve([]),

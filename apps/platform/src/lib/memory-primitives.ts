@@ -7,6 +7,7 @@ export interface NodeMemoryPrimitives {
   rationale: MemoryPrimitive | null;
   assumptions: MemoryPrimitive[];
   decisions: MemoryPrimitive[];
+  all: MemoryPrimitive[];
 }
 
 export function getNodeMemoryPrimitives(
@@ -26,6 +27,7 @@ export function getNodeMemoryPrimitives(
         rationale: primitives.find((p) => p.type === "rationale") ?? null,
         assumptions: primitives.filter((p) => p.type === "assumption"),
         decisions: primitives.filter((p) => p.type === "decision"),
+        all: primitives,
       };
     },
     [`memory-primitives-node-${nodeId}`],

@@ -20,6 +20,10 @@ export const cacheTags = {
   workspaceFeed: (workspaceId: string) => `workspace-feed:${workspaceId}`,
   nodeLinks: (nodeId: string) => `links:${nodeId}`,
   nodeMemoryPrimitives: (nodeId: string) => `memory-primitives:${nodeId}`,
+  workingModel: (threadId: string) => `working-model:${threadId}`,
+  reasonTrace: (postId: string) => `reason-trace:${postId}`,
+  answerTraces: (threadId: string) => `answer-traces:${threadId}`,
+  claim: (claimId: string) => `claim:${claimId}`,
   importedChats: (instanceId: string) => `imported-chats:${instanceId}`,
   importSessions: (instanceId: string) => `import-sessions:${instanceId}`,
   threadContext: (threadId: string) => `thread-context:${threadId}`,
@@ -103,6 +107,22 @@ export function revalidateNodeLinksFor(nodeIds: string[]) {
 
 export function revalidateNodeMemoryPrimitives(nodeId: string) {
   revalidateTag(cacheTags.nodeMemoryPrimitives(nodeId), PROFILE);
+}
+
+export function revalidateWorkingModel(threadId: string) {
+  revalidateTag(cacheTags.workingModel(threadId), IMMEDIATE);
+}
+
+export function revalidateReasonTrace(postId: string) {
+  revalidateTag(cacheTags.reasonTrace(postId), IMMEDIATE);
+}
+
+export function revalidateAnswerTraces(threadId: string) {
+  revalidateTag(cacheTags.answerTraces(threadId), IMMEDIATE);
+}
+
+export function revalidateClaim(claimId: string) {
+  revalidateTag(cacheTags.claim(claimId), IMMEDIATE);
 }
 
 export function revalidateImportedChats(instanceId: string) {
