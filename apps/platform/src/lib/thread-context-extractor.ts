@@ -199,10 +199,14 @@ export function parsePostTurnAnalysis(
               statement
             )
           : null;
-        const origin = sourceSpan ? "human" : "assistant";
-        const humanSignal = origin === "human"
-          ? normalizeHumanSignal(value.human_signal)
+        const humanSignal = sourceSpan
+          ? validateGroundedHumanSignal(
+              normalizeHumanSignal(value.human_signal),
+              sourceSpan.text,
+              statement
+            )
           : "none";
+        const origin = humanSignal !== "none" ? "human" : "assistant";
         const hasHumanSignal = humanSignal !== "none";
         return [
           {
@@ -451,6 +455,48 @@ function groundHumanSourceSpan(
     return null;
   }
   return { start, end: start + quote.length, text: quote };
+}
+
+function validateGroundedHumanSignal(
+  signal: MemoryHumanSignal,
+  quote: string,
+  claimStatement: string
+): MemoryHumanSignal {
+  if (signal === "none") return "none";
+  if (hasNegation(quote) !== hasNegation(claimStatement)) return "none";
+  if (/\?|\b(maybe|might|perhaps|considering|wonder|unsure|uncertain)\b/i.test(quote)) {
+    return "none";
+  }
+
+  if (signal === "explicit_approval") {
+    return /\b(approve(?:d)?|agree(?:d)?|confirm(?:ed)?|adopt(?:ed)?|accept(?:ed)?|yes)\b|\b(go ahead|ship it|let(?:'|’)s do it|looks good)\b/i.test(
+      quote
+    ) && !hasNegation(quote)
+      ? signal
+      : "none";
+  }
+  if (signal === "explicit_correction") {
+    return /\b(actually|correction|corrected|instead|changed|now)\b|\bno longer\b/i.test(
+      quote
+    )
+      ? signal
+      : "none";
+  }
+  if (signal === "observed_action") {
+    return /\b(i|we)\s+(sent|created|scheduled|signed|paid|published|launched|completed|decided|chose)\b/i.test(
+      quote
+    )
+      ? signal
+      : "none";
+  }
+  if (signal === "repeated_reference") return "none";
+  return signal;
+}
+
+function hasNegation(value: string): boolean {
+  return /\b(no|not|never|cannot|can(?:'|’)t|do(?:es|id)?n(?:'|’)t|won(?:'|’)t|shouldn(?:'|’)t|isn(?:'|’)t|wasn(?:'|’)t|without)\b/i.test(
+    value
+  );
 }
 
 function meaningfulTerms(value: string): Set<string> {

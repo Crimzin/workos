@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(14);
+select plan(26);
 
 insert into instances (id, name) values
   ('00000000-0000-0000-0000-000000000101', 'Working Model Test');
@@ -41,7 +41,9 @@ insert into memory_primitives (
   extraction_mode, conviction_posture, created_by_actor_id
 ) values
   ('00000000-0000-0000-0000-000000000109', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000105', 'decision', 'Ship the old panel first.', 'active', 0.9, 'explicit', 'assert', '00000000-0000-0000-0000-000000000102'),
-  ('00000000-0000-0000-0000-000000000112', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000105', 'assumption', 'This must remain active after a rejected correction.', 'active', 0.7, 'explicit', 'flag', '00000000-0000-0000-0000-000000000102');
+  ('00000000-0000-0000-0000-000000000112', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000105', 'assumption', 'This must remain active after a rejected correction.', 'active', 0.7, 'explicit', 'flag', '00000000-0000-0000-0000-000000000102'),
+  ('00000000-0000-0000-0000-000000000118', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000105', 'rationale', 'Why this exists', 'active', 1.0, 'user_authored', 'assert', '00000000-0000-0000-0000-000000000102'),
+  ('00000000-0000-0000-0000-000000000119', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000105', 'assumption', 'The migration is safe to apply.', 'untested', 0.45, 'explicit', 'ask', '00000000-0000-0000-0000-000000000102');
 
 insert into reason_traces (
   id, instance_id, thread_id, trace_kind, subject_type, subject_id,
@@ -63,6 +65,7 @@ select lives_ok(
     'Ship trace inspection first.',
     null,
     false,
+    null,
     'The earlier decision was corrected.'
   )$$,
   'global correction commits atomically'
@@ -96,6 +99,52 @@ select is(
   (select agent_run_id from reason_traces where id = '00000000-0000-0000-0000-000000000110'),
   '00000000-0000-0000-0000-000000000108'::uuid,
   'the immutable trace links to its run'
+);
+
+select lives_ok(
+  $$select rpc_audit_legacy_rationale_update(
+    '00000000-0000-0000-0000-000000000118',
+    '00000000-0000-0000-0000-000000000102',
+    '00000000-0000-0000-0000-000000000104',
+    'Why this exists',
+    'The audited rationale explanation changed.',
+    'The rationale was materially rewritten.'
+  )$$,
+  'legacy rationale rewrites are audited transactionally'
+);
+select is(
+  (select body from memory_primitives where id = '00000000-0000-0000-0000-000000000118'),
+  'The audited rationale explanation changed.',
+  'the rationale body is updated after its audit evidence and event commit'
+);
+select is(
+  (select count(*)::integer from workos_events where subject_id = '00000000-0000-0000-0000-000000000118' and event_type = 'memory.corrected'),
+  1,
+  'the rationale rewrite records a correction event'
+);
+
+select lives_ok(
+  $$select * from rpc_correct_memory_primitive(
+    '00000000-0000-0000-0000-000000000119',
+    '00000000-0000-0000-0000-000000000102',
+    '00000000-0000-0000-0000-000000000104',
+    'The migration is safe to apply.',
+    null,
+    false,
+    'validated',
+    'The user validated this assumption.'
+  )$$,
+  'legacy lifecycle validation creates an audited replacement'
+);
+select is(
+  (select status from memory_primitives where id = '00000000-0000-0000-0000-000000000119'),
+  'superseded',
+  'the previous lifecycle row is preserved as superseded'
+);
+select is(
+  (select replacement.status from memory_primitives replacement where replacement.supersedes_primitive_id = '00000000-0000-0000-0000-000000000119'),
+  'validated',
+  'the replacement records the validated lifecycle state'
 );
 
 insert into context_retrieval_overrides (
@@ -132,6 +181,53 @@ select lives_ok(
   'the same claim can be excluded in one other thread only'
 );
 
+insert into nodes (id, instance_id, parent_id, type, title, owner_id) values
+  ('00000000-0000-0000-0000-000000000113', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000104', 'card', 'Evidence source', '00000000-0000-0000-0000-000000000102');
+insert into posts (id, node_id, actor_id, body) values
+  ('00000000-0000-0000-0000-000000000114', '00000000-0000-0000-0000-000000000113', '00000000-0000-0000-0000-000000000102', 'Evidence source post');
+insert into memory_primitive_evidence (
+  id, instance_id, memory_primitive_id, relation, source_kind,
+  source_node_id, source_post_id, actor_id
+) values (
+  '00000000-0000-0000-0000-000000000115',
+  '00000000-0000-0000-0000-000000000101',
+  '00000000-0000-0000-0000-000000000112',
+  'supports', 'post',
+  '00000000-0000-0000-0000-000000000113',
+  '00000000-0000-0000-0000-000000000114',
+  '00000000-0000-0000-0000-000000000102'
+);
+
+select lives_ok(
+  $$delete from posts where id = '00000000-0000-0000-0000-000000000114'$$,
+  'deleting a source post can null its immutable evidence reference'
+);
+select is(
+  (select source_post_id from memory_primitive_evidence where id = '00000000-0000-0000-0000-000000000115'),
+  null::uuid,
+  'the deleted source post is redacted from evidence'
+);
+
+select lives_ok(
+  $$delete from nodes where id = '00000000-0000-0000-0000-000000000113'$$,
+  'deleting a source thread can null its immutable evidence reference'
+);
+select is(
+  (select source_node_id from memory_primitive_evidence where id = '00000000-0000-0000-0000-000000000115'),
+  null::uuid,
+  'the deleted source thread is redacted from evidence'
+);
+
+select lives_ok(
+  $$delete from agent_runs where id = '00000000-0000-0000-0000-000000000108'$$,
+  'deleting an agent run can null the immutable trace runtime reference'
+);
+select is(
+  (select agent_run_id from reason_traces where id = '00000000-0000-0000-0000-000000000110'),
+  null::uuid,
+  'the trace survives agent-run retention deletion'
+);
+
 select throws_ok(
   $$delete from memory_primitive_evidence where memory_primitive_id in (
     select id from memory_primitives where supersedes_primitive_id = '00000000-0000-0000-0000-000000000109'
@@ -154,6 +250,7 @@ select throws_ok(
     null,
     null,
     false,
+    null,
     'This workspace is invalid for the correction.'
   )$$,
   'P0001', 'Correction workspace does not belong to this instance',

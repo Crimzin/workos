@@ -31,6 +31,7 @@ export async function correctWorkingModelClaim(input: {
   workspaceId: string;
   replacementStatement?: string | null;
   replacementBody?: string | null;
+  replacementStatus?: string | null;
   reason: string;
 }): Promise<{ replacementClaimId: string | null }> {
   const actor = await getCurrentActor();
@@ -45,6 +46,7 @@ export async function correctWorkingModelClaim(input: {
     workspaceId: input.workspaceId,
     replacementStatement: input.replacementStatement,
     replacementBody: input.replacementBody,
+    replacementStatus: input.replacementStatus,
     reason: input.reason,
   });
   const { data, error } = await supabase.rpc(

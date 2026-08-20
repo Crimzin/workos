@@ -17,6 +17,12 @@ assert.match(
   sql,
   /response_post_id\s+uuid\s+references posts\(id\) on delete set null/i
 );
+assert.match(sql, /pg_trigger_depth\(\)\s*>\s*1/i);
+assert.match(sql, /rpc_audit_legacy_rationale_update/i);
+assert.match(
+  sql,
+  /old\.agent_run_id is not null[\s\S]+new\.agent_run_id is null/i
+);
 assert.match(
   sql,
   /create unique index[\s\S]+context_retrieval_overrides[\s\S]+where cleared_at is null/i

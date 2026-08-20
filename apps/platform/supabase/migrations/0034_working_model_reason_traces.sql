@@ -244,6 +244,7 @@ create or replace function rpc_correct_memory_primitive(
   p_replacement_statement text default null,
   p_replacement_body text default null,
   p_replace_body boolean default false,
+  p_replacement_status text default null,
   p_reason text default null
 )
 returns table (
@@ -263,6 +264,7 @@ declare
   v_reason text := nullif(trim(p_reason), '');
   v_replacement text := nullif(trim(p_replacement_statement), '');
   v_replacement_body text;
+  v_replacement_status text := nullif(trim(p_replacement_status), '');
   v_correction_factor jsonb;
 begin
   if v_reason is null then
@@ -315,10 +317,17 @@ begin
     else v_old.body
   end;
 
+  if v_replacement_status is not null and v_replacement_status not in (
+    'tentative', 'active', 'resolved', 'untested', 'validated'
+  ) then
+    raise exception 'The replacement lifecycle status is not supported';
+  end if;
+
   if v_replacement is not null
      and v_replacement = trim(v_old.statement)
-     and v_replacement_body is not distinct from v_old.body then
-    raise exception 'The replacement must change the belief or explanation';
+     and v_replacement_body is not distinct from v_old.body
+     and coalesce(v_replacement_status, v_old.status) = v_old.status then
+    raise exception 'The replacement must change the belief, explanation, or lifecycle';
   end if;
 
   if v_replacement is not null and v_old.type = 'rationale' then
@@ -361,8 +370,11 @@ begin
       v_old.type,
       v_replacement,
       v_replacement_body,
-      'active',
-      1.00,
+      coalesce(v_replacement_status, 'active'),
+      case
+        when coalesce(v_replacement_status, 'active') in ('tentative', 'untested') then 0.45
+        else 1.00
+      end,
       coalesce(v_old.metadata, '{}'::jsonb) || jsonb_build_object(
         'corrected_from_primitive_id', v_old.id,
         'correction_reason', v_reason
@@ -371,11 +383,17 @@ begin
       'Explicit user correction',
       p_actor_id,
       'explicit',
-      'assert',
+      case
+        when coalesce(v_replacement_status, 'active') in ('tentative', 'untested') then 'ask'
+        else 'assert'
+      end,
       jsonb_build_array(v_correction_factor),
       'working-model-v1',
       v_now,
-      v_now,
+      case
+        when coalesce(v_replacement_status, 'active') in ('tentative', 'untested') then null
+        else v_now
+      end,
       v_old.sensitivity_label,
       v_old.id,
       p_actor_id,
@@ -503,14 +521,163 @@ begin
 end;
 $$;
 
-revoke all on function rpc_correct_memory_primitive(uuid, uuid, uuid, text, text, boolean, text)
+revoke all on function rpc_correct_memory_primitive(uuid, uuid, uuid, text, text, boolean, text, text)
   from public;
-grant execute on function rpc_correct_memory_primitive(uuid, uuid, uuid, text, text, boolean, text)
+grant execute on function rpc_correct_memory_primitive(uuid, uuid, uuid, text, text, boolean, text, text)
+  to service_role;
+
+create or replace function rpc_audit_legacy_rationale_update(
+  p_claim_id uuid,
+  p_actor_id uuid,
+  p_workspace_id uuid,
+  p_replacement_statement text,
+  p_replacement_body text default null,
+  p_reason text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_old memory_primitives%rowtype;
+  v_statement text := nullif(trim(p_replacement_statement), '');
+  v_body text := nullif(trim(p_replacement_body), '');
+  v_reason text := nullif(trim(p_reason), '');
+  v_now timestamptz := now();
+begin
+  if v_statement is null or v_reason is null then
+    raise exception 'A rationale statement and correction reason are required';
+  end if;
+
+  select primitive.*
+    into v_old
+    from memory_primitives primitive
+    where primitive.id = p_claim_id
+    for update;
+
+  if not found or v_old.type <> 'rationale' then
+    raise exception 'Legacy rationale not found';
+  end if;
+  if v_old.status in ('superseded', 'retracted', 'invalidated', 'reversed') then
+    raise exception 'This rationale has already changed';
+  end if;
+  if not exists (
+    select 1 from actors actor
+    where actor.id = p_actor_id and actor.instance_id = v_old.instance_id
+  ) then
+    raise exception 'Correction actor does not belong to this instance';
+  end if;
+  if not exists (
+    with recursive ancestors as (
+      select node.id, node.parent_id, node.instance_id
+      from nodes node
+      where node.id = v_old.node_id
+      union all
+      select parent.id, parent.parent_id, parent.instance_id
+      from nodes parent
+      join ancestors child on child.parent_id = parent.id
+    )
+    select 1 from ancestors workspace
+    where workspace.id = p_workspace_id
+      and workspace.instance_id = v_old.instance_id
+  ) then
+    raise exception 'Correction workspace does not belong to this instance';
+  end if;
+  if v_statement = trim(v_old.statement) and v_body is not distinct from v_old.body then
+    raise exception 'The rationale update must change its statement or explanation';
+  end if;
+
+  update memory_primitives
+    set statement = v_statement,
+        body = v_body,
+        conviction = 1.00,
+        conviction_posture = 'assert',
+        conviction_factors = coalesce(conviction_factors, '[]'::jsonb)
+          || jsonb_build_array(jsonb_build_object(
+            'code', 'explicit_human_correction',
+            'direction', 'supports',
+            'explanation', 'A person explicitly revised this legacy rationale.',
+            'evidence_refs', '[]'::jsonb
+          )),
+        last_confirmed_at = v_now,
+        updated_by_actor_id = p_actor_id,
+        metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+          'legacy_rationale_corrected_at', v_now,
+          'correction_reason', v_reason
+        )
+    where id = v_old.id;
+
+  insert into memory_primitive_evidence (
+    instance_id, memory_primitive_id, relation, source_kind, source_app,
+    source_node_id, excerpt, actor_id, observed_at, human_signal,
+    authority_snapshot, metadata
+  ) values (
+    v_old.instance_id, v_old.id, 'corrects', 'user_correction', 'workos',
+    v_old.node_id, left(v_reason, 280), p_actor_id, v_now,
+    'explicit_correction',
+    jsonb_build_object('actor_id', p_actor_id, 'source', 'legacy_rationale_editor'),
+    jsonb_build_object(
+      'previous_statement', v_old.statement,
+      'previous_body', v_old.body,
+      'replacement_statement', v_statement
+    )
+  );
+
+  insert into workos_events (
+    instance_id, workspace_id, node_id, actor_id, event_type,
+    subject_type, subject_id, summary, metadata, occurred_at
+  ) values (
+    v_old.instance_id, p_workspace_id, v_old.node_id, p_actor_id,
+    'memory.corrected', 'working_model_claim', v_old.id,
+    'A person revised a legacy rationale.',
+    jsonb_build_object(
+      'corrected_claim_id', v_old.id,
+      'reason', v_reason,
+      'legacy_rationale_in_place_audit', true
+    ),
+    v_now
+  );
+
+  return v_old.id;
+end;
+$$;
+
+revoke all on function rpc_audit_legacy_rationale_update(uuid, uuid, uuid, text, text, text)
+  from public;
+grant execute on function rpc_audit_legacy_rationale_update(uuid, uuid, uuid, text, text, text)
   to service_role;
 
 create or replace function prevent_memory_evidence_mutation()
 returns trigger as $$
 begin
+  if pg_trigger_depth() > 1 then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    if tg_op = 'UPDATE'
+       and (
+         new.source_node_id is distinct from old.source_node_id
+         or new.source_post_id is distinct from old.source_post_id
+         or new.context_chunk_id is distinct from old.context_chunk_id
+         or new.actor_id is distinct from old.actor_id
+       )
+       and (new.source_node_id is not distinct from old.source_node_id
+         or (old.source_node_id is not null and new.source_node_id is null))
+       and (new.source_post_id is not distinct from old.source_post_id
+         or (old.source_post_id is not null and new.source_post_id is null))
+       and (new.context_chunk_id is not distinct from old.context_chunk_id
+         or (old.context_chunk_id is not null and new.context_chunk_id is null))
+       and (new.actor_id is not distinct from old.actor_id
+         or (old.actor_id is not null and new.actor_id is null))
+       and (to_jsonb(new) - array[
+         'source_node_id', 'source_post_id', 'context_chunk_id', 'actor_id', 'updated_at'
+       ]) = (to_jsonb(old) - array[
+         'source_node_id', 'source_post_id', 'context_chunk_id', 'actor_id', 'updated_at'
+       ]) then
+      return new;
+    end if;
+  end if;
   if tg_op = 'DELETE' and not exists (
     select 1 from instances where id = old.instance_id
   ) then
@@ -528,6 +695,18 @@ create trigger memory_primitive_evidence_immutable
 create or replace function prevent_reason_trace_mutation()
 returns trigger as $$
 begin
+  if pg_trigger_depth() > 1 then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    if tg_op = 'UPDATE'
+       and old.agent_run_id is not null
+       and new.agent_run_id is null
+       and (to_jsonb(new) - array['agent_run_id', 'updated_at'])
+         = (to_jsonb(old) - array['agent_run_id', 'updated_at']) then
+      return new;
+    end if;
+  end if;
   if tg_op = 'DELETE' and not exists (
     select 1 from instances where id = old.instance_id
   ) then

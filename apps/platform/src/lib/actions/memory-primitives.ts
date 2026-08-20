@@ -113,7 +113,7 @@ export async function updateMemoryPrimitive(
   const actor = await getCurrentActor();
   const { data: existing, error: readError } = await supabase
     .from("memory_primitives")
-    .select("id,instance_id,node_id,type,statement,body")
+    .select("id,instance_id,node_id,type,statement,body,status")
     .eq("id", primitiveId)
     .maybeSingle();
   if (readError) throw readError;
@@ -136,8 +136,45 @@ export async function updateMemoryPrimitive(
     updates.body === undefined ? existing.body : updates.body?.trim() || null;
   const statementChanged = replacementStatement !== existing.statement;
   const bodyChanged = replacementBody !== existing.body;
+  const replacementStatus = updates.status ?? existing.status;
+  const statusChanged = replacementStatus !== existing.status;
+  const retractRequested =
+    statusChanged &&
+    ["invalidated", "reversed", "retracted", "superseded"].includes(
+      replacementStatus
+    );
+
+  if (retractRequested) {
+    await correctWorkingModelClaim({
+      claimId: primitiveId,
+      threadId: nodeId,
+      workspaceId,
+      replacementStatement: null,
+      reason: `Marked ${replacementStatus} from the legacy Memory editor.`,
+    });
+    return;
+  }
+
+  const rationaleMaterialChanged =
+    existing.type === "rationale" && (statementChanged || bodyChanged);
+  if (rationaleMaterialChanged) {
+    const { error: rationaleError } = await supabase.rpc(
+      "rpc_audit_legacy_rationale_update",
+      {
+        p_claim_id: primitiveId,
+        p_actor_id: actor.id,
+        p_workspace_id: workspaceId,
+        p_replacement_statement: replacementStatement,
+        p_replacement_body: replacementBody,
+        p_reason: "Updated from the legacy Memory editor.",
+      }
+    );
+    if (rationaleError) throw rationaleError;
+  }
+
   const materialChanged =
-    statementChanged || (existing.type !== "rationale" && bodyChanged);
+    existing.type !== "rationale" &&
+    (statementChanged || bodyChanged || statusChanged);
 
   if (materialChanged) {
     const correction = await correctWorkingModelClaim({
@@ -146,6 +183,7 @@ export async function updateMemoryPrimitive(
       workspaceId,
       replacementStatement,
       ...(bodyChanged ? { replacementBody } : {}),
+      ...(statusChanged ? { replacementStatus } : {}),
       reason: "Updated from the legacy Memory editor.",
     });
     if (!correction.replacementClaimId) {
@@ -153,16 +191,24 @@ export async function updateMemoryPrimitive(
     }
     targetPrimitiveId = correction.replacementClaimId;
   }
-  if (updates.body !== undefined && !materialChanged) {
+  if (
+    updates.body !== undefined &&
+    !materialChanged &&
+    !rationaleMaterialChanged
+  ) {
     payload.body = replacementBody;
   }
-  if (updates.status !== undefined) payload.status = updates.status;
   if (updates.sourceLabel !== undefined) {
     payload.source_label = updates.sourceLabel?.trim() || null;
   }
   if (updates.metadata !== undefined) payload.metadata = updates.metadata;
 
-  if (Object.keys(payload).length === 0) return;
+  if (Object.keys(payload).length === 0) {
+    if (rationaleMaterialChanged) {
+      revalidateMemoryMutation(nodeId, workspaceId);
+    }
+    return;
+  }
 
   const { error } = await supabase
     .from("memory_primitives")

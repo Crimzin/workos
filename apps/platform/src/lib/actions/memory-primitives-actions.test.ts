@@ -8,6 +8,8 @@ const source = readFileSync(
 
 assert.match(source, /conviction_posture:\s*tentative \? "ask" : "assert"/);
 assert.match(source, /human_signal:\s*"explicit_statement"/);
+assert.match(source, /rpc_audit_legacy_rationale_update/);
+assert.match(source, /replacementStatus/);
 assert.match(
   source,
   /updateMemoryPrimitive[\s\S]+correctWorkingModelClaim\([\s\S]+Updated from the legacy Memory editor\./,

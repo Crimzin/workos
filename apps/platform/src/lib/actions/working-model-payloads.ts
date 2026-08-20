@@ -10,6 +10,7 @@ export function buildCorrectWorkingModelClaimRpcArgs(input: {
   workspaceId: string;
   replacementStatement?: string | null;
   replacementBody?: string | null;
+  replacementStatus?: string | null;
   reason: string;
 }) {
   const reason = cleanRequiredText(input.reason, "A correction reason", 500);
@@ -21,6 +22,19 @@ export function buildCorrectWorkingModelClaimRpcArgs(input: {
   const replacementBody = replaceBody
     ? cleanOptionalBody(input.replacementBody, 100_000)
     : null;
+  const replacementStatus = cleanOptionalText(input.replacementStatus, 32);
+  if (
+    replacementStatus &&
+    ![
+      "tentative",
+      "active",
+      "resolved",
+      "untested",
+      "validated",
+    ].includes(replacementStatus)
+  ) {
+    throw new Error("The replacement lifecycle status is not supported.");
+  }
   return {
     p_claim_id: input.claimId,
     p_actor_id: input.actorId,
@@ -28,6 +42,7 @@ export function buildCorrectWorkingModelClaimRpcArgs(input: {
     p_replacement_statement: replacementStatement,
     p_replacement_body: replacementBody,
     p_replace_body: replaceBody,
+    p_replacement_status: replacementStatus,
     p_reason: reason,
   };
 }

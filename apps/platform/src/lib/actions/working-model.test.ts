@@ -22,6 +22,7 @@ assert.deepEqual(
     p_replacement_statement: "Ship trace inspection first.",
     p_replacement_body: null,
     p_replace_body: false,
+    p_replacement_status: null,
     p_reason: "The earlier wording overstates the decision.",
   }
 );
@@ -41,6 +42,7 @@ assert.deepEqual(
     p_replacement_statement: null,
     p_replacement_body: null,
     p_replace_body: false,
+    p_replacement_status: null,
     p_reason: "This is no longer true.",
   },
   "an omitted replacement retracts the old belief instead of deleting it"
@@ -62,8 +64,21 @@ assert.deepEqual(
     p_replacement_statement: "Ship trace inspection first.",
     p_replacement_body: "{\"type\":\"doc\",\"content\":[]}",
     p_replace_body: true,
+    p_replacement_status: null,
     p_reason: "The explanation changed materially.",
   }
+);
+
+assert.equal(
+  buildCorrectWorkingModelClaimRpcArgs({
+    claimId: "claim-1",
+    actorId: "actor-1",
+    workspaceId: "workspace-1",
+    replacementStatement: "Ship trace inspection first.",
+    replacementStatus: "validated",
+    reason: "The user validated this belief.",
+  }).p_replacement_status,
+  "validated"
 );
 
 assert.throws(

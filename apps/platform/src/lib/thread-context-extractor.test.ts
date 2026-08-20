@@ -206,6 +206,30 @@ assert.equal(ungroundedAuthority.proposedClaims[0]?.origin, "assistant");
 assert.equal(ungroundedAuthority.proposedClaims[0]?.human_signal, "none");
 assert.equal(ungroundedAuthority.proposedClaims[0]?.posture, "ask");
 
+const negatedApproval = parsePostTurnAnalysis(
+  JSON.stringify({
+    answer_anchors: [{ statement: "Approval remains unresolved." }],
+    proposed_claims: [
+      {
+        kind: "decision",
+        statement: "Launch Friday.",
+        origin: "human",
+        human_signal: "explicit_approval",
+        source_quote: "I have not approved launching Friday.",
+      },
+    ],
+  }),
+  {
+    existingSheet,
+    allowedClaimIds: new Set(),
+    allowedEvidenceIds: new Set(),
+    userText: "I have not approved launching Friday.",
+  }
+);
+assert.equal(negatedApproval.proposedClaims[0]?.origin, "assistant");
+assert.equal(negatedApproval.proposedClaims[0]?.human_signal, "none");
+assert.equal(negatedApproval.proposedClaims[0]?.status, "tentative");
+
 async function main() {
   const extracted = await extractThreadContextSheetPostTurnUpdate(
     {
