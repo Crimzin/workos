@@ -15,6 +15,7 @@ load_dotenv(dotenv_path=env_path, override=True)
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 print(f"API key loaded: {'yes' if ANTHROPIC_API_KEY and ANTHROPIC_API_KEY.startswith('sk-') else 'NO'}", flush=True)
 
@@ -249,7 +250,7 @@ async def generate_swarm_plan(all_messages, team_context):
     # Run the blocking API call in a thread so it doesn't freeze Discord's heartbeat
     def _call_claude():
         return claude.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=ANTHROPIC_MODEL,
             max_tokens=4096,
             system=SWARM_SYSTEM_PROMPT,
             messages=[

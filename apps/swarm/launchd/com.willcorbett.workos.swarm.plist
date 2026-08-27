@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.willcorbett.workos.swarm</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/swarm/.venv/bin/python</string>
+        <string>/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/swarm/bot.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/swarm</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/williamcorbett/Library/Logs/Swarm/swarm.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/williamcorbett/Library/Logs/Swarm/swarm.err.log</string>
+</dict>
+</plist>
