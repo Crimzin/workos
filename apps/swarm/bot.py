@@ -261,7 +261,11 @@ async def generate_swarm_plan(all_messages, team_context):
     loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(None, _call_claude)
 
-    return response.content[0].text
+    for block in response.content:
+        if block.type == "text":
+            return block.text
+
+    raise ValueError("Claude response did not contain a text block")
 
 
 @bot.event
