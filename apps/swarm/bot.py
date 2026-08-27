@@ -279,19 +279,43 @@ def extract_claude_text(response):
     raise ValueError("Claude response did not contain a text block")
 
 
-async def call_claude_text(system_prompt, user_message, max_tokens=4096):
+async def call_claude_text(
+    system_prompt,
+    user_message,
+    max_tokens=4096,
+    retry_max_tokens=None,
+):
     """Call Claude without blocking Discord's heartbeat and return response text."""
-    def _call_claude():
+    def _call_claude(token_budget):
         return claude.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=max_tokens,
+            max_tokens=token_budget,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
         )
 
     loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(None, _call_claude)
-    return extract_claude_text(response)
+    response = await loop.run_in_executor(None, _call_claude, max_tokens)
+    try:
+        return extract_claude_text(response)
+    except ValueError:
+        if (
+            getattr(response, "stop_reason", None) == "max_tokens"
+            and retry_max_tokens
+            and retry_max_tokens > max_tokens
+        ):
+            print(
+                "Claude used the output budget before returning text; "
+                f"retrying with {retry_max_tokens} tokens...",
+                flush=True,
+            )
+            response = await loop.run_in_executor(
+                None,
+                _call_claude,
+                retry_max_tokens,
+            )
+            return extract_claude_text(response)
+        raise
 
 
 async def generate_context_hypothesis(current_config, all_messages):
@@ -572,25 +596,12 @@ async def generate_swarm_plan(all_messages, team_context):
         user_message += trimmed_messages
         user_message += "\n\nBased on everything above, propose a two-week execution plan for this team."
 
-    # Run the blocking API call in a thread so it doesn't freeze Discord's heartbeat
-    def _call_claude():
-        return claude.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=4096,
-            system=SWARM_SYSTEM_PROMPT,
-            messages=[
-                {"role": "user", "content": user_message}
-            ]
-        )
-
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(None, _call_claude)
-
-    for block in response.content:
-        if block.type == "text":
-            return block.text
-
-    raise ValueError("Claude response did not contain a text block")
+    return await call_claude_text(
+        SWARM_SYSTEM_PROMPT,
+        user_message,
+        max_tokens=8192,
+        retry_max_tokens=16384,
+    )
 
 
 @bot.event

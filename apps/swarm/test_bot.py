@@ -22,6 +22,16 @@ class CapturingMessages:
         return SimpleNamespace(content=self.response_content)
 
 
+class SequencedMessages:
+    def __init__(self, responses):
+        self.requests = []
+        self.responses = iter(responses)
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        return next(self.responses)
+
+
 class SwarmModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_plan_generation_uses_configured_model(self):
         messages = CapturingMessages()
@@ -64,6 +74,42 @@ class SwarmModelTests(unittest.IsolatedAsyncioTestCase):
             swarm_bot.claude = original_claude
 
         self.assertEqual(result, "generated plan")
+
+    async def test_plan_generation_retries_when_reasoning_uses_the_output_budget(self):
+        messages = SequencedMessages(
+            [
+                SimpleNamespace(
+                    content=[
+                        SimpleNamespace(
+                            type="thinking",
+                            thinking="reasoning",
+                            text=None,
+                        )
+                    ],
+                    stop_reason="max_tokens",
+                ),
+                SimpleNamespace(
+                    content=[SimpleNamespace(type="text", text="generated plan")],
+                    stop_reason="end_turn",
+                ),
+            ]
+        )
+        original_claude = swarm_bot.claude
+        swarm_bot.claude = SimpleNamespace(messages=messages)
+
+        try:
+            result = await swarm_bot.generate_swarm_plan(
+                ["[2026-08-27 12:00] [#general] Will: Ship it"],
+                "TEAM ROSTER:\nWill",
+            )
+        finally:
+            swarm_bot.claude = original_claude
+
+        self.assertEqual(result, "generated plan")
+        self.assertEqual(
+            [request["max_tokens"] for request in messages.requests],
+            [8192, 16384],
+        )
 
 
 if __name__ == "__main__":
