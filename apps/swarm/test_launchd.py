@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 
-SWARM_DIR = Path("/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/swarm")
+DEPLOY_DIR = Path("/Users/williamcorbett/Library/Application Support/WorkOS/Swarm")
 PLIST_PATH = Path(__file__).parent / "launchd" / "com.willcorbett.workos.swarm.plist"
 
 
@@ -17,9 +17,9 @@ class SwarmLaunchAgentTests(unittest.TestCase):
         self.assertEqual(config["Label"], "com.willcorbett.workos.swarm")
         self.assertEqual(
             config["ProgramArguments"],
-            [str(SWARM_DIR / ".venv/bin/python"), str(SWARM_DIR / "bot.py")],
+            [str(DEPLOY_DIR / ".venv/bin/python"), str(DEPLOY_DIR / "bot.py")],
         )
-        self.assertEqual(config["WorkingDirectory"], str(SWARM_DIR))
+        self.assertEqual(config["WorkingDirectory"], str(DEPLOY_DIR))
         self.assertIs(config["RunAtLoad"], True)
         self.assertIs(config["KeepAlive"], True)
 

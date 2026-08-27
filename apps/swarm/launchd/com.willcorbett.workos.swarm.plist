@@ -7,12 +7,12 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/swarm/.venv/bin/python</string>
-        <string>/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/swarm/bot.py</string>
+        <string>/Users/williamcorbett/Library/Application Support/WorkOS/Swarm/.venv/bin/python</string>
+        <string>/Users/williamcorbett/Library/Application Support/WorkOS/Swarm/bot.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/williamcorbett/Desktop/Claude-Projects/WorkOS/apps/swarm</string>
+    <string>/Users/williamcorbett/Library/Application Support/WorkOS/Swarm</string>
 
     <key>EnvironmentVariables</key>
     <dict>
