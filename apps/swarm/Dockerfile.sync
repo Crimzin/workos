@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 SWARM_STATE_DIR=/data
+WORKDIR /app
+COPY apps/swarm/requirements-sync.txt ./requirements-sync.txt
+RUN pip install --no-cache-dir -r requirements-sync.txt
+COPY apps/swarm/context_sync ./context_sync
+CMD ["python", "-m", "context_sync", "run", "--config", "/data/config.json", "--state-dir", "/data"]

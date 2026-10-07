@@ -1,0 +1,9 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/swarm/Dockerfile.sync"
+watchPatterns = ["apps/swarm/context_sync/**", "apps/swarm/requirements-sync.txt", "apps/swarm/Dockerfile.sync", "apps/swarm/railway-sync.toml"]
+
+[deploy]
+startCommand = "python -m context_sync run --config /data/config.json --state-dir /data"
+cronSchedule = "0 12,17,22 * * *"
+restartPolicyType = "NEVER"

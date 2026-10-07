@@ -1,0 +1,22 @@
+{
+  "guild_id": "1097697742991667250",
+  "channel_ids": [],
+  "fallback_stack": "",
+  "bootstrap_days": 7,
+  "batch_size": 100,
+  "pages_per_source": 10,
+  "index_ttl_seconds": 86400,
+  "monthly_budget_usd": 5,
+  "max_context_chars": 120000,
+  "max_output_tokens": 4096,
+  "velocity_verified": false,
+  "conditional_updates_verified": false,
+  "live_writes_verified": false,
+  "project_context": {
+    "name": "Burn",
+    "purpose": "Keep Factor faithful to team discussion; capture worthwhile uncommitted ideas.",
+    "planning": "Wednesday morning sprint planning. New ideas enter this week for consideration, not as delivery commitments."
+  },
+  "factor": {"url": "https://burn.factor.work/mcp", "auth_file": "factor.auth"},
+  "factor_operations": {}
+}

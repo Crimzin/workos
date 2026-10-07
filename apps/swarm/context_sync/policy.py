@@ -6,7 +6,7 @@ def choose_stack(stacks, previous):
     eligible = [s for s in stacks if not s.get('archived', False)]
     measured = [s for s in eligible if isinstance(s.get('velocity'), (int, float))
                 and not isinstance(s['velocity'], bool) and math.isfinite(s['velocity'])]
-    if not measured:
+    if len(measured) != len(eligible) or not measured:
         return previous
     high = max(s['velocity'] for s in measured)
     leaders = sorted(s['id'] for s in measured if s['velocity'] == high)

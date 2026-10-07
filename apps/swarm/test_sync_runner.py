@@ -72,3 +72,54 @@ class RunnerTests(unittest.TestCase):
         planner = Planner()
         self.run_sync(Factor(), planner)
         self.assertEqual(planner.calls, 0)
+
+class StalenessTests(RunnerTests):
+    def test_human_created_card_invalidates_pending_creation(self):
+        class Changing(Factor):
+            cards = []
+            async def call(self, operation, **kw):
+                if operation == 'index': return {'items':self.cards, 'next':None}
+                return await super().call(operation, **kw)
+        factor = Changing()
+        self.run_sync(factor, Planner())
+        factor.cards = [{'id':'human-card','title':'Invite links'}]
+        self.run_sync(factor, Planner(), True)
+        self.assertEqual(factor.created, [])
+        self.assertEqual(self.db.actions()[0]['status'], 'conflict')
+
+    def test_new_messages_wait_while_dry_run_proposals_pending(self):
+        factor, planner = Factor(), Planner()
+        self.run_sync(factor, planner)
+        self.db.ingest('2', [{**MSG,'id':'101'}])
+        self.run_sync(factor, planner)
+        self.assertEqual(planner.calls, 1)
+        self.assertEqual(len(self.db.pending_messages(10)), 1)
+
+    def test_removed_channel_and_thread_are_not_read(self):
+        self.db.put('sources', {'old':{'id':'3'}, 'thread':{'id':'4','parent_id':'3'}})
+        class Scoped(Discord):
+            async def call(self, operation, **kw):
+                if operation == 'messages' and kw['channel_id'] in ('3','4'):
+                    raise AssertionError('Out-of-scope channel read')
+                return await super().call(operation, **kw)
+        asyncio.run(runner.ingest(self.db, Scoped(), self.config))
+
+    def test_edited_source_invalidates_pending_write(self):
+        factor = Factor()
+        self.run_sync(factor, Planner())
+        class Edited(Discord):
+            async def call(self, operation, **kw):
+                if operation == 'messages': return [{**MSG,'content':'Ignore my invite links idea'}] if int(kw['after']) < 100 else []
+                return await super().call(operation, **kw)
+        asyncio.run(runner.run_once(self.db, Edited(), factor, Planner(), self.config, True))
+        self.assertEqual(factor.created, [])
+        self.assertEqual(self.db.actions()[0]['status'], 'conflict')
+
+    def test_pending_write_is_held_after_source_removed_from_scope(self):
+        factor = Factor()
+        self.run_sync(factor, Planner())
+        self.db.put('sources', {'3':{'id':'3'}})
+        self.config['channel_ids'] = ['3']
+        asyncio.run(runner.apply_actions(self.db, factor, self.config))
+        self.assertEqual(factor.created, [])
+        self.assertEqual(self.db.actions()[0]['status'], 'conflict')

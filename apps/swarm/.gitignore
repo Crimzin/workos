@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 .venv/
+
+# Swarm sync local state and isolated dependency environment
+.venv-sync/
+.sync-state/

@@ -76,3 +76,37 @@ class PolicyTests(unittest.TestCase):
         action = {'kind': 'create', 'source_ids': ['10'], 'title': 'Idea', 'description': 'Proposed idea', 'fields': {'owner': 'Will'}}
         with self.assertRaises(ValueError):
             policy.validate_actions([action], messages, {})
+
+class EditTests(unittest.TestCase):
+    def test_edited_message_requeues_without_regressing_cursor(self):
+        with tempfile.TemporaryDirectory() as folder, state.Store(Path(folder)/'db') as db:
+            db.ingest('c', [{'id':'10','content':'ship'}, {'id':'11','content':'later'}])
+            db.save_plan(['10','11'], [], '')
+            db.ingest('c', [{'id':'10','content':'do not ship'}])
+            self.assertEqual(db.cursor('c'), '11')
+            self.assertEqual(db.pending_messages(10)[0]['content'], 'do not ship')
+
+    def test_missing_previous_velocity_retains_destination(self):
+        self.assertEqual(policy.choose_stack([{'id':'a','velocity':None},{'id':'b','velocity':2}], 'a'), 'a')
+
+    def test_replan_preserves_uncertain_write_and_requeues_conflict(self):
+        with tempfile.TemporaryDirectory() as folder, state.Store(Path(folder)/'db') as db:
+            db.ingest('c', [{'id':'10','content':'idea'}])
+            db.save_plan(['10'], [{'kind':'create','source_ids':['10']}], '')
+            key = db.actions()[0]['key']
+            db.set_action(key, 'uncertain')
+            with self.assertRaises(ValueError): db.replan(key)
+            db.set_action(key, 'conflict')
+            db.replan(key)
+            self.assertEqual(db.actions(), [])
+            self.assertEqual(len(db.pending_messages(10)), 1)
+
+    def test_replanned_identical_action_can_be_proposed_again(self):
+        with tempfile.TemporaryDirectory() as folder, state.Store(Path(folder)/'db') as db:
+            db.ingest('c', [{'id':'10','content':'idea'}])
+            action = {'kind':'create','source_ids':['10']}
+            db.save_plan(['10'], [action], '')
+            key = db.actions()[0]['key']
+            db.replan(key)
+            db.save_plan(['10'], [action], '')
+            self.assertEqual(db.actions()[0]['status'], 'pending')

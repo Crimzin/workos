@@ -19,7 +19,7 @@ def client():
                              headers={'Authorization': 'Bot ' + os.environ['DISCORD_BOT_TOKEN']})
 
 
-async def get(http, path, params=None):
+async def get(http, path, params=None, missing_ok=False):
     for attempt in range(3):
         response = await http.get(path, params=params)
         if response.status_code == 429 and attempt < 2:
@@ -28,6 +28,8 @@ async def get(http, path, params=None):
                 response.raise_for_status()
             await asyncio.sleep(max(delay, 0))
             continue
+        if missing_ok and response.status_code == 404:
+            return None
         response.raise_for_status()
         return response.json()
     raise RuntimeError('Discord retry exhausted')
@@ -62,6 +64,15 @@ async def list_guilds() -> dict:
 
 
 @server.tool()
+async def list_channels(guild_id: str) -> dict:
+    """List channel IDs and names in a server for explicit scope selection."""
+    snowflake(guild_id)
+    async with client() as http:
+        channels = await get(http, f'/guilds/{guild_id}/channels')
+    return {'items': [{'id': c['id'], 'name': c['name'], 'type': c['type']} for c in channels]}
+
+
+@server.tool()
 async def list_sources(guild_id: str, channel_ids: list[str], since: str) -> dict:
     """Discover selected channels and their active/recently archived accessible threads."""
     snowflake(guild_id)
@@ -77,7 +88,7 @@ async def list_sources(guild_id: str, channel_ids: list[str], since: str) -> dic
         active = await get(http, f'/guilds/{guild_id}/threads/active')
         for thread in active['threads']:
             if thread['parent_id'] in channel_ids:
-                sources[thread['id']] = {'id': thread['id'], 'name': thread['name']}
+                sources[thread['id']] = {'id': thread['id'], 'name': thread['name'], 'parent_id': thread['parent_id']}
         for channel in selected:
             # Joined private threads use snowflake pagination; public use archive timestamps.
             kinds = ['public'] + (['joined/private'] if channel['type'] == 0 else [])
@@ -93,7 +104,7 @@ async def list_sources(guild_id: str, channel_ids: list[str], since: str) -> dic
                     for thread in threads:
                         archived = datetime.fromisoformat(thread['thread_metadata']['archive_timestamp'].replace('Z', '+00:00'))
                         if archived >= cutoff:
-                            sources[thread['id']] = {'id': thread['id'], 'name': thread['name']}
+                            sources[thread['id']] = {'id': thread['id'], 'name': thread['name'], 'parent_id': thread['parent_id']}
                     if not result.get('has_more'):
                         break
                     if not threads:
@@ -124,7 +135,9 @@ async def read_message(guild_id: str, channel_id: str, message_id: str) -> dict:
     for value in (guild_id, channel_id, message_id):
         snowflake(value)
     async with client() as http:
-        message = await get(http, f'/channels/{channel_id}/messages/{message_id}')
+        message = await get(http, f'/channels/{channel_id}/messages/{message_id}', missing_ok=True)
+    if message is None:
+        return {'id': message_id, 'unavailable': True, 'content': '[Referenced message unavailable]'}
     return normalized(message, guild_id, channel_id)
 
 

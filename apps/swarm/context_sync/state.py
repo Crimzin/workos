@@ -74,29 +74,58 @@ class Store:
             raise ValueError('Messages must be unique and oldest-first')
         with self.db:
             for message in messages:
-                self.db.execute('INSERT OR IGNORE INTO messages(id,channel,body) VALUES(?,?,?)',
+                self.db.execute('''INSERT INTO messages(id,channel,body) VALUES(?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET body=excluded.body, processed=0, seen_at=CURRENT_TIMESTAMP
+                    WHERE messages.body != excluded.body''',
                                 (message['id'], channel, canonical({**message, 'channel_id': channel})))
             if ids:
                 previous = int(self.cursor(channel) or 0)
                 self.db.execute('INSERT OR REPLACE INTO cursors VALUES(?,?)',
                                 (channel, str(max(previous, ids[-1]))))
 
-    def pending_messages(self, limit):
-        rows = self.db.execute('SELECT body FROM messages WHERE processed=0 ORDER BY length(id),id LIMIT ?', (limit,))
+    def pending_messages(self, limit, channels=None):
+        condition, parameters = '', []
+        if channels is not None:
+            if not channels:
+                return []
+            condition = ' AND channel IN (' + ','.join('?' for _ in channels) + ')'
+            parameters.extend(channels)
+        rows = self.db.execute('SELECT body FROM messages WHERE processed=0' + condition + ' ORDER BY length(id),id LIMIT ?', (*parameters, limit))
         return [json.loads(row[0]) for row in rows]
+
+    def overlap_after(self, channel, count=20):
+        rows = list(self.db.execute('SELECT id FROM messages WHERE channel=? ORDER BY length(id) DESC,id DESC LIMIT ?', (channel, count)))
+        return str(int(rows[-1][0]) - 1) if rows else None
 
     def save_plan(self, ids, actions, notes):
         with self.db:
             for action in actions:
                 key = fingerprint(action)
-                self.db.execute('INSERT OR IGNORE INTO actions(key,body,status) VALUES(?,?,?)',
+                self.db.execute('''INSERT INTO actions(key,body,status) VALUES(?,?,?)
+                    ON CONFLICT(key) DO UPDATE SET status='pending',result=NULL WHERE actions.status='superseded' ''',
                                 (key, canonical(action), 'pending'))
             self.db.executemany('UPDATE messages SET processed=1 WHERE id=?', [(i,) for i in ids])
             self.db.execute('INSERT OR REPLACE INTO meta VALUES(?,?)', ('notes', canonical(notes)))
 
     def actions(self):
-        rows = self.db.execute("SELECT * FROM actions WHERE status != 'done' ORDER BY created_at,key")
+        rows = self.db.execute("SELECT * FROM actions WHERE status NOT IN ('done','superseded') ORDER BY created_at,key")
         return [{**dict(row), 'body': json.loads(row['body'])} for row in rows]
+
+    def message(self, message_id):
+        row = self.db.execute('SELECT body FROM messages WHERE id=?', (message_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def replan(self, key):
+        row = self.db.execute('SELECT body,status FROM actions WHERE key=?', (key,)).fetchone()
+        if not row or row['status'] not in ('pending', 'conflict'):
+            raise ValueError('Only unwritten pending/conflict actions may be replanned')
+        ids = json.loads(row['body'])['source_ids']
+        if any(self.message(i) is None for i in ids):
+            raise ValueError('Source messages expired; restore evidence before replanning')
+        with self.db:
+            self.db.execute("UPDATE actions SET status='superseded' WHERE key=?", (key,))
+            self.db.executemany('UPDATE messages SET processed=0 WHERE id=?', [(i,) for i in ids])
+            self.db.execute("DELETE FROM meta WHERE key='index_at'")
 
     def set_action(self, key, status, result=None):
         with self.db:
@@ -127,6 +156,8 @@ class Store:
 
     def prune(self, days=30):
         # Provenance remains in the action ledger; only processed raw messages expire.
+        if self.actions():
+            return
         with self.db:
             self.db.execute("DELETE FROM messages WHERE processed=1 AND seen_at < datetime('now', ?)", (f'-{days} days',))
 

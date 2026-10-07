@@ -50,3 +50,16 @@ Files: context_sync/__main__.py, config.example.json, requirements-sync.txt, Doc
 - [ ] Run offline end-to-end demo, full Swarm suite, compile checks and diff check.
 - [ ] Fresh reviewer checks worker boundaries and failure paths; fix important findings with regression tests.
 - [ ] Commit and report tested implementation separately from blocked authentication/deployment.
+
+
+## Execution record
+
+- Implemented state/policy, SDK transports, encrypted OAuth storage, read-only Discord MCP server, bounded planner, reconciliation runner, CLI and Railway build configuration.
+- Added regression coverage from independent review for stale card indexes, removed source scope, source edits, missing velocities, uncertain writes and safe replanning.
+- Verification: full Swarm suite 51 passed, one pre-existing discord.py audioop deprecation warning; compileall and diff check passed.
+- Live Discord MCP: guild/channel discovery, public/joined-private thread discovery and incremental message query succeeded. No model inference or Factor writes performed.
+- Railway browser: existing Burn project confirmed in Pro workspace, three services online. No deployment created.
+- Blocked: Factor OAuth browser authorization returned 403. Consequently live tool mappings, real dry-run, per-field conditional write contracts and hosted activation remain unfinished.
+- Container build attempted but Docker daemon is not running. Python runtime tests are verified; image build is not.
+- Ruling: bundled read-only Discord MCP server avoids a new subscription and preserves the user-requested MCP boundary. It reuses Swarm's existing bot credential only in the server process.
+- Ruling: keep implementation in codex/burn-swarm-sync worktree until integration blockers are resolved; do not merge or deploy an unverified Factor adapter.
