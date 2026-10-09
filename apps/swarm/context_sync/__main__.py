@@ -1,6 +1,7 @@
 """Operator entry point. Live writes always require --apply plus verified configuration."""
 import argparse
 import asyncio
+import base64
 import json
 import jsonschema
 import os
@@ -73,10 +74,25 @@ def initialize_cutoff(store, config):
     return {**config, **cutoff}
 
 
+def seed(state_dir, config_path):
+    """Hosted start-up: take the config, and a first copy of the encrypted login, from the environment.
+
+    The config is rewritten on every start so a redeploy can change it. The login is written only
+    when none exists, because the stored copy holds newer refreshed tokens than the seed.
+    """
+    for variable, target, always in (('SWARM_CONFIG_B64', config_path, True), ('SWARM_AUTH_SEED_B64', state_dir/'factor.auth', False)):
+        value = os.environ.get(variable)
+        if value and target and (always or not Path(target).exists()):
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'wb') as handle:
+                handle.write(base64.b64decode(value))
+
+
 async def main_async(args):
-    config = json.loads(Path(args.config).read_text()) if args.config else {}
     state_dir = Path(args.state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
+    seed(state_dir, args.config)
+    config = json.loads(Path(args.config).read_text()) if args.config else {}
     if os.environ.get('SWARM_TOKEN_KEY_FILE') and not os.environ.get('SWARM_TOKEN_KEY'):
         os.environ['SWARM_TOKEN_KEY'] = Path(os.environ['SWARM_TOKEN_KEY_FILE']).read_text().strip()
     if args.command in ('discover', 'login'):

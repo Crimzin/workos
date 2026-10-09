@@ -115,6 +115,11 @@ class Store:
         row = self.db.execute('SELECT body FROM messages WHERE id=?', (message_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def created_ids(self):
+        """IDs of cards this worker created, so its own writes are not mistaken for outside changes."""
+        rows = self.db.execute("SELECT json_extract(result,'$.id') FROM actions WHERE status='done' AND json_extract(body,'$.kind')='create'")
+        return {row[0] for row in rows if row[0]}
+
     def between(self, channel, low, high):
         """Stored messages in one channel strictly between two message IDs, oldest first."""
         rows = self.db.execute('SELECT id, body FROM messages WHERE channel=? AND length(id) BETWEEN ? AND ?', (channel, len(low), len(high)))

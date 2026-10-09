@@ -124,3 +124,23 @@ class StalenessTests(RunnerTests):
         asyncio.run(runner.apply_actions(self.db, factor, self.config))
         self.assertEqual(factor.created, [])
         self.assertEqual(self.db.actions()[0]['status'], 'conflict')
+
+    def test_own_new_card_does_not_hold_the_next_one(self):
+        class Two(Planner):
+            async def plan(self, messages, cards, context):
+                base = (await super().plan(messages, cards, context))['actions'][0]
+                return {'actions': [base, {**base, 'title': 'Player bios'}], 'notes': ''}
+        class Listing(Factor):
+            async def call(self, operation, **kw):
+                if operation == 'index': return {'items': [{'id': f'new-{n}', 'title': p['title']} for n, p in enumerate(self.created)], 'next': None}
+                if operation == 'create':
+                    self.created.append(kw['payload'])
+                    return {'id': f'new-{len(self.created) - 1}'}
+                return await super().call(operation, **kw)
+        factor = Listing()
+        self.config['max_writes_per_run'] = 1
+        self.run_sync(factor, Two())
+        self.run_sync(factor, Two(), True)
+        self.run_sync(factor, Two(), True)
+        self.assertEqual(len(factor.created), 2)
+        self.assertEqual(self.db.actions(), [])

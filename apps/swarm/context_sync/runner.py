@@ -9,9 +9,10 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def index_digest(index):
-    # Identity and titles only: Factor regenerates card summaries on its own.
-    return fingerprint(sorted((c['id'], c.get('title')) for c in index))
+def index_digest(index, own=()):
+    # Identity and titles only: Factor regenerates card summaries on its own. Cards this worker
+    # created are left out, or its first new card would hold every other one waiting behind it.
+    return fingerprint(sorted((c['id'], c.get('title')) for c in index if c['id'] not in own))
 
 
 async def ingest(store, discord, config):
@@ -111,7 +112,7 @@ async def propose(store, discord, factor, planner, config):
         else:
             # Creation waits for a fresh search at apply time if supported; otherwise index must still be fresh.
             action['index_at'] = store.get('index_at')
-            action['index_digest'] = index_digest(index)
+            action['index_digest'] = index_digest(index, store.created_ids())
     store.save_plan([m['id'] for m in batch], actions, notes)
     store.put('tail', humans[-10:])
 
@@ -148,9 +149,9 @@ async def apply_actions(store, factor, config, discord=None):
     pending = store.actions()
     if not pending:
         return
-    destination, column, fresh_digest = None, None, None
+    destination, column, fresh = None, None, []
     if any(a['body']['kind'] == 'create' and a['status'] == 'pending' for a in pending):
-        fresh_digest = index_digest(await card_index(store, factor, config, force=True))
+        fresh = await card_index(store, factor, config, force=True)
         stacks = await factor.call('stacks')
         previous = store.get('destination', config['fallback_stack'])
         destination = choose_stack(stacks, previous) if config.get('velocity_verified') else previous
@@ -193,7 +194,8 @@ async def apply_actions(store, factor, config, discord=None):
             if not action.get('index_at') or (datetime.now(timezone.utc) - datetime.fromisoformat(action['index_at'])).total_seconds() > config.get('index_ttl_seconds', 86400):
                 store.set_action(key, 'conflict', {'reason': 'Creation index expired; replan required'})
                 continue
-            if action.get('index_digest') != fresh_digest:
+            # Recomputed per action: an earlier create in this run adds to the worker's own cards.
+            if action.get('index_digest') != index_digest(fresh, store.created_ids()):
                 store.set_action(key, 'conflict', {'reason': 'Card index changed; replan required'})
                 continue
             payload.update(stack_id=destination, column_id=column)
