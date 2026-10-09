@@ -49,19 +49,21 @@ class MCPTests(unittest.TestCase):
                 self.assertEqual(str(second.context.oauth_metadata.token_endpoint), 'https://as.example/token')
         asyncio.run(scenario())
 
-    def test_hosted_start_seeds_config_every_time_but_login_only_once(self):
+    def test_hosted_start_keeps_refreshed_login_until_the_seed_is_replaced(self):
         import base64, os
         from unittest import mock
         from context_sync.__main__ import seed
+        encode = lambda value: base64.b64encode(value).decode()
         with tempfile.TemporaryDirectory() as folder:
             state = Path(folder)
-            (state/'factor.auth').write_bytes(b'refreshed')
             (state/'config.json').write_text('old')
-            env = {'SWARM_CONFIG_B64': base64.b64encode(b'new').decode(), 'SWARM_AUTH_SEED_B64': base64.b64encode(b'seed').decode()}
-            with mock.patch.dict(os.environ, env):
+            with mock.patch.dict(os.environ, {'SWARM_CONFIG_B64': encode(b'new'), 'SWARM_AUTH_SEED_B64': encode(b'seed-1')}):
                 seed(state, state/'config.json')
-                self.assertEqual(((state/'config.json').read_text(), (state/'factor.auth').read_bytes()), ('new', b'refreshed'))
-                (state/'factor.auth').unlink()
+                self.assertEqual(((state/'config.json').read_text(), (state/'factor.auth').read_bytes()), ('new', b'seed-1'))
+                (state/'factor.auth').write_bytes(b'refreshed')
                 seed(state, state/'config.json')
-                self.assertEqual((state/'factor.auth').read_bytes(), b'seed')
+                self.assertEqual((state/'factor.auth').read_bytes(), b'refreshed')
+            with mock.patch.dict(os.environ, {'SWARM_AUTH_SEED_B64': encode(b'seed-2')}):
+                seed(state, state/'config.json')
+                self.assertEqual((state/'factor.auth').read_bytes(), b'seed-2')
                 self.assertEqual((state/'factor.auth').stat().st_mode & 0o777, 0o600)

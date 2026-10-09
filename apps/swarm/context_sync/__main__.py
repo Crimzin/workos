@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import jsonschema
 import os
@@ -75,17 +76,27 @@ def initialize_cutoff(store, config):
 
 
 def seed(state_dir, config_path):
-    """Hosted start-up: take the config, and a first copy of the encrypted login, from the environment.
+    """Hosted start-up: take the config, and a copy of the encrypted login, from the environment.
 
-    The config is rewritten on every start so a redeploy can change it. The login is written only
-    when none exists, because the stored copy holds newer refreshed tokens than the seed.
+    The config is rewritten on every start so a redeploy can change it. The login is written when
+    none exists or when the seed itself has been replaced; otherwise the stored copy is kept,
+    because it holds newer refreshed tokens than the seed.
     """
-    for variable, target, always in (('SWARM_CONFIG_B64', config_path, True), ('SWARM_AUTH_SEED_B64', state_dir/'factor.auth', False)):
-        value = os.environ.get(variable)
-        if value and target and (always or not Path(target).exists()):
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, 'wb') as handle:
-                handle.write(base64.b64decode(value))
+    config = os.environ.get('SWARM_CONFIG_B64')
+    if config and config_path:
+        write_private(config_path, base64.b64decode(config))
+    login = os.environ.get('SWARM_AUTH_SEED_B64')
+    if login:
+        digest, applied = hashlib.sha256(login.encode()).hexdigest(), state_dir/'factor.seed'
+        if not (state_dir/'factor.auth').exists() or not applied.exists() or applied.read_text() != digest:
+            write_private(state_dir/'factor.auth', base64.b64decode(login))
+            write_private(applied, digest.encode())
+
+
+def write_private(path, data):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'wb') as handle:
+        handle.write(data)
 
 
 async def main_async(args):
