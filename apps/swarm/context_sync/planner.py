@@ -66,6 +66,7 @@ def tidy(plan):
             action['excerpts'] = {k: v for k, v in action['excerpts'].items() if isinstance(v, str)}
         if 'fields' in action:
             action['fields'] = {k: v for k, v in action['fields'].items() if k in ACTION_SCHEMA['properties']['fields']['properties'] and isinstance(v, str)}
+        action = {k: v for k, v in action.items() if v != {}}
         if isinstance(action.get('source_ids'), list):
             action['source_ids'] = [str(i) for i in action['source_ids'] if isinstance(i, (str, int))]
         if not list(jsonschema.Draft202012Validator(ACTION_SCHEMA).iter_errors(action)):
