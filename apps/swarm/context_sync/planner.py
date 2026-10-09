@@ -46,6 +46,34 @@ PLAN_SCHEMA = {'type':'object','required':['actions','notes'],'additionalPropert
     'actions':{'type':'array','maxItems':20,'items':ACTION_SCHEMA}, 'notes':{'type':'string','maxLength':8000}}}
 
 
+def checked(value, schema):
+    jsonschema.validate(value, schema)
+    return value
+
+
+def tidy(plan):
+    """Keep the well-formed actions of a plan; one malformed action must not discard the rest."""
+    known = set(ACTION_SCHEMA['properties'])
+    actions = []
+    for action in plan.get('actions') if isinstance(plan.get('actions'), list) else []:
+        if not isinstance(action, dict):
+            continue
+        action = {k: v for k, v in action.items() if k in known and v not in (None, '', {}, [])}
+        for name in ('fields', 'evidence', 'excerpts'):
+            if name in action and not isinstance(action[name], dict):
+                del action[name]
+        if 'excerpts' in action:
+            action['excerpts'] = {k: v for k, v in action['excerpts'].items() if isinstance(v, str)}
+        if 'fields' in action:
+            action['fields'] = {k: v for k, v in action['fields'].items() if k in ACTION_SCHEMA['properties']['fields']['properties'] and isinstance(v, str)}
+        if isinstance(action.get('source_ids'), list):
+            action['source_ids'] = [str(i) for i in action['source_ids'] if isinstance(i, (str, int))]
+        if not list(jsonschema.Draft202012Validator(ACTION_SCHEMA).iter_errors(action)):
+            actions.append(action)
+    notes = plan.get('notes')
+    return {'actions': actions[:20], 'notes': notes[:8000] if isinstance(notes, str) else ''}
+
+
 class Planner:
     def __init__(self, store, config, client=None):
         self.store, self.config = store, config
@@ -89,8 +117,7 @@ class Planner:
                     value[name] = json.loads(value[name])
                 except ValueError:
                     pass
-        jsonschema.validate(value, schema)
-        return value
+        return tidy(value) if schema is PLAN_SCHEMA else checked(value, schema)
 
     async def describe(self, mime, data):
         """Transcribe one card screenshot. Callers cache the result, so each image is paid for once."""

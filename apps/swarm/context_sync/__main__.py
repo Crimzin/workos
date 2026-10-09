@@ -182,7 +182,9 @@ def main():
         return asyncio.run(main_async(args))
     except Exception as error:
         # Exceptions from remote clients may embed credentials; only disclose their class.
-        print(f'Sync stopped ({type(error).__name__}). Check configuration and connection authorization; queued work is preserved.', file=sys.stderr)
+        # Only this worker's own plain ValueErrors carry a safe, fixed message worth logging.
+        detail = f': {str(error)[:200]}' if type(error) is ValueError else ''
+        print(f'Sync stopped ({type(error).__name__}{detail}). Check configuration and connection authorization; queued work is preserved.', file=sys.stderr)
         return 1
 
 

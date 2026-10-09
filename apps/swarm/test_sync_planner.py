@@ -33,3 +33,10 @@ class PlannerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, Store(Path(folder)/'db') as store:
             p = planner.Planner(store, {}, SimpleNamespace(messages=Messages()))
             self.assertEqual(asyncio.run(p.select([{'id':'1','content':'Hi'}], [], {})), [])
+
+    def test_malformed_action_is_dropped_and_the_rest_of_the_plan_kept(self):
+        good = {'kind': 'update', 'card_id': 'c', 'post': 'Summary.', 'source_ids': ['1']}
+        plan = planner.tidy({'actions': [
+            {**good, 'note': None, 'fields': 'none', 'excerpts': {'1': 5}, 'confidence': 0.9, 'source_ids': [1]},
+            {'kind': 'rename', 'source_ids': ['1']}, 'not an action', {'kind': 'create', 'title': 'T'}], 'notes': None})
+        self.assertEqual(plan, {'actions': [good], 'notes': ''})
