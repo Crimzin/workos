@@ -9,6 +9,13 @@ from context_sync import planner
 class Messages:
     calls = 0
     async def count_tokens(self, **kw): return SimpleNamespace(input_tokens=1000)
+    def stream(self, **kw):
+        outer = self
+        class Stream:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return False
+            async def get_final_message(self): return await outer.create(**kw)
+        return Stream()
     async def create(self, **kw):
         self.calls += 1
         return SimpleNamespace(stop_reason='tool_use', usage=SimpleNamespace(input_tokens=1000, output_tokens=10),

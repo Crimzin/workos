@@ -42,7 +42,9 @@ def normalized(message, guild, channel):
             'author_id': author.get('id'), 'bot': author.get('bot', False),
             'url': f'https://discord.com/channels/{guild}/{channel}/{message["id"]}',
             'reply_id': message.get('message_reference', {}).get('message_id'),
-            'attachments': [{'name': a.get('filename'), 'url': a.get('url')} for a in message.get('attachments', [])]}
+            # Signed CDN links change on every read, so only the stable part is stored.
+            'attachments': [{'id': a.get('id'), 'name': a.get('filename'), 'type': a.get('content_type'),
+                             'url': (a.get('url') or '').split('?')[0]} for a in message.get('attachments', [])]}
 
 
 async def messages(http, guild_id, channel_id, after, limit):
@@ -139,6 +141,17 @@ async def read_message(guild_id: str, channel_id: str, message_id: str) -> dict:
     if message is None:
         return {'id': message_id, 'unavailable': True, 'content': '[Referenced message unavailable]'}
     return normalized(message, guild_id, channel_id)
+
+
+@server.tool()
+async def read_attachments(guild_id: str, channel_id: str, message_id: str) -> dict:
+    """Return a message's attachments with fresh, short-lived download links."""
+    for value in (guild_id, channel_id, message_id):
+        snowflake(value)
+    async with client() as http:
+        message = await get(http, f'/channels/{channel_id}/messages/{message_id}', missing_ok=True)
+    return {'items': [{'id': a.get('id'), 'name': a.get('filename'), 'type': a.get('content_type'), 'size': a.get('size'),
+                       'url': a.get('url')} for a in (message or {}).get('attachments', [])]}
 
 
 if __name__ == '__main__':

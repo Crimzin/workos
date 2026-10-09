@@ -8,6 +8,7 @@ from context_sync import runner
 MSG = {'id':'100', 'content':'Maybe invite links would help', 'url':'https://discord.com/channels/1/2/100'}
 
 class Discord:
+    def has(self, operation): return False
     async def call(self, operation, **kw):
         if operation == 'sources': return [{'id':'2'}]
         if operation == 'messages': return [MSG] if int(kw['after']) < 100 else []

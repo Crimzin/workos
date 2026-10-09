@@ -1,6 +1,7 @@
 """MCP transport and explicit, reviewable server capability mappings."""
 import json
 import os
+from datetime import timedelta
 from contextlib import AsyncExitStack
 from pathlib import Path
 import jsonschema
@@ -105,6 +106,24 @@ class Connection:
             raise ToolFailure(f'Unavailable configured tool: {name}')
         jsonschema.validate(arguments, self.tools[name]['inputSchema'])
         return decode(await self.session.call_tool(name, arguments))
+
+    async def call_text(self, name, arguments, timeout=None):
+        if name not in self.tools:
+            raise ToolFailure(f'Unavailable configured tool: {name}')
+        jsonschema.validate(arguments, self.tools[name]['inputSchema'])
+        result = await self.session.call_tool(name, arguments, read_timeout_seconds=timedelta(seconds=timeout) if timeout else None)
+        if result.isError:
+            raise ToolFailure('MCP tool reported an error')
+        return '\n'.join(c.text for c in result.content if c.type == 'text')
+
+    async def call_image(self, name, arguments, timeout=None):
+        if name not in self.tools:
+            raise ToolFailure(f'Unavailable configured tool: {name}')
+        jsonschema.validate(arguments, self.tools[name]['inputSchema'])
+        result = await self.session.call_tool(name, arguments, read_timeout_seconds=timedelta(seconds=timeout) if timeout else None)
+        if result.isError:
+            raise ToolFailure('MCP tool reported an error')
+        return next(((c.mimeType, c.data) for c in result.content if c.type == 'image'), None)
 
 
 class Adapter:

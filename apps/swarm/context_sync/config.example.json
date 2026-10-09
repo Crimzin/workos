@@ -1,22 +1,54 @@
 {
   "guild_id": "1097697742991667250",
   "channel_ids": [],
-  "fallback_stack": "",
+  "fallback_stack": "67de3bd5185531168a9c2cc0",
+  "stack_ids": [
+    "67de3bd5185531168a9c2cc0",
+    "6570f360ef7da83a7ebb2ff4",
+    "6609f1a6f3472964b9f32948",
+    "66bc0270b379da46dfeadc04",
+    "6609f13a05035922add02096",
+    "6678ede35f96ff0d50f95e81",
+    "6a4fd52ca7c9b856a23643de",
+    "6678ed7d5f96ff0d50f95588",
+    "65a093b775872b2837d46a2a",
+    "65273f1cc4755a797f0a60e8"
+  ],
   "bootstrap_days": 7,
   "batch_size": 100,
   "pages_per_source": 10,
   "index_ttl_seconds": 86400,
   "monthly_budget_usd": 5,
-  "max_context_chars": 120000,
-  "max_output_tokens": 4096,
+  "max_context_chars": 200000,
+  "max_output_tokens": 32000,
   "velocity_verified": false,
   "conditional_updates_verified": false,
   "live_writes_verified": false,
   "project_context": {
     "name": "Burn",
     "purpose": "Keep Factor faithful to team discussion; capture worthwhile uncommitted ideas.",
-    "planning": "Wednesday morning sprint planning. New ideas enter this week for consideration, not as delivery commitments."
+    "planning": "Wednesday morning sprint planning. New ideas enter this week for consideration, not as delivery commitments.",
+    "factor": "Factor records changes to existing cards as posts only: for updates return a post and omit title, description and fields. Include a field only with an exact quote that states it."
   },
-  "factor": {"url": "https://burn.factor.work/mcp", "auth_file": "factor.auth"},
-  "factor_operations": {}
+  "factor": {
+    "url": "https://burn.factor.work/mcp",
+    "auth_file": "factor.auth",
+    "adapter": "factor",
+    "team_id": "64b1a4f7c103fd52529f64d0",
+    "week_utc_offset_hours": -5
+  },
+  "max_candidates": 20,
+  "model": "claude-haiku-5-5",
+  "people": {
+    "crimzin__": "Will",
+    "crimzin": "Will",
+    "camelwrangler": "Chris",
+    "goatherder": "Chris",
+    "ziga_42": "Ziga",
+    "ziga": "Ziga",
+    "mareksiv": "Marek",
+    "marek": "Marek"
+  },
+  "timezone": "America/New_York",
+  "max_images_per_post": 4
 }

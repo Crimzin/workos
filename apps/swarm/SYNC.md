@@ -4,11 +4,36 @@ A separate scheduled worker alongside Swarm's interactive Discord bot. It reads 
 
 ## Current integration status
 
-The bundled Discord MCP server has connected live with Swarm's existing token and listed both Burn servers and their channels. The likely current server is BURN 🔥 (`1097697742991667250`); channel scope still requires confirmation.
+Verified on October 7, 2026 through an authenticated Burn connector and the live board:
 
-Factor's MCP endpoint advertises OAuth at `https://factor-mcp.app.factor.work/`. Dynamic client registration completed, but the browser authorization page returned **403 Forbidden** on October 6, 2026. No Factor tokens or tool inventory were obtained. Do not populate mappings from guessed tool names or enable live writes. Provider-side authorization access must be resolved first.
+- Factor's MCP server for `burn.factor.work` exposes `read_card`, `read_stack`, `ask_factor`, `tell_factor` and artifact upload/download tools. Reads return rendered markdown. `tell_factor` is a natural-language agent and is the only write path. There is no structured CRUD, revision, idempotency key or stack listing tool.
+- The stack in the original link is `67de3bd5185531168a9c2cc0`, "EPIC 0: Immediate post-launch polish", on team "! Burn launch" (`64b1a4f7c103fd52529f64d0`). It is the configured `fallback_stack`.
+- "This week" is not a column object. The Quarterly roadmap view groups cards by **End date** in Sunday-Saturday weeks; a card whose End date is the end of the current week appears there.
+- Velocity is a per-stack weekly figure in Factor's UI. No MCP tool returns it, so `velocity_verified` stays false and new cards go to the fallback stack.
+- `ask_factor` is slow: four of six questions exceeded the connector's timeout. The worker does not depend on it.
 
-Railway deployment is prepared, not deployed. The existing Burn Discord bot has Railway configuration; browser sign-in confirmed the Burn project in a Pro workspace with three services online. No paid model calls or Factor writes have been made during development.
+Verified on October 8-9, 2026 with the worker's own authorization:
+
+- The worker logs in to Factor itself (`login --server factor`, loopback redirect) and refreshes its one-hour token unattended. Expiry and the token endpoint are stored with the encrypted tokens, because the MCP SDK keeps them only in memory and each scheduled run is a new process.
+- Both write paths work live: a new card in EPIC 0 placed in this week, and a post on an existing card, each confirmed by reading the card back. A write takes roughly 20-40 seconds because `tell_factor` is an agent, so a run writes at most `max_writes_per_run` (12) and the rest wait for the next run.
+- The workspace inbox stack (`65ad70e5e7fbb4562b04b88f`) cannot be read as a normal stack and is not in `stack_ids`.
+- The Swarm bot cannot read #general or #backend. Most discussion is in #swat.
+
+Railway deployment is prepared, not deployed.
+
+## What a post looks like
+
+A post is Markdown, rendered by Factor: a one-to-three sentence summary, then the cited Discord messages word for word in a quote block with real names and times, then an optional italic note, then numbered source links and `Swarm action: <first 12 characters of the key>`.
+
+- Only the summary and note are written by the model. Quoted messages are copied from stored messages by `render.py`.
+- Uncited messages inside a short exchange (cited neighbours within 30 minutes, at most six messages between) are included.
+- For a message over 400 characters the model may name an excerpt; it is used only if it is an exact passage of the message, with the cut marked.
+- `people` in the config maps Discord handles to names, for authors and `<@id>` mentions.
+- Image attachments are copied into Factor with `upload_artifact_from_url` (3 MiB limit, `max_images_per_post`), once each. Videos and other files are named, not copied.
+- Screenshots already on a card are downloaded with `download_artifact`, transcribed once by the model and cached, so discussion a person pasted as an image is not posted again. Only the last 10 posts of a candidate card are read.
+- An update is dropped when every message it cites is already linked from the card.
+
+Known limits: the model's choice of what to record varies between runs, and it can still propose a new card for a topic that already has one. Discussion recorded on one card as a screenshot is not noticed when the model files it under a different card.
 
 ## Local setup
 
@@ -33,35 +58,24 @@ python -m context_sync discover --server discord --tool list_channels --argument
 
 Login opens the system browser and listens only on `127.0.0.1:8765` for the OAuth callback. The SDK validates state and PKCE. Scheduled execution never prompts for interactive login; revoked or expired access is surfaced as an error. Encrypted token updates are atomic and mode 0600. Configure Factor's supported redirect policy before deployment; localhost login support has not been established.
 
-## Factor tool mapping
+## Factor adapter
 
-Copy `context_sync/config.example.json` to `.sync-state/config.json`. Resolve the actual stack and column IDs through authenticated discovery. The selected object in the original Factor URL is not assumed to be the stack ID.
+Copy `context_sync/config.example.json` to `.sync-state/config.json` and set `channel_ids`. With `"adapter": "factor"`, `context_sync/factor.py` is used instead of the generic `factor_operations` mapping, which remains available for servers with structured JSON tools.
 
-`factor_operations` maps each logical operation to a real discovered MCP tool. Each rule has:
+| Operation | How it works against Factor |
+|---|---|
+| `index` | `read_stack` for every ID in `stack_ids`; card IDs, titles and Factor's one-line summaries are parsed from the markdown. Stacks cannot be discovered, so add new ones to `stack_ids`. |
+| `card` | `read_card` with all posts, parsed into title, description, fields and posts. A digest of the full content detects changes; the model sees at most the last 10 posts, 1,500 characters each. |
+| `stacks` | The configured stacks with no velocity and the single `this week` End date bucket. |
+| `create` | One `tell_factor` request: new card in the destination stack, End date set to this week's Saturday, body published as the first post. |
+| `update` | One `tell_factor` request that publishes a post on the card. Title, description and field changes are refused because Factor has no conditional update. |
+| `reconcile` | Reads the card, or cards created in the destination stack since the action, and looks for the action marker. |
 
-- `tool`: exact discovered name.
-- `arguments`: JSON template; an entire string such as `$card_id`, `$cursor`, `$limit`, `$payload`, `$action_key`, or `$expected_revision` is replaced by the corresponding typed value. Workspace restrictions are fixed literals in the mapping.
-- `result`: optional `path` (dot-separated object path), `fields` (output field → input path), or `each` (same mapping for list items). Omit to retain the returned JSON shape.
+`tell_factor` returns prose, so its reply is never treated as proof. After each write the adapter reads the card back and requires the `Swarm action: <key>` marker; only then is the action done. A lost acknowledgement is recovered the same way. A write that cannot be confirmed stays uncertain and is not retried. `placement_verified: false` in a create result means the card exists but its End date or stack is not as requested.
 
-Required normalized read contracts:
+Content sent to `tell_factor` is wrapped in delimiters and declared literal, and content containing a delimiter is refused. This reduces, but cannot remove, the chance that Factor's agent acts on text that originated in Discord.
 
-| Operation | Inputs | Output |
-|---|---|---|
-| `index` | cursor, limit | `{items:[{id,title,summary,fields}], next:null or cursor}`; complete scoped card listing, including existing topics outside the active stack |
-| `card` | card_id | `{id,title,description,fields,posts,revision?}`; complete relevant current content |
-| `stacks` | none | `[{id,velocity,archived,columns:[{id,name}]}]` with comparable velocity windows |
-
-Write contracts:
-
-| Operation | Inputs | Output |
-|---|---|---|
-| `create` | payload, action_key | `{id}`; payload contains title, description, optional fields/post, stack_id and column_id |
-| `update` | card_id, payload, action_key, expected_revision | `{id}`; atomically patch requested content, with revision precondition for overwrites |
-| `reconcile` (optional) | action_key | `{id,action_key}` only when the exact action can be found remotely |
-
-Input schemas are validated against MCP discovery before calls. A tool error, malformed response or unknown contract fails closed. If Factor exposes separate operations per card surface, implement a concrete Factor adapter with separately journaled steps after discovery; do not hide multiple remote writes behind one untracked mapping. If it lacks atomic conditional updates, additive posts can work, but title/description/field changes remain held instead of risking overwrites. These constraints mean the generic adapter is not yet a verified Factor integration.
-
-Verify whether agent activity contributes to velocity before setting `velocity_verified`. Until verified, use the confirmed initial stack. Missing measurements or ties retain the last destination. Missing/ambiguous `this week` holds creations.
+Each index refresh reads every configured stack, and a single stack can exceed 200 KB. Measure a real run against the ten-minute limit before adding stacks.
 
 ## Running and reviewing
 
@@ -73,9 +87,9 @@ python -m context_sync status
 
 Inspect private `.sync-state/last-run.json` for proposed changes and provenance. Dry-run saves proposals without writing Factor; pending proposals stop new planning so later batches cannot create duplicates. No new work means no model inference. The first bootstrap covers seven days by default, with a fixed persisted start point.
 
-After verifying the actual dry-run, enable `live_writes_verified` in config and explicitly pass `--apply`. Do not enable `conditional_updates_verified` until the remote precondition contract is tested. Live write gates require all of these configuration checks; ordinary deployment retains dry-run.
+After verifying the actual dry-run, enable `live_writes_verified` in config and explicitly pass `--apply`. Leave `conditional_updates_verified` false: Factor has no revision precondition. Live write gates require all of these configuration checks; ordinary deployment retains dry-run.
 
-The planner uses Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) at the verified implementation-time rates of $1/M input and $5/M output tokens. It counts inputs and reserves the worst-case call cost against a $5 monthly cap before inference; SDK automatic retries are disabled. Failed/unknown calls retain their reservation. Measure real dry-run quality before treating this model choice as production-proven. Model API billing is separate from a Claude subscription and Railway hosting.
+The planner uses Claude Haiku 5.5 (`claude-haiku-5-5`, set by `model`) at $0.10/M input and $0.50/M output tokens, checked on October 8, 2026. A run over about 100 messages costs roughly $0.02. It counts inputs and reserves the worst-case call cost against a $5 monthly cap before inference; SDK automatic retries are disabled. Failed/unknown calls retain their reservation. Measure real dry-run quality before treating this model choice as production-proven. Model API billing is separate from a Claude subscription and Railway hosting.
 
 ## Reliability and limitations
 

@@ -34,3 +34,17 @@ class MCPTests(unittest.TestCase):
                 self.assertEqual((await storage.get_tokens()).access_token, 'secret-test')
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         asyncio.run(scenario())
+
+    def test_restarted_process_knows_token_expiry_and_refresh_endpoint(self):
+        from mcp.shared.auth import OAuthMetadata
+        async def scenario():
+            with tempfile.TemporaryDirectory() as folder:
+                path, key = Path(folder)/'factor.auth', Fernet.generate_key()
+                first = auth.provider('https://burn.factor.work/mcp', auth.EncryptedStorage(path, key))
+                first.context.oauth_metadata = OAuthMetadata(issuer='https://as.example/', authorization_endpoint='https://as.example/authorize', token_endpoint='https://as.example/token')
+                await first.context.storage.set_tokens(OAuthToken(access_token='a', token_type='Bearer', expires_in=30, refresh_token='r'))
+                second = auth.provider('https://burn.factor.work/mcp', auth.EncryptedStorage(path, key))
+                await second._initialize()
+                self.assertFalse(second.context.is_token_valid())
+                self.assertEqual(str(second.context.oauth_metadata.token_endpoint), 'https://as.example/token')
+        asyncio.run(scenario())

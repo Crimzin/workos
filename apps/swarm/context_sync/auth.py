@@ -3,25 +3,28 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from cryptography.fernet import Fernet
 from mcp.client.auth import OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, OAuthToken
 
 
 class EncryptedStorage:
     def __init__(self, path, key):
         self.path = Path(path)
         self.fernet = Fernet(key)
+        self.metadata = None
 
     def read(self):
         return json.loads(self.fernet.decrypt(self.path.read_bytes())) if self.path.exists() else {}
 
-    def write(self, key, value):
+    def write(self, key, value, **extra):
         data = self.read()
         data[key] = value.model_dump(mode='json')
+        data.update(extra)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(dir=self.path.parent)
         try:
@@ -39,7 +42,13 @@ class EncryptedStorage:
         return OAuthToken.model_validate(data) if data else None
 
     async def set_tokens(self, tokens):
-        self.write('tokens', tokens)
+        # The SDK keeps expiry and the token endpoint in memory only. A scheduled job is a new
+        # process each run, so both are stored here or it could never refresh.
+        extra = {'expires_at': time.time() + tokens.expires_in - 60 if tokens.expires_in else None}
+        metadata = self.metadata() if self.metadata else None
+        if metadata:
+            extra['metadata'] = metadata.model_dump(mode='json')
+        self.write('tokens', tokens, **extra)
 
     async def get_client_info(self):
         data = self.read().get('client')
@@ -88,9 +97,24 @@ async def no_login(*args):
     raise RuntimeError('MCP authorization required: run the login command locally')
 
 
+class Provider(OAuthClientProvider):
+    def __init__(self, *args, storage, **kwargs):
+        super().__init__(*args, storage=storage, **kwargs)
+        storage.metadata = lambda: self.context.oauth_metadata
+
+    async def _initialize(self):
+        await super()._initialize()
+        saved = self.context.storage.read()
+        if saved.get('metadata'):
+            self.context.oauth_metadata = OAuthMetadata.model_validate(saved['metadata'])
+        if self.context.current_tokens:
+            # Unknown expiry is treated as expired so a refresh is tried before any request.
+            self.context.token_expiry_time = saved.get('expires_at') or 1
+
+
 def provider(url, storage, interactive=False):
     callback = LoginCallback()
-    return OAuthClientProvider(
+    return Provider(
         server_url=url,
         client_metadata=OAuthClientMetadata(
             client_name='Burn Swarm', redirect_uris=['http://127.0.0.1:8765/callback'],

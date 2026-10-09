@@ -2,10 +2,13 @@
 import argparse
 import asyncio
 import json
+import jsonschema
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from .factor import TOOLS, FactorAdapter
 from .mcp_io import Adapter, Connection
 from .planner import Planner
 from .runner import run_once
@@ -20,8 +23,16 @@ def discord_operations():
     return {
         'sources':{'tool':'list_sources','arguments':{'guild_id':'$guild_id','channel_ids':'$channel_ids','since':'$since'},'result':{'path':'items'}},
         'messages':{'tool':'read_messages','arguments':{'guild_id':'$guild_id','channel_id':'$channel_id','after':'$after','limit':'$limit'},'result':{'path':'items'}},
+        'attachments':{'tool':'read_attachments','arguments':{'guild_id':'$guild_id','channel_id':'$channel_id','message_id':'$message_id'},'result':{'path':'items'}},
         'message':{'tool':'read_message','arguments':{'guild_id':'$guild_id','channel_id':'$channel_id','message_id':'$message_id'}},
     }
+
+
+HEX = re.compile('[0-9a-f]{24}')
+
+
+def native(config):
+    return config.get('factor', {}).get('adapter') == 'factor'
 
 
 def validate_config(config, apply=False):
@@ -31,13 +42,20 @@ def validate_config(config, apply=False):
         raise ValueError('Configure explicit Discord channel_ids')
     if not config.get('fallback_stack'):
         raise ValueError('Configure the verified initial Factor stack ID')
-    required = {'index', 'card', 'stacks'} | ({'create', 'update'} if apply else set())
-    missing = required - set(config.get('factor_operations', {}))
-    if missing:
-        raise ValueError('Missing Factor MCP mappings: ' + ', '.join(sorted(missing)))
+    if native(config):
+        stacks = config.get('stack_ids')
+        if not stacks or len(stacks) > 30 or any(not isinstance(s, str) or not HEX.fullmatch(s) for s in stacks):
+            raise ValueError('Configure the verified Factor stack_ids')
+        if config['fallback_stack'] not in stacks:
+            raise ValueError('fallback_stack must be one of stack_ids')
+    else:
+        required = {'index', 'card', 'stacks'} | ({'create', 'update'} if apply else set())
+        missing = required - set(config.get('factor_operations', {}))
+        if missing:
+            raise ValueError('Missing Factor MCP mappings: ' + ', '.join(sorted(missing)))
     if apply and not config.get('live_writes_verified'):
         raise ValueError('Review a real dry-run and set live_writes_verified before applying')
-    for name, default, maximum in [('batch_size',100,200),('pages_per_source',10,50),('max_output_tokens',4096,8192),('max_context_chars',120000,200000)]:
+    for name, default, maximum in [('batch_size',100,200),('pages_per_source',10,50),('max_output_tokens',4096,32000),('max_context_chars',120000,200000)]:
         value = config.get(name, default)
         if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= maximum:
             raise ValueError(f'Invalid bounded setting: {name}')
@@ -86,17 +104,28 @@ async def main_async(args):
         async with Connection(config.get('discord', discord_config()), state_dir) as discord_conn:
             async with Connection(config['factor'], state_dir) as factor_conn:
                 discord = Adapter(discord_conn, config.get('discord_operations', discord_operations()))
-                factor = Adapter(factor_conn, config['factor_operations'])
-                for rule in factor.operations.values():
-                    if rule['tool'] not in factor_conn.tools:
-                        raise ValueError('Configured Factor tool is not available: ' + rule['tool'])
+                if native(config):
+                    planner = Planner(store, config)
+                    factor = FactorAdapter(factor_conn, config, store=store, reader=planner.describe)
+                    needed = TOOLS['read'] | (TOOLS['write'] if args.apply else set())
+                else:
+                    planner = Planner(store, config)
+                    factor = Adapter(factor_conn, config['factor_operations'])
+                    needed = {rule['tool'] for rule in factor.operations.values()}
+                if needed - set(factor_conn.tools):
+                    raise ValueError('Configured Factor tool is not available: ' + ', '.join(sorted(needed - set(factor_conn.tools))))
                 if args.command == 'check':
-                    print(json.dumps({'connected':True,'factor_operations':list(factor.operations)}))
+                    print(json.dumps({'connected':True,'factor_tools':sorted(factor_conn.tools)}))
                     return 0
                 try:
-                    result = await asyncio.wait_for(run_once(store, discord, factor, Planner(store, config), config, args.apply), timeout=600)
+                    result = await asyncio.wait_for(run_once(store, discord, factor, planner, config, args.apply), timeout=config.get('run_timeout_seconds', 1500))
                 except BaseException as error:
-                    store.put('last_error', {'at':datetime.now(timezone.utc).isoformat(), 'type':type(error).__name__})
+                    # Only this worker's own plain ValueErrors carry a safe, fixed message.
+                    reason = str(error)[:200] if type(error) is ValueError else None
+                    if isinstance(error, jsonschema.ValidationError):
+                        # Rule and location only; the message itself can quote discussion content.
+                        reason = f'{error.validator} at {"/".join(str(part) for part in error.absolute_path)}'
+                    store.put('last_error', {'at':datetime.now(timezone.utc).isoformat(), 'type':type(error).__name__, 'reason':reason})
                     raise
                 # Detailed proposals are a private file; routine logs contain only counts.
                 report = state_dir/'last-run.json'
@@ -120,7 +149,7 @@ def main():
     parser.add_argument('--arguments', default='{}')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
-    if args.tool and (args.server != 'discord' or args.tool not in {'list_guilds','list_channels','list_sources','read_messages','read_message'}):
+    if args.tool and (args.server != 'discord' or args.tool not in {'list_guilds','list_channels','list_sources','read_messages','read_message','read_attachments'}):
         parser.error('Discovery tool calls are limited to bundled read-only Discord tools')
     try:
         return asyncio.run(main_async(args))

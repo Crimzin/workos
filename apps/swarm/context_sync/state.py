@@ -115,6 +115,17 @@ class Store:
         row = self.db.execute('SELECT body FROM messages WHERE id=?', (message_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def between(self, channel, low, high):
+        """Stored messages in one channel strictly between two message IDs, oldest first."""
+        rows = self.db.execute('SELECT id, body FROM messages WHERE channel=? AND length(id) BETWEEN ? AND ?', (channel, len(low), len(high)))
+        found = [json.loads(body) for i, body in rows if int(low) < int(i) < int(high)]
+        return sorted(found, key=lambda m: int(m['id']))
+
+    def authors(self):
+        """Discord user ID to handle, for every author seen, so mentions can be shown as names."""
+        rows = self.db.execute("SELECT DISTINCT json_extract(body,'$.author_id'), json_extract(body,'$.author') FROM messages")
+        return {user: handle for user, handle in rows if user}
+
     def replan(self, key):
         row = self.db.execute('SELECT body,status FROM actions WHERE key=?', (key,)).fetchone()
         if not row or row['status'] not in ('pending', 'conflict'):
