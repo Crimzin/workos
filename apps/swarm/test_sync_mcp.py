@@ -57,9 +57,9 @@ class MCPTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             state = Path(folder)
             (state/'config.json').write_text('old')
-            with mock.patch.dict(os.environ, {'SWARM_CONFIG_B64': encode(b'new'), 'SWARM_AUTH_SEED_B64': encode(b'seed-1')}):
+            with mock.patch.dict(os.environ, {'SWARM_CONFIG_B64': encode(b'{"v": "new"}'), 'SWARM_AUTH_SEED_B64': encode(b'seed-1')}):
                 seed(state, state/'config.json')
-                self.assertEqual(((state/'config.json').read_text(), (state/'factor.auth').read_bytes()), ('new', b'seed-1'))
+                self.assertEqual(((state/'config.json').read_text(), (state/'factor.auth').read_bytes()), ('{"v": "new"}', b'seed-1'))
                 (state/'factor.auth').write_bytes(b'refreshed')
                 seed(state, state/'config.json')
                 self.assertEqual((state/'factor.auth').read_bytes(), b'refreshed')
@@ -67,3 +67,13 @@ class MCPTests(unittest.TestCase):
                 seed(state, state/'config.json')
                 self.assertEqual((state/'factor.auth').read_bytes(), b'seed-2')
                 self.assertEqual((state/'factor.auth').stat().st_mode & 0o777, 0o600)
+
+    def test_pasted_variables_survive_lost_padding_quotes_and_prefix(self):
+        import base64
+        from context_sync.__main__ import pasted
+        value = base64.b64encode(b'{"a": 1}').decode()
+        self.assertTrue(value.endswith('='))
+        for form in (value, value.rstrip('='), f'"{value}"', f' {value}\n', 'SWARM_CONFIG_B64=' + value):
+            self.assertEqual(pasted('SWARM_CONFIG_B64', form), b'{"a": 1}')
+        with self.assertRaisesRegex(ValueError, 'SWARM_CONFIG_B64 is not valid base64'):
+            pasted('SWARM_CONFIG_B64', 'not base64 !!')

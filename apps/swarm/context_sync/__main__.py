@@ -85,13 +85,30 @@ def seed(state_dir, config_path):
     """
     config = os.environ.get('SWARM_CONFIG_B64')
     if config and config_path:
-        write_private(config_path, base64.b64decode(config))
+        decoded = pasted('SWARM_CONFIG_B64', config)
+        try:
+            json.loads(decoded)
+        except ValueError:
+            raise ValueError('SWARM_CONFIG_B64 does not hold the config; paste its value again') from None
+        write_private(config_path, decoded)
     login = os.environ.get('SWARM_AUTH_SEED_B64')
     if login:
-        digest, applied = hashlib.sha256(login.encode()).hexdigest(), state_dir/'factor.seed'
+        decoded = pasted('SWARM_AUTH_SEED_B64', login)
+        digest, applied = hashlib.sha256(decoded).hexdigest(), state_dir/'factor.seed'
         if not (state_dir/'factor.auth').exists() or not applied.exists() or applied.read_text() != digest:
-            write_private(state_dir/'factor.auth', base64.b64decode(login))
+            write_private(state_dir/'factor.auth', decoded)
             write_private(applied, digest.encode())
+
+
+def pasted(name, value):
+    """Decode a base64 variable as people paste it: stray quotes, spaces or lost padding are forgiven."""
+    text = ''.join(value.split()).strip('"\'')
+    if text.startswith(name + '='):
+        text = text[len(name) + 1:]
+    try:
+        return base64.b64decode(text + '=' * (-len(text) % 4), validate=True)
+    except ValueError:
+        raise ValueError(f'{name} is not valid base64; paste its value again') from None
 
 
 def write_private(path, data):
