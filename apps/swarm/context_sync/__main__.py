@@ -94,7 +94,9 @@ def seed(state_dir, config_path):
     login = os.environ.get('SWARM_AUTH_SEED_B64')
     if login:
         decoded = pasted('SWARM_AUTH_SEED_B64', login)
-        digest, applied = hashlib.sha256(decoded).hexdigest(), state_dir/'factor.seed'
+        # Fingerprinted exactly as first recorded (the raw variable text), so an unchanged seed is
+        # never re-applied over the newer login the worker has refreshed since.
+        digest, applied = hashlib.sha256(login.encode()).hexdigest(), state_dir/'factor.seed'
         if not (state_dir/'factor.auth').exists() or not applied.exists() or applied.read_text() != digest:
             write_private(state_dir/'factor.auth', decoded)
             write_private(applied, digest.encode())

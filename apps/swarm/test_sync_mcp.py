@@ -77,3 +77,16 @@ class MCPTests(unittest.TestCase):
             self.assertEqual(pasted('SWARM_CONFIG_B64', form), b'{"a": 1}')
         with self.assertRaisesRegex(ValueError, 'SWARM_CONFIG_B64 is not valid base64'):
             pasted('SWARM_CONFIG_B64', 'not base64 !!')
+
+    def test_seed_fingerprint_matches_what_earlier_versions_recorded(self):
+        import base64, hashlib, os
+        from unittest import mock
+        from context_sync.__main__ import seed
+        raw = base64.b64encode(b'seed-1').decode()
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            (state/'factor.auth').write_bytes(b'refreshed')
+            (state/'factor.seed').write_text(hashlib.sha256(raw.encode()).hexdigest())
+            with mock.patch.dict(os.environ, {'SWARM_AUTH_SEED_B64': raw}):
+                seed(state, None)
+            self.assertEqual((state/'factor.auth').read_bytes(), b'refreshed')
