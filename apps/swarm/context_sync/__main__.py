@@ -128,6 +128,8 @@ async def main_async(args):
             return 0
         validate_config(config, args.apply)
         config = initialize_cutoff(store, config)
+        if config.get('discard_pending_before'):
+            store.discard_before(datetime.fromisoformat(config['discard_pending_before']))
         async with Connection(config.get('discord', discord_config()), state_dir) as discord_conn:
             async with Connection(config['factor'], state_dir) as factor_conn:
                 discord = Adapter(discord_conn, config.get('discord_operations', discord_operations()))

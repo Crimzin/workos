@@ -115,6 +115,18 @@ class Store:
         row = self.db.execute('SELECT body FROM messages WHERE id=?', (message_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def discard_before(self, moment):
+        """Operator reset: drop unwritten proposals made before `moment` and treat older messages as handled.
+
+        Uncertain and completed writes are never touched. Safe to apply on every start.
+        """
+        stamp = moment.astimezone(timezone.utc)
+        newest = ((int(stamp.timestamp() * 1000) - 1420070400000) << 22)
+        with self.db:
+            self.db.execute("UPDATE actions SET status='superseded' WHERE status IN ('pending','conflict') AND created_at < ?",
+                            (stamp.strftime('%Y-%m-%d %H:%M:%S'),))
+            self.db.execute('UPDATE messages SET processed=1 WHERE processed=0 AND CAST(id AS INTEGER) < ?', (newest,))
+
     def created_ids(self):
         """IDs of cards this worker created, so its own writes are not mistaken for outside changes."""
         rows = self.db.execute("SELECT json_extract(result,'$.id') FROM actions WHERE status='done' AND json_extract(body,'$.kind')='create'")

@@ -110,3 +110,20 @@ class EditTests(unittest.TestCase):
             db.replan(key)
             db.save_plan(['10'], [action], '')
             self.assertEqual(db.actions()[0]['status'], 'pending')
+
+    def test_operator_reset_drops_unwritten_proposals_and_keeps_writes(self):
+        from datetime import datetime, timedelta, timezone
+        old, new = str(((1791500000000 - 1420070400000) << 22)), str(((1891500000000 - 1420070400000) << 22))
+        with tempfile.TemporaryDirectory() as folder, state.Store(Path(folder)/'state.db') as db:
+            db.ingest('c', [{'id': old, 'content': 'before'}, {'id': new, 'content': 'after'}])
+            db.save_plan([], [{'kind': 'create', 'title': 'A', 'source_ids': [old]}, {'kind': 'create', 'title': 'B', 'source_ids': [old]},
+                              {'kind': 'create', 'title': 'C', 'source_ids': [old]}], '')
+            first, second, third = [a['key'] for a in db.actions()]
+            db.set_action(first, 'uncertain')
+            db.set_action(second, 'done', {'id': 'x'})
+            db.discard_before(datetime.now(timezone.utc) - timedelta(days=1))
+            self.assertEqual(len(db.actions()), 2)
+            db.discard_before(datetime(2030, 1, 1, tzinfo=timezone.utc))
+            self.assertEqual([a['status'] for a in db.actions()], ['uncertain'])
+            self.assertEqual([m['content'] for m in db.pending_messages(10)], [])
+            db.discard_before(datetime.fromtimestamp(1800000000, timezone.utc))
