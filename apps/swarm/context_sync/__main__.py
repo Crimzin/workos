@@ -217,6 +217,11 @@ def main():
             # Class names only: enough to tell a bad login from a network fault, with no content.
             detail = ': ' + ', '.join(sorted(leaves(error)))
         print(f'Sync stopped ({type(error).__name__}{detail}). Check configuration and connection authorization; queued work is preserved.', file=sys.stderr)
+        # Length and a short hash let an operator confirm which pasted variable is wrong without exposing any value.
+        marks = {name: f'{len(os.environ[name])}:{hashlib.sha256("".join(os.environ[name].split()).encode()).hexdigest()[:6]}'
+                 for name in ('SWARM_TOKEN_KEY', 'SWARM_CONFIG_B64', 'SWARM_AUTH_SEED_B64') if os.environ.get(name)}
+        if marks and not os.environ.get('SWARM_TOKEN_KEY_FILE'):
+            print('Variable fingerprints (length:hash): ' + ', '.join(f'{k}={v}' for k, v in marks.items()), file=sys.stderr)
         return 1
 
 
