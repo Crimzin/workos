@@ -50,5 +50,7 @@
     "marek": "Marek"
   },
   "timezone": "America/New_York",
-  "max_images_per_post": 4
+  "max_images_per_post": 4,
+  "notify_discord": true,
+  "notify_text": "Added new context to Factor"
 }

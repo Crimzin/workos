@@ -1,4 +1,4 @@
-"""Small read-only Discord MCP server; shares the worker process lifetime."""
+"""Small Discord MCP server: reads history, and posts short notices. Shares the worker process lifetime."""
 import asyncio
 import os
 from datetime import datetime, timezone
@@ -152,6 +152,23 @@ async def read_attachments(guild_id: str, channel_id: str, message_id: str) -> d
         message = await get(http, f'/channels/{channel_id}/messages/{message_id}', missing_ok=True)
     return {'items': [{'id': a.get('id'), 'name': a.get('filename'), 'type': a.get('content_type'), 'size': a.get('size'),
                        'url': a.get('url')} for a in (message or {}).get('attachments', [])]}
+
+
+@server.tool()
+async def send_message(guild_id: str, channel_id: str, content: str) -> dict:
+    """Post a short plain notice as the bot. Mentions are never triggered and links do not unfurl."""
+    for value in (guild_id, channel_id):
+        snowflake(value)
+    if not content.strip() or len(content) > 1900:
+        raise ValueError('Notice must be 1 to 1900 characters')
+    async with client() as http:
+        channel = await get(http, f'/channels/{channel_id}')
+        if channel.get('guild_id') != guild_id:
+            raise ValueError('Channel is not in the configured server')
+        response = await http.post(f'/channels/{channel_id}/messages',
+                                   json={'content': content, 'flags': 4, 'allowed_mentions': {'parse': []}})
+        response.raise_for_status()
+    return {'id': response.json()['id']}
 
 
 if __name__ == '__main__':

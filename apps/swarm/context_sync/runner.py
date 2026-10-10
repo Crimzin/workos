@@ -228,6 +228,44 @@ async def apply_actions(store, factor, config, discord=None):
         store.put('index_at', None)
 
 
+async def notify(store, discord, config):
+    """Tell each Discord channel whose discussion was just written to Factor, once per write.
+
+    Only confirmed writes count, so a quiet or dry run posts nothing. A failed notice is retried
+    on the next run and never fails this one.
+    """
+    if not config.get('notify_discord') or not discord.has('send'):
+        return
+    done, told = store.completed(), store.get('notified')
+    pairs = [(key, channel, action, result) for key, action, result in done for channel in sorted(set(action.get('source_channels', {}).values()))]
+    if told is None:
+        # First use: writes made before notices existed are not announced after the fact.
+        store.put('notified', [f'{key}:{channel}' for key, channel, _, _ in pairs][-500:])
+        return
+    titles = {card['id']: card['title'] for card in store.get('card_index') or []}
+    origin = '/'.join(config.get('factor', {}).get('url', '').split('/')[:3])
+    pending = {}
+    for key, channel, action, result in pairs:
+        if f'{key}:{channel}' not in told and channel in store.get('sources', {}):
+            pending.setdefault(channel, []).append((key, action, result))
+    for channel, items in pending.items():
+        links = []
+        for _, action, result in items:
+            card = result.get('id') or action.get('card_id')
+            title = (action.get('title') or titles.get(card) or 'card').replace('[', '(').replace(']', ')')
+            link = f'[{title}]({origin}/card/{card})'
+            if card and link not in links:
+                links.append(link)
+        shown = links[:5] + ([f'and {len(links) - 5} more'] if len(links) > 5 else [])
+        text = config.get('notify_text', 'Added new context to Factor') + (': ' + ', '.join(shown) if shown else '')
+        try:
+            await discord.call('send', guild_id=config['guild_id'], channel_id=channel, content=text[:1900])
+        except Exception:
+            continue
+        told = [*told, *(f'{key}:{channel}' for key, _, _ in items)][-500:]
+        store.put('notified', told)
+
+
 async def run_once(store, discord, factor, planner, config, apply=False):
     await ingest(store, discord, config)
     # Drain earlier writes first; then refresh the index before planning more creations.
@@ -236,6 +274,7 @@ async def run_once(store, discord, factor, planner, config, apply=False):
     await propose(store, discord, factor, planner, config)
     if apply:
         await apply_actions(store, factor, config, discord)
+        await notify(store, discord, config)
     store.prune()
     status = store.status()
     if not store.actions():

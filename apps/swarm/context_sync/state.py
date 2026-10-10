@@ -127,6 +127,11 @@ class Store:
                             (stamp.strftime('%Y-%m-%d %H:%M:%S'),))
             self.db.execute('UPDATE messages SET processed=1 WHERE processed=0 AND CAST(id AS INTEGER) < ?', (newest,))
 
+    def completed(self):
+        """Confirmed writes, oldest first, as (key, action, result)."""
+        rows = self.db.execute("SELECT key, body, result FROM actions WHERE status='done' ORDER BY created_at, key")
+        return [(key, json.loads(body), json.loads(result) if result else {}) for key, body, result in rows]
+
     def created_ids(self):
         """IDs of cards this worker created, so its own writes are not mistaken for outside changes."""
         rows = self.db.execute("SELECT json_extract(result,'$.id') FROM actions WHERE status='done' AND json_extract(body,'$.kind')='create'")

@@ -25,6 +25,7 @@ def discord_operations():
     return {
         'sources':{'tool':'list_sources','arguments':{'guild_id':'$guild_id','channel_ids':'$channel_ids','since':'$since'},'result':{'path':'items'}},
         'messages':{'tool':'read_messages','arguments':{'guild_id':'$guild_id','channel_id':'$channel_id','after':'$after','limit':'$limit'},'result':{'path':'items'}},
+        'send':{'tool':'send_message','arguments':{'guild_id':'$guild_id','channel_id':'$channel_id','content':'$content'}},
         'attachments':{'tool':'read_attachments','arguments':{'guild_id':'$guild_id','channel_id':'$channel_id','message_id':'$message_id'},'result':{'path':'items'}},
         'message':{'tool':'read_message','arguments':{'guild_id':'$guild_id','channel_id':'$channel_id','message_id':'$message_id'}},
     }

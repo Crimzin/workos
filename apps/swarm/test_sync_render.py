@@ -76,3 +76,33 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(render.quoted(notes, {}, {}, '- Grappling hook fix'), '… - Grappling hook fix …')
         self.assertEqual(render.quoted(notes, {}, {}, '- Grappling hook is fixed'), notes['content'])
         self.assertEqual(render.quoted({'id': FIRST, 'content': 'short one'}, {}, {}, 'short'), 'short one')
+
+
+class NoticeTests(unittest.TestCase):
+    def test_each_channel_with_new_context_gets_one_notice_once(self):
+        class Discord:
+            sent, fail = [], False
+            def has(self, operation): return True
+            async def call(self, operation, **kw):
+                if self.fail: raise RuntimeError('missing permission')
+                self.sent.append((kw['channel_id'], kw['content']))
+        config = {**CONFIG, 'notify_discord': True, 'factor': {'url': 'https://burn.factor.work/mcp'}}
+        action = lambda title, channels: {'kind': 'create', 'title': title, 'source_ids': ['1'], 'source_channels': channels}
+        with tempfile.TemporaryDirectory() as folder, Store(Path(folder)/'db') as store:
+            store.put('sources', {'9': {'id': '9'}, '8': {'id': '8'}, '7': {'id': '7'}})
+            store.save_plan([], [action('Old card', {'1': '9'})], '')
+            store.set_action(store.actions()[0]['key'], 'done', {'id': 'a' * 24})
+            discord = Discord()
+            asyncio.run(runner.notify(store, discord, config))
+            self.assertEqual(discord.sent, [])
+            store.save_plan([], [action('End a game early', {'1': '9', '2': '8'}), action('Never written', {'1': '7'})], '')
+            store.set_action(next(a['key'] for a in store.actions() if a['body']['title'] == 'End a game early'), 'done', {'id': 'b' * 24})
+            discord.fail = True
+            asyncio.run(runner.notify(store, discord, config))
+            discord.fail = False
+            asyncio.run(runner.notify(store, discord, config))
+            asyncio.run(runner.notify(store, discord, config))
+            text = 'Added new context to Factor: [End a game early](https://burn.factor.work/card/' + 'b' * 24 + ')'
+            self.assertEqual(sorted(discord.sent), [('8', text), ('9', text)])
+            asyncio.run(runner.notify(store, discord, {**config, 'notify_discord': False}))
+            self.assertEqual(len(discord.sent), 2)
