@@ -90,3 +90,14 @@ class MCPTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {'SWARM_AUTH_SEED_B64': raw}):
                 seed(state, None)
             self.assertEqual((state/'factor.auth').read_bytes(), b'refreshed')
+
+    def test_grouped_failure_reports_only_the_underlying_error_types(self):
+        from context_sync.__main__ import leaves
+        try:
+            try:
+                raise KeyError('secret-value')
+            except KeyError as inner:
+                raise RuntimeError('wrapped') from inner
+        except RuntimeError as error:
+            group = ExceptionGroup('unhandled', [error, ExceptionGroup('nested', [TimeoutError()])])
+        self.assertEqual(leaves(group), {'RuntimeError', 'KeyError', 'TimeoutError'})

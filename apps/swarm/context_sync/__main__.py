@@ -187,6 +187,13 @@ async def main_async(args):
                 return 0
 
 
+def leaves(error):
+    if isinstance(error, BaseExceptionGroup):
+        return {name for inner in error.exceptions for name in leaves(inner)}
+    cause = error.__cause__ or error.__context__
+    return {type(error).__name__} | (leaves(cause) if cause else set())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['discover','login','check','run','status','replan'])
@@ -206,6 +213,9 @@ def main():
         # Exceptions from remote clients may embed credentials; only disclose their class.
         # Only this worker's own plain ValueErrors carry a safe, fixed message worth logging.
         detail = f': {str(error)[:200]}' if type(error) is ValueError else ''
+        if isinstance(error, BaseExceptionGroup):
+            # Class names only: enough to tell a bad login from a network fault, with no content.
+            detail = ': ' + ', '.join(sorted(leaves(error)))
         print(f'Sync stopped ({type(error).__name__}{detail}). Check configuration and connection authorization; queued work is preserved.', file=sys.stderr)
         return 1
 
