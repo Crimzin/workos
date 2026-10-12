@@ -144,3 +144,47 @@ class StalenessTests(RunnerTests):
         self.run_sync(factor, Two(), True)
         self.assertEqual(len(factor.created), 2)
         self.assertEqual(self.db.actions(), [])
+
+
+class ConflictRecoveryTests(RunnerTests):
+    def conflicted(self, reason):
+        action = {'kind':'create','title':'Invite links','source_ids':['100']}
+        self.db.ingest('2', [MSG]); self.db.save_plan(['100'], [action], '')
+        key = self.db.actions()[0]['key']
+        self.db.set_action(key, 'conflict', {'reason': reason})
+        return key
+
+    def test_next_run_replans_a_refused_proposal_instead_of_stalling(self):
+        class Changing(Factor):
+            cards = []
+            async def call(self, operation, **kw):
+                if operation == 'index': return {'items':self.cards, 'next':None}
+                return await super().call(operation, **kw)
+        factor, planner = Changing(), Planner()
+        self.run_sync(factor, planner)
+        factor.cards = [{'id':'human-card','title':'Invite links'}]
+        self.run_sync(factor, planner, True)
+        self.assertEqual(self.db.actions()[0]['status'], 'conflict')
+        self.run_sync(factor, planner, True)
+        self.assertEqual(planner.calls, 2)
+        self.assertEqual(len(factor.created), 1)
+        self.assertEqual(self.db.actions(), [])
+
+    def test_refused_proposal_that_replanning_would_repeat_waits_for_the_operator(self):
+        self.conflicted(runner.UNVERIFIED)
+        runner.release_conflicts(self.db)
+        self.assertEqual(self.db.actions()[0]['status'], 'conflict')
+        self.assertEqual(self.db.pending_messages(10), [])
+
+    def test_refused_proposal_with_expired_sources_is_left_in_place(self):
+        self.conflicted('Card changed; replan required')
+        with self.db.db: self.db.db.execute('DELETE FROM messages')
+        runner.release_conflicts(self.db)
+        self.assertEqual(self.db.actions()[0]['status'], 'conflict')
+
+    def test_uncertain_write_is_never_released(self):
+        key = self.conflicted('Card changed; replan required')
+        self.db.set_action(key, 'uncertain')
+        runner.release_conflicts(self.db)
+        self.assertEqual(self.db.actions()[0]['status'], 'uncertain')
+        self.assertEqual(self.db.pending_messages(10), [])

@@ -1,8 +1,11 @@
 """Bounded ingestion and reconciliation; model output never directly invokes tools."""
+import json
 from datetime import datetime, timezone
 from . import render
 from .policy import choose_stack, sanitize, validate_actions
 from .state import fingerprint
+
+UNVERIFIED = 'Conditional card updates not verified'
 
 
 def now():
@@ -208,7 +211,7 @@ async def apply_actions(store, factor, config, discord=None):
                 continue
             # Without atomic version checking, only an additive post is safe.
             if (not config.get('conditional_updates_verified') or action.get('revision') is None) and any(k in payload for k in ('title', 'description', 'fields')):
-                store.set_action(key, 'conflict', {'reason': 'Conditional card updates not verified'})
+                store.set_action(key, 'conflict', {'reason': UNVERIFIED})
                 continue
             payload['post'] = await text()
         # Factor's write tool takes tens of seconds, so a run writes a bounded number and the rest wait.
@@ -266,8 +269,25 @@ async def notify(store, discord, config):
         store.put('notified', told)
 
 
+def release_conflicts(store):
+    """Supersede proposals refused before any write and queue their messages for planning again.
+
+    A refused proposal was never sent to Factor, yet left alone it holds every later plan. Uncertain
+    writes are not touched: they may have reached Factor. Neither is a refusal that replanning would
+    only repeat, or one whose source messages have expired.
+    """
+    for record in store.actions():
+        if record['status'] != 'conflict' or (json.loads(record['result'] or 'null') or {}).get('reason') == UNVERIFIED:
+            continue
+        try:
+            store.replan(record['key'])
+        except ValueError:
+            continue
+
+
 async def run_once(store, discord, factor, planner, config, apply=False):
     await ingest(store, discord, config)
+    release_conflicts(store)
     # Drain earlier writes first; then refresh the index before planning more creations.
     if apply:
         await apply_actions(store, factor, config, discord)
