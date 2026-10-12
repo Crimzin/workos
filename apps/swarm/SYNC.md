@@ -109,7 +109,19 @@ Provision `/data/config.json`, the encrypted Factor OAuth state, and deployment 
 
 The prepared schedule is `12:00`, `17:00`, `22:00` UTC: 08:00/13:00/18:00 EDT or 07:00/12:00/17:00 EST. Confirm the Wednesday meeting time before enabling it. Keep restart policy `NEVER` so a failure waits for the next scheduled run; the ledger safely resumes. Process execution is capped at ten minutes. Railway skips a scheduled run if the previous one is still active.
 
-After connection testing and dry-run review, add `--apply` to the Railway start command. No automatic Discord notifications are configured; monitor job failures, last success and the private report. Hosting and any provider MCP fees are separate from the model cap.
+After connection testing and dry-run review, add `--apply` to the Railway start command. Failures are reported through the heartbeat described below; the private report holds the detail. Hosting and any provider MCP fees are separate from the model cap.
+
+## Monitoring
+
+`context_sync/heartbeat.py` reports every `run` to an outside monitor, which emails the operator. The worker cannot send that email itself: a job that never starts cannot report its own absence.
+
+Set `SWARM_HEARTBEAT_URL` to a Healthchecks.io ping URL (free tier). Without it nothing is sent. Each run posts to `/start` when it begins, then to the URL itself when it finishes, or to `/fail` when it stops on an error or finishes with writes in `uncertain` or `conflict`. Other commands report nothing.
+
+On the Healthchecks side, give the check the cron schedule `0 12,17,22 * * *` in UTC and a grace time of 30 minutes, and add the operator's email as the notification. A missing or late report, a hung run (a start with no finish) and a reported failure each send an email, and recovery sends another.
+
+A report holds the counts already printed to the log, or the error's type and the worker's own fixed message. It never holds discussion content. The URL is a secret: it is not logged, and a report that cannot be delivered is noted by error type only and never fails the run.
+
+Not covered: anything that breaks between runs is reported at the next run, not before.
 
 ## Verification
 

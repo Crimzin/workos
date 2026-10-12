@@ -10,6 +10,7 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from . import heartbeat
 from .factor import TOOLS, FactorAdapter
 from .mcp_io import Adapter, Connection
 from .planner import Planner
@@ -181,7 +182,9 @@ async def main_async(args):
                 fd = os.open(report, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(fd, 'w') as handle:
                     json.dump(result, handle, indent=2)
-                print(json.dumps({k:v for k,v in result.items() if k != 'proposals'}))
+                summary = {k:v for k,v in result.items() if k != 'proposals'}
+                print(json.dumps(summary))
+                heartbeat.send(*heartbeat.outcome(summary))
                 if args.apply and store.actions():
                     return 2
                 return 0
@@ -207,6 +210,8 @@ def main():
     args = parser.parse_args()
     if args.tool and (args.server != 'discord' or args.tool not in {'list_guilds','list_channels','list_sources','read_messages','read_message','read_attachments'}):
         parser.error('Discovery tool calls are limited to bundled read-only Discord tools')
+    if args.command == 'run':
+        heartbeat.send('start')
     try:
         return asyncio.run(main_async(args))
     except Exception as error:
@@ -216,6 +221,8 @@ def main():
         if isinstance(error, BaseExceptionGroup):
             # Class names only: enough to tell a bad login from a network fault, with no content.
             detail = ': ' + ', '.join(sorted(leaves(error)))
+        if args.command == 'run':
+            heartbeat.send('fail', f'Sync stopped ({type(error).__name__}{detail}).')
         print(f'Sync stopped ({type(error).__name__}{detail}). Check configuration and connection authorization; queued work is preserved.', file=sys.stderr)
         # Length and a short hash let an operator confirm which pasted variable is wrong without exposing any value.
         marks = {name: f'{len(os.environ[name])}:{hashlib.sha256("".join(os.environ[name].split()).encode()).hexdigest()[:6]}'
